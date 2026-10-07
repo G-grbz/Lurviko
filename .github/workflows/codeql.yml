@@ -1,0 +1,72 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpp:
+    name: C++ security analysis
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap the container
+        run: pacman -Syu --noconfirm --needed git ca-certificates
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        run: bash .github/scripts/install-arch-deps.sh
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+          queries: security-extended
+      - name: Build the complete application for analysis
+        run: |
+          cmake -S . -B build-codeql -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-codeql --parallel 2
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:c-cpp
+  scripts:
+    name: Python and GitHub Actions security analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python,actions
+          build-mode: none
+          queries: security-extended
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4

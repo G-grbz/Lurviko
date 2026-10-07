@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=g-File
+Name[tr]=g-File
+GenericName=File Manager
+GenericName[tr]=Dosya Yöneticisi
+Comment=Modern file manager for Linux
+Comment[tr]=Yerel, ağ ve bulut dosyaları için modern dosya yöneticisi
+Exec=@GFILE_DESKTOP_EXEC@
+TryExec=g-file
+Icon=g-file
+Terminal=false
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;x-scheme-handler/trash;
+StartupNotify=true
+StartupWMClass=g-file
+DBusActivatable=false
+InitialPreference=20
+Keywords=files;folders;storage;cloud;
+Keywords[tr]=dosyalar;klasörler;depolama;bulut;

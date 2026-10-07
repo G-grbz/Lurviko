@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="16"
+   height="16"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="org.gnome.Lollypop-play-queue-symbolic.svg"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="28.5"
+     inkscape:cx="8"
+     inkscape:cy="8"
+     inkscape:window-width="1536"
+     inkscape:window-height="803"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg1" />
+  <path
+     d="m2.5 3c-0.277 0-0.5 0.223-0.5 0.5v1c-5.544e-4 0.27637 0.22363 0.50055 0.5 0.5h11c0.277 0 0.5-0.223 0.5-0.5v-1c0-0.277-0.223-0.5-0.5-0.5h-11zm0 4c-0.277 0-0.5 0.223-0.5 0.5v1c-5.544e-4 0.27637 0.22363 0.50055 0.5 0.5h4c0.277 0 0.5-0.223 0.5-0.5v-1c0-0.277-0.223-0.5-0.5-0.5h-4zm6.5 0v1 5 1h0.99609c0.0013 7e-6 0.0026062-2e-6 0.0039062 0 0.17191 2.72e-4 0.34834-0.045459 0.51367-0.14453l4-2.5c0.64624-0.38859 0.64625-1.3243 0-1.7129l-4-2.5c-0.14352-0.08664-0.30712-0.1354-0.47461-0.14258-0.013749-5.5e-4 -0.025432 0.0058594-0.039062 0.0058594v-0.0058594h-1zm-6.5 4c-0.277 0-0.5 0.223-0.5 0.5v1c-5.544e-4 0.27637 0.22363 0.50055 0.5 0.5h4c0.277 0 0.5-0.223 0.5-0.5v-1c0-0.277-0.223-0.5-0.5-0.5h-4z"
+     color="#bebebe"
+     fill="#aaaaaa"
+     overflow="visible"
+     id="path1"
+     style="fill:#ffffff;fill-opacity:1" />
+</svg>

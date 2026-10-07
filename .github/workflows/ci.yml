@@ -1,0 +1,46 @@
+name: Build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Arch Linux / Qt 6 / KDE Frameworks 6
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap the container
+        run: pacman -Syu --noconfirm --needed git ca-certificates
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install build and test dependencies
+        run: bash .github/scripts/install-arch-deps.sh
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Run headless regression tests
+        run: bash .github/scripts/run-headless-tests.sh
+      - name: Check installation and desktop integration
+        run: |
+          cmake --install build --prefix /tmp/g-file-install
+          test -x /tmp/g-file-install/bin/g-file
+          test -f /tmp/g-file-install/share/icons/hicolor/512x512/apps/g-file.png
+          test -f /tmp/g-file-install/share/dbus-1/services/org.freedesktop.FileManager1.service
+          test -f /tmp/g-file-install/share/g-File/subtitle-ai/worker.py
+          desktop-file-validate /tmp/g-file-install/share/applications/g-file.desktop

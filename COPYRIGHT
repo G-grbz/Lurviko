@@ -1,0 +1,12 @@
+g-File original application source
+Copyright (C) 2026 g-File contributors
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+The original application source may be redistributed and/or modified under the
+GNU General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. It is provided
+without any warranty; see LICENSE for the complete terms.
+
+Bundled tools retain their existing notices. Third-party artwork, trademarks
+and external dependencies are not relicensed by this notice; see THIRD_PARTY.md.

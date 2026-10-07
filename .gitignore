@@ -1,0 +1,33 @@
+# Local builds and generated Qt/CMake files
+/build*/
+/out/
+/cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+*.user
+
+# Python runtime, downloaded dependencies and models
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+vendor/
+node_modules/
+*.whl
+*.onnx
+*.safetensors
+
+# Local configuration, credentials, reports and editor files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log
+.cache/
+.tools/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+/github-ready/
