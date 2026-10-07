@@ -8,22 +8,28 @@
   <a href="https://github.com/G-grbz/g-File/actions/workflows/ci.yml"><img src="https://github.com/G-grbz/g-File/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
   <a href="https://github.com/G-grbz/g-File/actions/workflows/codeql.yml"><img src="https://github.com/G-grbz/g-File/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="Source license: GPL 3.0 or later"></a>
+  <img src="https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black" alt="Platform: Linux">
+  <img src="https://img.shields.io/badge/Qt-6.9%2B-41CD52?logo=qt&logoColor=white" alt="Qt 6.9 or newer">
+  <img src="https://img.shields.io/badge/KDE%20Frameworks-6-1D99F3?logo=kde&logoColor=white" alt="KDE Frameworks 6">
 </p>
-<p align="center"><a href="#build-and-install">Build & install</a> · <a href="#distribution-support">Distribution support</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+<p align="center"><a href="#features">Features</a> · <a href="#screenshots">Screenshots</a> · <a href="#build-and-install">Build & install</a> · <a href="#distribution-support">Distribution support</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
-g-File is a Qt Quick file manager built on Qt 6 and KDE Frameworks 6. It combines everyday file operations with an Explore dashboard, indexed media libraries and built-in image, video and music players.
+g-File is a modern Qt Quick file manager for Linux, designed primarily for KDE Plasma and built on Qt 6 and KDE Frameworks 6. It combines everyday file operations with an Explore dashboard, indexed media libraries and built-in image, video and music players.
 
-**Current source version: 0.5.52.** This is an actively developed Linux desktop application. The repository provides source builds; it does not currently ship an official AppImage or Flatpak.
+This is an actively developed Linux desktop application. The repository currently provides source builds; official AppImage or Flatpak packages are not yet shipped.
 
 ## Screenshots
 
-### Dark theme
-
-![g-File in dark mode](dark.png)
-
-### Light theme
-
-![g-File in light mode](light.png)
+<table>
+  <tr>
+    <td width="50%" align="center"><strong>Dark theme</strong></td>
+    <td width="50%" align="center"><strong>Light theme</strong></td>
+  </tr>
+  <tr>
+    <td><img src="dark.png" alt="g-File in dark mode"></td>
+    <td><img src="light.png" alt="g-File in light mode"></td>
+  </tr>
+</table>
 
 The screenshots show the current application with a locally selected icon theme. System icons follow your installed theme; bundled icons are also available.
 
@@ -35,6 +41,7 @@ The screenshots show the current application with a locally selected icon theme.
 - **Media:** cached previews, photo viewing, video playback with subtitles, a music player and DLNA browsing/playback. Supported codecs depend on the installed Qt Multimedia backend.
 - **Subtitles:** optional local AI translation and Whisper transcription, live translated cues and readable timing-aware splitting.
 - **Cloud:** Google Drive and OneDrive sign-in, browsing and transfers, including context-menu uploads when connected. OAuth application credentials are configured by the user.
+- **Private vault:** encrypted local storage using AES-256-GCM with Argon2id key derivation, optional KWallet quick unlock and configurable auto-lock.
 - **Appearance:** light/dark application themes, adjustable icons, wheel-scroll speed and persisted window/view preferences. The video player keeps its dark presentation.
 
 ## Distribution support
