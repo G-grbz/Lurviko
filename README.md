@@ -68,6 +68,28 @@ On another Linux desktop, KDE libraries, KIO workers, D-Bus, a wallet service an
 
 ## Build and install
 
+### Arch Linux / AUR
+
+Stable releases are available as [`lurviko`](https://aur.archlinux.org/packages/lurviko)
+for x86_64. With an AUR helper:
+
+```bash
+yay -S lurviko
+# or: paru -S lurviko
+```
+
+To build the AUR recipe directly:
+
+```bash
+git clone https://aur.archlinux.org/lurviko.git
+cd lurviko
+makepkg -si
+```
+
+The package compiles the matching release source and runs its regression tests.
+For optional helpers and file-manager/D-Bus activation, see
+[AUR packaging](packaging/aur/README.md#desktop-integration).
+
 ### 1. Install dependencies
 
 **Arch Linux / Manjaro / EndeavourOS**
