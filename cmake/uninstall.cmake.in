@@ -1,0 +1,52 @@
+# Only the last installation recorded by this build tree is removed. Never
+# recursively remove installation directories: they can contain user vaults,
+# models, settings and files belonging to other applications.
+set(manifest "@CMAKE_CURRENT_BINARY_DIR@/install_manifest.txt")
+if(NOT EXISTS "${manifest}")
+    message(FATAL_ERROR
+        "No install_manifest.txt found. Keep the build directory used to install Lurviko, "
+        "and run its uninstall target. Package-manager installations must be removed "
+        "using the package manager.")
+endif()
+
+file(STRINGS "${manifest}" installed_files ENCODING UTF-8)
+# Validate the entire list before removing anything.
+foreach(installed_file IN LISTS installed_files)
+    if(NOT IS_ABSOLUTE "${installed_file}" OR installed_file MATCHES "(^|/)\\.\\.(/|$)")
+        message(FATAL_ERROR "Invalid installation path: ${installed_file}")
+    endif()
+    set(staged_file "$ENV{DESTDIR}${installed_file}")
+    if(IS_DIRECTORY "${staged_file}" AND NOT IS_SYMLINK "${staged_file}")
+        message(FATAL_ERROR "Refusing to remove a directory: ${staged_file}")
+    endif()
+endforeach()
+
+# Older source installs created this alias without recording it in the
+# manifest. Remove it only if it is still Lurviko's relative symlink.
+foreach(installed_file IN LISTS installed_files)
+    if(installed_file MATCHES "/lurviko$")
+        get_filename_component(binary_dir "${installed_file}" DIRECTORY)
+        set(legacy_alias "$ENV{DESTDIR}${binary_dir}/g-file")
+        if(IS_SYMLINK "${legacy_alias}")
+            file(READ_SYMLINK "${legacy_alias}" alias_target)
+            if(alias_target STREQUAL "lurviko")
+                list(APPEND installed_files "${binary_dir}/g-file")
+            endif()
+        endif()
+    endif()
+endforeach()
+
+foreach(installed_file IN LISTS installed_files)
+    set(staged_file "$ENV{DESTDIR}${installed_file}")
+    if(EXISTS "${staged_file}" OR IS_SYMLINK "${staged_file}")
+        message(STATUS "Removing: ${staged_file}")
+        execute_process(COMMAND "@CMAKE_COMMAND@" -E rm -f "${staged_file}"
+            RESULT_VARIABLE removal_result ERROR_VARIABLE removal_error)
+        if(NOT removal_result STREQUAL "0")
+            message(FATAL_ERROR "Could not remove ${staged_file}: ${removal_error}")
+        endif()
+    else()
+        message(STATUS "Already absent: ${staged_file}")
+    endif()
+endforeach()
+message(STATUS "Lurviko uninstalled. User settings, caches and personal data were kept.")

@@ -29,10 +29,12 @@ helpers are runtime dependencies even though they are not directly linked.
 
 ## Desktop integration
 
-The package installs `/usr/bin/lurviko`, the `g-file` compatibility symlink,
-desktop entries, icons and subtitle workers. Pacman's existing desktop and
+The package installs `/usr/bin/lurviko`, desktop integration, icons and
+subtitle workers. Pacman's existing desktop and
 icon cache hooks handle updates. Installing the package does not change user
 MIME defaults.
+
+The source installation uses only the Lurviko command and desktop entry.
 
 Select Lurviko in Plasma's default applications settings, or run:
 
@@ -54,6 +56,22 @@ Log out and back in after changing activation providers. If you previously
 installed Lurviko under `~/.local`, remove that old installation's binaries
 and desktop integration files when switching to the system package so they
 do not shadow it. Keep your user configuration, library and cache directories.
+
+## Uninstall
+
+```bash
+sudo pacman -Rns lurviko
+```
+
+Use pacman for package installations, rather than the source build's
+`uninstall` target. User settings, library data, caches, models and encrypted
+vaults are retained. If you copied the optional FileManager1 service into
+your user data directory, remove that copy after verifying its `Exec` line
+still points to Lurviko. Select another default file manager in desktop
+settings, then log out and back in to refresh D-Bus activation.
+
+For a source installation under `~/.local`, follow the upstream README's
+[source uninstall instructions](../../README.md#uninstall-a-source-installation).
 
 ## Publish and update
 

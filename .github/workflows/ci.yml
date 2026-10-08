@@ -46,3 +46,11 @@ jobs:
           test -f /tmp/lurviko-install/share/dbus-1/services/org.freedesktop.FileManager1.service
           test -f /tmp/lurviko-install/share/Lurviko/subtitle-ai/worker.py
           desktop-file-validate /tmp/lurviko-install/share/applications/lurviko.desktop
+          test ! -e /tmp/lurviko-install/bin/g-file
+          test ! -e /tmp/lurviko-install/share/applications/g-file.desktop
+          touch /tmp/lurviko-install/share/Lurviko/personal-data-test
+          cmake --build build --target uninstall
+          test ! -e /tmp/lurviko-install/bin/lurviko
+          test ! -e /tmp/lurviko-install/share/applications/lurviko.desktop
+          test ! -e /tmp/lurviko-install/share/Lurviko/subtitle-ai/worker.py
+          test -f /tmp/lurviko-install/share/Lurviko/personal-data-test

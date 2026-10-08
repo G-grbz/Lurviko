@@ -49,8 +49,13 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/lurviko.desktop
     @ONLY
 )
-# Existing MIME associations and pinned launchers keep working after the rename.
-configure_file(packaging/g-file.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/g-file.desktop @ONLY)
+
+configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
+add_custom_target(uninstall
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake"
+    COMMENT "Removing installed Lurviko files (keeping user settings and data)"
+    VERBATIM
+)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -320,18 +325,9 @@ install(TARGETS lurviko
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lurviko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/g-file.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(CODE "
-    execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink lurviko
-        \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/g-file\"
-        COMMAND_ERROR_IS_FATAL ANY)
-")
 install(FILES packaging/org.freedesktop.FileManager1.service DESTINATION ${CMAKE_INSTALL_DATADIR}/dbus-1/services)
 install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
 install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
-# Also refresh the icon referred to by old Plasma shortcuts.
-install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME g-file.png)
-install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME g-file.png)
 install(FILES assets/LICENSE-FontAwesome.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
 install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/subtitle-ai
     FILES_MATCHING

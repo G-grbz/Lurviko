@@ -155,6 +155,27 @@ Alternatively, install system-wide:
 sudo cmake --install build --prefix /usr/local
 ```
 
+### Uninstall a source installation
+
+Keep the build directory used for installation, including its
+`install_manifest.txt`. Close Lurviko, then run from the source directory:
+
+```bash
+cmake --build build --target uninstall
+update-desktop-database "$HOME/.local/share/applications"
+```
+
+For a system-wide source installation, use
+`sudo cmake --build build --target uninstall`, followed by
+`sudo update-desktop-database /usr/local/share/applications`.
+The target removes the files recorded by the last installation, including
+when `cmake --install` used a custom `--prefix`. Empty directories and user
+settings, library data, encrypted vaults, caches and downloaded models remain.
+Select another default file manager in your desktop settings if needed.
+
+For an AUR/package-manager installation, use `sudo pacman -Rns lurviko`
+instead; see [AUR removal notes](packaging/aur/README.md#uninstall).
+
 ### 4. Set as your folder manager (optional)
 
 ```bash
@@ -251,7 +272,9 @@ The application keeps persistent data under the canonical `Lurviko` user data di
 
 Close the old application before launching Lurviko. The first launch migrates the previous `g-File` / `g-file` configuration, data and cache directories to **Lurviko**, including Qt's nested application directories. Indexes, music history, playlists, playback positions, subtitle models and encrypted vault files are retained. Conflicting old files are preserved under `Lurviko/migration-backup/` instead of overwriting existing Lurviko data. KWallet entries move to the Lurviko folder when the wallet is opened; vault encryption remains compatible.
 
-The executable is now `lurviko` and the desktop entry is `lurviko.desktop`. A `g-file` command alias and hidden compatibility desktop entry preserve existing launchers and MIME associations. Newly pinned launchers should use Lurviko.
+The executable is `lurviko` and the desktop entry is `lurviko.desktop`.
+Use Lurviko for pinned launchers and MIME associations; installation does not
+include a `g-file` command or desktop entry.
 
 ### Release notifications
 

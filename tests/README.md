@@ -15,6 +15,7 @@ bash .github/scripts/run-headless-tests.sh
 | Check | Coverage |
 | --- | --- |
 | `test-gfile-ui-controls.py` | Shared QML control conventions |
+| `test-source-uninstall.py` | Custom install prefixes, DESTDIR, preservation of personal data and unrelated aliases, repeated removal and manifest validation |
 | `test-subtitle-translation-formatting.py` | SRT formatting and protected subtitle syntax |
 | `test-subtitle-readable-cues.py` | Long-cue splitting, timing, styling and live/cache parity |
 | `run-qml-tests.py` | Gallery/grouped layout, resizing, navigation anchoring, collection-wide music queues, stable genre filters/counts, independent music zoom, category zoom and slider ranges across directory navigation/page recreation, compact track rows and album/artist navigation |
