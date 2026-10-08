@@ -2,7 +2,6 @@
   <img src="assets/icons/logo.png" width="96" alt="Lurviko logo">
 </p>
 
-<h1 align="center">Lurviko</h1>
 <p align="center">Your files, media and cloud storage in one Linux desktop app.</p>
 <p align="center">
   <a href="https://github.com/G-grbz/Lurviko/actions/workflows/ci.yml"><img src="https://github.com/G-grbz/Lurviko/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
