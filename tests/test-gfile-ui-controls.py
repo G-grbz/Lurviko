@@ -21,8 +21,8 @@ for path in TARGETS:
             failures.append(f"{path.relative_to(ROOT)}:{lineno}: raw {match.group(1)}")
 
 if failures:
-    print("G-File UI control guard failed:")
+    print("Lurviko UI control guard failed:")
     print("\n".join(failures))
     sys.exit(1)
 
-print(f"G-File UI control guard: OK ({len(TARGETS)} QML files checked)")
+print(f"Lurviko UI control guard: OK ({len(TARGETS)} QML files checked)")

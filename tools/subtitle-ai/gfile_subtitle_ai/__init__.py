@@ -1,1 +1,1 @@
-"""G-File Subtitle AI runtime."""
+"""Lurviko Subtitle AI runtime."""

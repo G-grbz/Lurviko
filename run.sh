@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-BINARY="$BUILD_DIR/g-file"
+BINARY="$BUILD_DIR/lurviko"
 
 build() {
     cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -22,10 +22,10 @@ case "${1:-}" in
         ;;
     --help|-h)
         cat <<'HELP'
-Usage: ./run.sh [--build|-b|--rebuild] [g-file arguments...]
+Usage: ./run.sh [--build|-b|--rebuild] [lurviko arguments...]
 
 Without options, run the existing development binary immediately.
-If build/g-file does not exist, it is built once automatically.
+If build/lurviko does not exist, it is built once automatically.
 
   --build, -b   Incrementally configure/build, then run
   --rebuild     Remove build/ and build from scratch, then run

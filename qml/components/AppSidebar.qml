@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtCore
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 
 Rectangle {
     id: sidebar
@@ -385,7 +385,7 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: 1
                 Text {
-                    text: "g-File"
+                    text: "Lurviko"
                     color: AppTheme.text
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
@@ -726,7 +726,7 @@ Rectangle {
                 GToolTip { text: lang.language === "tr" ? "Müzik oynatıcı" : "Music player" }
                 background: Rectangle {
                     radius: 9
-                    color: sidebar.musicPlayer && sidebar.musicPlayer.playing ? AppTheme.accentSoft : (miniMusicButton.hovered ? AppTheme.surfaceHover : "transparent")
+                    color: sidebar.musicPlayer && sidebar.musicPlayer.playing ? AppTheme.accentSoft : (miniMusicButton.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                     border.color: sidebar.musicPlayer && sidebar.musicPlayer.opened ? AppTheme.accentBorder : AppTheme.border
                 }
                 contentItem: Item {
@@ -858,7 +858,7 @@ Rectangle {
                     spacing: 2
                     Text {
                         Layout.fillWidth: true
-                        text: sidebar.musicPlayer ? sidebar.musicPlayer.currentTitle : ""
+                        text: sidebar.musicPlayer ? sidebar.musicPlayer.displayTitle : ""
                         color: AppTheme.text
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
@@ -871,6 +871,25 @@ Rectangle {
                         color: AppTheme.textMuted
                         font.pixelSize: 8
                     }
+                }
+                GToolButton {
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    checked: sidebar.musicPlayer && sidebar.musicPlayer.currentFavorite
+                    icon.source: AppTheme.icon(sidebar.musicPlayer && sidebar.musicPlayer.currentFavorite
+                                               ? "music-heart-filled.svg" : "music-heart.svg")
+                    icon.color: sidebar.musicPlayer && sidebar.musicPlayer.currentFavorite ? AppTheme.accent : AppTheme.text
+                    onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.toggleCurrentFavorite()
+                    background: Rectangle {
+                        radius: 8
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
+                        border.width: parent.checked ? 1 : 0
+                        border.color: parent.checked ? AppTheme.accentBorder : "transparent"
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: sidebar.musicPlayer && sidebar.musicPlayer.currentFavorite
+                                  ? (lang.language === "tr" ? "Favorilerden çıkar" : "Remove from favorites")
+                                  : (lang.language === "tr" ? "Favorilere ekle" : "Add to favorites")
                 }
             }
 
@@ -916,9 +935,19 @@ Rectangle {
                     }
                 }
                 Text {
-                    text: sidebar.formatMediaTime(sidebar.musicPlayer ? sidebar.musicPlayer.duration : 0)
-                    color: AppTheme.textMuted
+                    id: miniDurationLabel
+                    text: sidebar.musicPlayer ? sidebar.musicPlayer.durationText() : "0:00"
+                    color: miniDurationHover.hovered ? AppTheme.accent : AppTheme.textMuted
                     font.pixelSize: 8
+                    HoverHandler { id: miniDurationHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: if (sidebar.musicPlayer)
+                                      sidebar.musicPlayer.showRemainingTime = !sidebar.musicPlayer.showRemainingTime
+                    }
+                    ToolTip.visible: miniDurationHover.hovered
+                    ToolTip.text: sidebar.musicPlayer && sidebar.musicPlayer.showRemainingTime
+                                  ? (lang.language === "tr" ? "Toplam süreyi göster" : "Show total duration")
+                                  : (lang.language === "tr" ? "Kalan süreyi göster" : "Show remaining time")
                 }
             }
 
@@ -928,7 +957,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -940,7 +969,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -952,7 +981,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -965,10 +994,11 @@ Rectangle {
                     implicitWidth: 30; implicitHeight: 28
                     icon.source: AppTheme.icon("music-shuffle.svg")
                     checked: sidebar.musicPlayer && sidebar.musicPlayer.shuffleMode
+                    icon.color: checked ? AppTheme.accent : AppTheme.text
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.toggleShuffle()
                     background: Rectangle {
                         radius: 7
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                     }
                 }
@@ -977,10 +1007,11 @@ Rectangle {
                     icon.source: AppTheme.icon(sidebar.musicPlayer && sidebar.musicPlayer.repeatMode === 2
                                                ? "music-repeat-one.svg" : "music-repeat.svg")
                     checked: sidebar.musicPlayer && sidebar.musicPlayer.repeatMode !== 0
+                    icon.color: checked ? AppTheme.accent : AppTheme.text
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.cycleRepeatMode()
                     background: Rectangle {
                         radius: 7
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                     }
                 }
@@ -988,7 +1019,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -1010,7 +1041,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -1062,7 +1093,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -1079,7 +1110,7 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -1097,13 +1128,13 @@ Rectangle {
                 GToolButton {
                     background: Rectangle {
                         radius: 8
-                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                        color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         Behavior on color { ColorAnimation { duration: 110 } }
                     }
                     implicitWidth: 30; implicitHeight: 28
-                    icon.source: AppTheme.icon("viewer-close.svg")
+                    icon.source: AppTheme.icon("close-ui.svg")
                     onClicked: {
                         if (sidebar.musicPlayer) sidebar.musicPlayer.closePlayer()
                         miniMusicPopup.close()
@@ -1176,7 +1207,7 @@ Rectangle {
                 Text {
                     visible: !AppTheme.useSystemIcons
                     Layout.fillWidth: true
-                    text: lang.language === "tr" ? "g-File ikonlarından seç" : "Choose a g-File icon"
+                    text: lang.language === "tr" ? "Lurviko ikonlarından seç" : "Choose a Lurviko icon"
                     color: AppTheme.textMuted
                     font.pixelSize: 11
                 }

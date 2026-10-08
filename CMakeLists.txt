@@ -1,54 +1,56 @@
 cmake_minimum_required(VERSION 3.21)
-project(GFile VERSION 0.5.52 LANGUAGES CXX)
+project(Lurviko VERSION 1.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
 # Desktop launcher profile ----------------------------------------------------
-# Select with e.g. -DGFILE_LAUNCH_PROFILE=nvidia
+# Select with e.g. -DLURVIKO_LAUNCH_PROFILE=nvidia
 # Available profiles: default, wayland, wayland-opengl, nvidia, x11,
 # x11-opengl, nvidia-x11, custom.
-set(GFILE_LAUNCH_PROFILE "default" CACHE STRING
+set(LURVIKO_LAUNCH_PROFILE "default" CACHE STRING
     "Desktop launcher profile: default, wayland, wayland-opengl, nvidia, x11, x11-opengl, nvidia-x11, custom")
-set_property(CACHE GFILE_LAUNCH_PROFILE PROPERTY STRINGS
+set_property(CACHE LURVIKO_LAUNCH_PROFILE PROPERTY STRINGS
     default wayland wayland-opengl nvidia x11 x11-opengl nvidia-x11 custom)
 
-set(GFILE_CUSTOM_EXEC "" CACHE STRING
-    "Custom .desktop Exec command used when GFILE_LAUNCH_PROFILE=custom")
+set(LURVIKO_CUSTOM_EXEC "" CACHE STRING
+    "Custom .desktop Exec command used when LURVIKO_LAUNCH_PROFILE=custom")
 
-if(GFILE_LAUNCH_PROFILE STREQUAL "default")
-    set(GFILE_DESKTOP_EXEC "g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "wayland")
-    set(GFILE_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=wayland g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "wayland-opengl")
-    set(GFILE_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=wayland QSG_RHI_BACKEND=opengl g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "nvidia")
-    set(GFILE_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=wayland QSG_RHI_BACKEND=opengl QSG_INFO=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "x11")
-    set(GFILE_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=xcb g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "x11-opengl")
-    set(GFILE_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=xcb QSG_RHI_BACKEND=opengl g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "nvidia-x11")
-    set(GFILE_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=xcb QSG_RHI_BACKEND=opengl QSG_INFO=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia g-file %U")
-elseif(GFILE_LAUNCH_PROFILE STREQUAL "custom")
-    if(GFILE_CUSTOM_EXEC STREQUAL "")
+if(LURVIKO_LAUNCH_PROFILE STREQUAL "default")
+    set(LURVIKO_DESKTOP_EXEC "lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "wayland")
+    set(LURVIKO_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=wayland lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "wayland-opengl")
+    set(LURVIKO_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=wayland QSG_RHI_BACKEND=opengl lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "nvidia")
+    set(LURVIKO_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=wayland QSG_RHI_BACKEND=opengl QSG_INFO=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "x11")
+    set(LURVIKO_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=xcb lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "x11-opengl")
+    set(LURVIKO_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=xcb QSG_RHI_BACKEND=opengl lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "nvidia-x11")
+    set(LURVIKO_DESKTOP_EXEC "/usr/bin/env QT_QPA_PLATFORM=xcb QSG_RHI_BACKEND=opengl QSG_INFO=1 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia lurviko %U")
+elseif(LURVIKO_LAUNCH_PROFILE STREQUAL "custom")
+    if(LURVIKO_CUSTOM_EXEC STREQUAL "")
         message(FATAL_ERROR
-            "GFILE_LAUNCH_PROFILE=custom requires -DGFILE_CUSTOM_EXEC=\"...\"")
+            "LURVIKO_LAUNCH_PROFILE=custom requires -DLURVIKO_CUSTOM_EXEC=\"...\"")
     endif()
-    set(GFILE_DESKTOP_EXEC "${GFILE_CUSTOM_EXEC}")
+    set(LURVIKO_DESKTOP_EXEC "${LURVIKO_CUSTOM_EXEC}")
 else()
     message(FATAL_ERROR
-        "Unknown GFILE_LAUNCH_PROFILE='${GFILE_LAUNCH_PROFILE}'. "
+        "Unknown LURVIKO_LAUNCH_PROFILE='${LURVIKO_LAUNCH_PROFILE}'. "
         "Choose: default, wayland, wayland-opengl, nvidia, x11, x11-opengl, nvidia-x11, custom")
 endif()
 
-message(STATUS "g-File desktop launch profile: ${GFILE_LAUNCH_PROFILE}")
-message(STATUS "g-File desktop Exec: ${GFILE_DESKTOP_EXEC}")
+message(STATUS "Lurviko desktop launch profile: ${LURVIKO_LAUNCH_PROFILE}")
+message(STATUS "Lurviko desktop Exec: ${LURVIKO_DESKTOP_EXEC}")
 
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/packaging/g-file.desktop.in
-    ${CMAKE_CURRENT_BINARY_DIR}/g-file.desktop
+    ${CMAKE_CURRENT_SOURCE_DIR}/packaging/lurviko.desktop.in
+    ${CMAKE_CURRENT_BINARY_DIR}/lurviko.desktop
     @ONLY
 )
+# Existing MIME associations and pinned launchers keep working after the rename.
+configure_file(packaging/g-file.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/g-file.desktop @ONLY)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -69,8 +71,14 @@ qt_policy(SET QTP0004 NEW)
 
 set_source_files_properties(qml/AppTheme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-qt_add_executable(g-file
+qt_add_executable(lurviko
     src/main.cpp
+    src/appmigration.cpp
+    src/appmigration.h
+    src/updatechecker.cpp
+    src/updatechecker.h
+    src/videochapterreader.cpp
+    src/videochapterreader.h
     src/popupdismissfilter.cpp
     src/popupdismissfilter.h
     src/storagemodel.cpp
@@ -87,11 +95,15 @@ qt_add_executable(g-file
     src/contentindexmodel.h
     src/languagemanager.cpp
     src/languagemanager.h
+    src/keyboardshortcutmanager.cpp
+    src/keyboardshortcutmanager.h
     src/cloudauthmanager.cpp
     src/cloudauthmanager.h
     src/thumbnailprovider.cpp
     src/thumbnailprovider.h
     src/systemiconprovider.cpp
+    src/bundlediconprovider.cpp
+    src/bundlediconprovider.h
     src/admineditmanager.cpp
     src/admineditmanager.h
     src/openwithmodel.cpp
@@ -116,6 +128,10 @@ qt_add_executable(g-file
     src/dlnamediamanager.h
     src/mpriscontroller.cpp
     src/mpriscontroller.h
+    src/musicmetadatamanager.cpp
+    src/musicmetadatamanager.h
+    src/musiclibrarymanager.cpp
+    src/musiclibrarymanager.h
     src/playbackresumemanager.cpp
     src/playbackresumemanager.h
     src/videoplayerinputmanager.cpp
@@ -130,12 +146,13 @@ qt_add_executable(g-file
     src/privatevaultmanager.h
 )
 
-target_compile_definitions(g-file PRIVATE
-    GFILE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+target_compile_definitions(lurviko PRIVATE
+    LURVIKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    LURVIKO_VERSION="${PROJECT_VERSION}"
 )
 
-qt_add_qml_module(g-file
-    URI GFile.App
+qt_add_qml_module(lurviko
+    URI Lurviko.App
     VERSION 1.0
     QML_FILES
         qml/Main.qml
@@ -160,6 +177,7 @@ qt_add_qml_module(g-file
         qml/components/GToolTip.qml
         qml/components/GModalSurface.qml
         qml/components/GModalPopup.qml
+        qml/components/KeyboardShortcutsDialog.qml
         qml/components/GModalButton.qml
         qml/components/DragPreview.qml
         qml/components/GMenuItem.qml
@@ -187,11 +205,14 @@ qt_add_qml_module(g-file
         qml/components/PhotoViewer.qml
         qml/components/VideoViewer.qml
         qml/components/MusicPlayer.qml
+        qml/components/MediaSession.qml
+        qml/components/MusicLibraryView.qml
         qml/components/CategoryDateHeader.qml
         qml/pages/HomePage.qml
         qml/pages/ContentCategoryPage.qml
         qml/pages/BrowsePage.qml
         qml/pages/PrivateVaultPage.qml
+        qml/components/VaultAttemptStatus.qml
     RESOURCES
         assets/icons/folder.svg
         assets/icons/file.svg
@@ -214,6 +235,8 @@ qt_add_qml_module(g-file
         assets/icons/root.svg
         assets/icons/favorite.svg
         assets/icons/private.svg
+        assets/icons/lock.svg
+        assets/icons/unlock.svg
         assets/icons/logo.png
         assets/icons/dashboard.svg
         assets/icons/home-folder.svg
@@ -226,13 +249,12 @@ qt_add_qml_module(g-file
         assets/icons/nav-back.svg
         assets/icons/nav-forward.svg
         assets/icons/nav-up.svg
-        assets/icons/chevron-left.svg
-        assets/icons/chevron-right.svg
         assets/icons/close-ui.svg
         assets/icons/edit.svg
         assets/icons/moon.svg
         assets/icons/sun.svg
         assets/icons/info.svg
+        assets/icons/keyboard.svg
         assets/icons/eye.svg
         assets/icons/search.svg
         assets/icons/split-view.svg
@@ -240,7 +262,6 @@ qt_add_qml_module(g-file
         assets/icons/history.svg
         assets/icons/appimage.svg
         assets/icons/filelight.svg
-        assets/icons/viewer-close.svg
         assets/icons/viewer-prev.svg
         assets/icons/viewer-next.svg
         assets/icons/viewer-zoom-in.svg
@@ -268,10 +289,12 @@ qt_add_qml_module(g-file
         assets/icons/music-expand.svg
         assets/icons/music-stop.svg
         assets/icons/music-note.svg
+        assets/icons/music-heart.svg
+        assets/icons/music-heart-filled.svg
         assets/icons/music-chevron-up.svg
 )
 
-target_link_libraries(g-file PRIVATE
+target_link_libraries(lurviko PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Network
@@ -291,16 +314,26 @@ target_link_libraries(g-file PRIVATE
     OpenSSL::Crypto
 )
 
-install(TARGETS g-file
+install(TARGETS lurviko
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lurviko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/g-file.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(CODE "
+    execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink lurviko
+        \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/g-file\"
+        COMMAND_ERROR_IS_FATAL ANY)
+")
 install(FILES packaging/org.freedesktop.FileManager1.service DESTINATION ${CMAKE_INSTALL_DATADIR}/dbus-1/services)
+install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
+install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
+# Also refresh the icon referred to by old Plasma shortcuts.
 install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME g-file.png)
 install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME g-file.png)
-install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/g-File/subtitle-ai
+install(FILES assets/LICENSE-FontAwesome.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
+install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/subtitle-ai
     FILES_MATCHING
         PATTERN "*.py"
         PATTERN "README.md"
@@ -308,6 +341,6 @@ install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/g-File
         PATTERN "LICENSE"
 )
 
-install(DIRECTORY tools/gtmce/ DESTINATION ${CMAKE_INSTALL_DATADIR}/g-File/gtmce
+install(DIRECTORY tools/gtmce/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/gtmce
     FILES_MATCHING PATTERN "*.py" PATTERN "README.md" PATTERN "LICENSE"
 )

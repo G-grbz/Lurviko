@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import GFile.App
+import Lurviko.App
 
 Rectangle {
     id: preview

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Window
-import GFile.App
+import Lurviko.App
 
 Item {
     id: root

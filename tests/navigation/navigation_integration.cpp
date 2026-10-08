@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <cstdio>
 #include <functional>
+#include <unistd.h>
 #include "backend_test_types.h"
 
 static void pause(int ms) {
@@ -38,10 +39,10 @@ static QQuickItem *findView(QQuickItem *root, const QString &name) {
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
-    app.setOrganizationName("GFile-QA"); app.setApplicationName("Navigation");
+    app.setOrganizationName("Lurviko-QA"); app.setApplicationName("Navigation");
     QQuickStyle::setStyle("Basic");
     // REGISTER_BACKEND_TYPES
-    const QString base = QString::fromLocal8Bit(qgetenv("GFILE_NAVIGATION_TEST_ROOT")) + "/fixture";
+    const QString base = QString::fromLocal8Bit(qgetenv("LURVIKO_NAVIGATION_TEST_ROOT")) + "/fixture";
     for (int i = 0; i < 300; ++i) {
         const QString child = base + QString("/folder-%1").arg(i, 3, 10, QChar('0'));
         QDir().mkpath(child);
@@ -53,12 +54,13 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
+    engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", base);
     engine.loadData(R"qml(
 import QtQuick
 import QtQuick.Controls
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 ApplicationWindow {
     width: 1400; height: 900; visible: true
     LanguageManager {id: language}
@@ -120,5 +122,76 @@ ApplicationWindow {
         invoke(page, "goBack", QVariant::fromValue(static_cast<QObject *>(pane)));
         require(until([&] { return !directory->loading() && directory->rowCount() == 300 && pane->property("pendingTabScrollOffset").toDouble() < 0; }), "return to parent");
     }
-    std::fprintf(stderr, "PASS: Grid/List Back/Forward scroll and folder selection, immediate navigation\n");
+    const QString links = base + "/folder-090/links";
+    QDir().mkpath(links + "/one"); QDir().mkpath(links + "/two"); QDir().mkpath(links + "/three");
+    QFile target(links + "/three/target.txt");
+    require(target.open(QIODevice::WriteOnly), "link target opens"); target.write("target"); target.close();
+    require(::symlink("../two/second", QFile::encodeName(links + "/one/first").constData()) == 0, "first relative symlink created");
+    require(::symlink("../three/third", QFile::encodeName(links + "/two/second").constData()) == 0, "second relative symlink created");
+    require(::symlink("target.txt", QFile::encodeName(links + "/three/third").constData()) == 0, "third relative symlink created");
+    invoke(pane, "navigateTo", links + "/one");
+    require(until([&] { return !directory->loading() && directory->indexOfUrl(links + "/one/first") >= 0; }), "symlink folder opens");
+    QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(directory->indexOfUrl(links + "/one/first"))), Q_ARG(QVariant, QVariant(0)));
+    for (const QString &next : {links + "/two/second", links + "/three/third", links + "/three/target.txt"}) {
+        const QString source = pane->property("selectedUrl").toString();
+        std::fprintf(stderr, "Show Target: %s -> %s (type=%s target=%s)\n", qPrintable(source), qPrintable(next),
+                     qPrintable(pane->property("selectedLinkType").toString()), qPrintable(pane->property("selectedLinkTarget").toString()));
+        invoke(pane, "showSelectedLinkTarget", false);
+        require(until([&] { return !directory->loading() && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(next).toString(); }), "Show Target follows each symlink hop");
+        pause(100);
+        require(pane->property("selectedUrl").toString() == QUrl::fromLocalFile(next).toString(), "revealed symlink selection stays stable");
+    }
+    const QString icons = links + "/icons";
+    QDir().mkpath(icons);
+    QFile iconFile(icons + "/go-previous.svg");
+    require(iconFile.open(QIODevice::WriteOnly), "icon fixture opens");
+    iconFile.write("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><path d=\"M10 2 4 8l6 6\"/></svg>");
+    iconFile.close();
+    for (int i = 0; i < 160; ++i) {
+        QFile filler(icons + QStringLiteral("/aaa-%1.txt").arg(i, 3, 10, QLatin1Char('0')));
+        require(filler.open(QIODevice::WriteOnly), "scroll fixture opens"); filler.write("fixture");
+    }
+    require(::symlink("go-previous.svg", QFile::encodeName(icons + "/arrow-left.svg").constData()) == 0, "same-folder symlink created");
+    invoke(pane, "navigateTo", icons);
+    require(until([&] { return !directory->loading() && directory->rowCount() == 162; }), "icon folder opens");
+    QMetaObject::invokeMethod(pane, "startSearch", Q_ARG(QVariant, QVariant("left")), Q_ARG(QVariant, QVariant(false)));
+    require(until([&] { return directory->searchActive() && !directory->loading() && directory->rowCount() == 1; }), "Ctrl+F left returns arrow-left only");
+    QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(0)), Q_ARG(QVariant, QVariant(0)));
+    invoke(pane, "showSelectedLinkTarget", false);
+    const bool revealed = until([&] {
+        return !directory->loading() && !directory->searchActive()
+            && pane->property("searchVisible").toBool()
+            && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(icons + "/go-previous.svg").toString();
+    });
+    if (!revealed)
+        std::fprintf(stderr, "Filtered reveal: search=%d rows=%d selected=%s\n", directory->searchActive(), directory->rowCount(), qPrintable(pane->property("selectedUrl").toString()));
+    require(revealed, "Show Target keeps Ctrl+F open and reveals an excluded target in the same folder");
+    pause(100);
+    auto targetView = findView(pane, pane->property("gridMode").toBool() ? "fileGridView" : "fileListView");
+    require(targetView && targetView->property("contentY").toDouble() > 500, "revealed target scrolls into view");
+    const auto searchState = [&] {
+        QQmlExpression state(qmlContext(directory), pane, "searchState().searchQuery");
+        return state.evaluate().toString();
+    };
+    require(searchState() == "left", "revealing the target keeps the original query text");
+    require(page->property("currentTab").toInt() == 0, "target is revealed in the same tab");
+    // The visible query is a draft after revealing. Enter must still be able
+    // to run it again without reopening Ctrl+F or typing the query again.
+    require(QMetaObject::invokeMethod(pane, "runBuiltInSearch"), "run retained query");
+    require(until([&] { return directory->searchActive() && !directory->loading() && directory->rowCount() == 1; }), "retained query can run again");
+    QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(0)), Q_ARG(QVariant, QVariant(0)));
+    invoke(pane, "showSelectedLinkTarget", false);
+    require(until([&] { return !directory->loading() && !directory->searchActive()
+        && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(icons + "/go-previous.svg").toString(); }), "same target can be revealed after searching again");
+    // Different-parent reveals must retain the field too, while ordinary
+    // navigation continues to use its existing search-dismiss behavior.
+    const QString firstUrl = QUrl::fromLocalFile(links + "/one/first").toString();
+    require(QMetaObject::invokeMethod(pane, "revealExternalItem",
+        Q_ARG(QVariant, QVariant(links + "/one")), Q_ARG(QVariant, QVariant(firstUrl)),
+        Q_ARG(QVariant, QVariant(true))), "cross-folder reveal requested");
+    require(until([&] { return !directory->loading() && pane->property("selectedUrl").toString() == firstUrl; }), "cross-folder reveal selects source symlink");
+    invoke(pane, "showSelectedLinkTarget", false);
+    require(until([&] { return !directory->loading() && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(links + "/two/second").toString(); }), "cross-folder link target reveals in same tab");
+    require(pane->property("searchVisible").toBool() && searchState() == "left", "cross-folder target preserves Ctrl+F and query");
+    std::fprintf(stderr, "PASS: Grid/List navigation, chained symlinks and revealing targets outside the active search\n");
 }

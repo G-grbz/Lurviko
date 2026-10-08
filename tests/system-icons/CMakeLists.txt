@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(GFileSystemIconTests LANGUAGES CXX)
+project(LurvikoSystemIconTests LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Quick Concurrent Test)

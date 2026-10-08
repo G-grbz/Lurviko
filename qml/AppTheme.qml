@@ -21,7 +21,34 @@ QtObject {
         property bool singleClickOpen: false
     }
 
+    // Share the existing preference across tabs and panes without changing its saved key.
+    property Settings browserInteractionSettings: Settings {
+        category: "BrowserView"
+        property bool skipPermanentDeleteConfirmation: false
+        property bool skipHiddenNameConfirmation: false
+        property int categoryIconSize: 168
+        property int musicIconSize: 168
+    }
+
+    // One live value for every tab/page. Per-pane Settings instances do not
+    // notify one another, so reopened categories could restore a stale size.
+    property int categoryIconSize: Math.max(104, Math.min(360, browserInteractionSettings.categoryIconSize))
+    property int musicIconSize: Math.max(104, Math.min(360, browserInteractionSettings.musicIconSize))
+    onCategoryIconSizeChanged: categorySizeSaveTimer.restart()
+    onMusicIconSizeChanged: categorySizeSaveTimer.restart()
+    property Timer categorySizeSaveTimer: Timer {
+        interval: 180
+        onTriggered: flushCategoryIconSizes()
+    }
+    function flushCategoryIconSizes() {
+        browserInteractionSettings.categoryIconSize = categoryIconSize
+        browserInteractionSettings.musicIconSize = musicIconSize
+    }
+    Component.onDestruction: flushCategoryIconSizes()
+
     readonly property bool singleClickOpen: interactionSettings.singleClickOpen
+    readonly property bool skipPermanentDeleteConfirmation: browserInteractionSettings.skipPermanentDeleteConfirmation
+    readonly property bool skipHiddenNameConfirmation: browserInteractionSettings.skipHiddenNameConfirmation
     readonly property bool dark: settings.darkMode
     readonly property bool useSystemIcons: settings.systemIcons
     readonly property bool kioProgressEnabled: settings.kioProgressEnabled
@@ -34,10 +61,10 @@ QtObject {
     readonly property int effectiveSidebarIconSize: systemSidebarIconSize
     readonly property int effectiveHomeIconSize: systemHomeIconSize
     readonly property int wheelScrollStep: Math.max(10, Math.min(1000, settings.wheelScrollStep))
-    // G-File UI design tokens.  Qt Quick Controls provide behaviour, focus,
+    // Lurviko UI design tokens.  Qt Quick Controls provide behaviour, focus,
     // accessibility and keyboard semantics; the visual language below belongs
-    // to G-File and is intentionally independent from the desktop Qt theme.
-    readonly property string designSystem: "G-File UI"
+    // to Lurviko and is intentionally independent from the desktop Qt theme.
+    readonly property string designSystem: "Lurviko UI"
     readonly property int designSystemVersion: 2
 
     readonly property color background: dark ? "#080C16" : "#E9EDF4"
@@ -48,6 +75,8 @@ QtObject {
     readonly property color surfaceRaised: dark ? "#18253A" : "#F8FAFD"
     readonly property color surfaceSunken: dark ? "#0D1524" : "#EEF2F7"
     readonly property color surfaceHover: dark ? "#1D2A42" : "#F0F3F9"
+    // Keep RGB unchanged while fading in; transparent black darkens intermediate frames.
+    readonly property color surfaceHoverTransparent: Qt.rgba(surfaceHover.r, surfaceHover.g, surfaceHover.b, 0)
     readonly property color surfacePressed: dark ? "#263854" : "#E5EAF3"
     readonly property color surfaceActive: dark ? "#252C4B" : "#EEECFF"
     readonly property color cardSurface: dark ? "#121D30" : "#FFFFFF"
@@ -125,6 +154,8 @@ QtObject {
     function toggle() { settings.darkMode = !settings.darkMode }
     function setSingleClickOpen(enabled) { interactionSettings.singleClickOpen = !!enabled }
     function setSystemIcons(enabled) { settings.systemIcons = enabled }
+    function setSkipPermanentDeleteConfirmation(enabled) { browserInteractionSettings.skipPermanentDeleteConfirmation = enabled }
+    function setSkipHiddenNameConfirmation(enabled) { browserInteractionSettings.skipHiddenNameConfirmation = enabled }
     function setKioProgressEnabled(enabled) { settings.kioProgressEnabled = enabled }
     function setSidebarIconSize(size) { setSystemSidebarIconSize(size) }
     function setHomeIconSize(size) { setSystemHomeIconSize(size) }
@@ -178,7 +209,7 @@ QtObject {
             "viewer-volume-muted.svg": "audio-volume-muted",
             "music-queue.svg": "view-media-playlist",
             "music-playlist.svg": "view-list-details",
-            "viewer-close.svg": "window-close",
+            "close-ui.svg": "window-close",
             "appimage.svg": "folder-appimage",
             "filelight.svg": "filelight"
         }
@@ -295,8 +326,8 @@ QtObject {
     // file/folder/navigation delegates through systemIcon()/systemIconAtSize().
     // Keeping buttons, menus, player controls and toolbar actions on bundled
     // artwork prevents light-only/dark-only icon themes from making controls
-    // disappear when G-File's own theme is switched.
-    function icon(name) {
+    // disappear when Lurviko's own theme is switched.
+    function icon(name, foreground) {
         const raw = String(name || "")
         if (raw.length === 0)
             return ""
@@ -306,9 +337,24 @@ QtObject {
         if (raw.indexOf("system:") === 0)
             return systemIcon(raw.substring(7))
         if (raw.indexOf("image://systemicon/") === 0
+                || raw.indexOf("image://bundledicon/") === 0
                 || raw.indexOf("qrc:/") === 0
                 || raw.indexOf("file:/") === 0)
             return raw
-        return "qrc:/qt/qml/GFile/App/assets/icons/" + raw
+        // Explicitly selected UI glyphs only: category artwork and logos keep
+        // their original colors. Include the color in the URL for Qt's cache.
+        const monochrome = ["history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
+            "nav-back.svg", "nav-forward.svg", "nav-up.svg",
+            "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "split-view.svg", "view-layout.svg",
+            "music-chevron-up.svg", "music-expand.svg", "music-minimize.svg", "music-playlist.svg",
+            "music-queue.svg", "music-refresh.svg", "music-repeat.svg", "music-repeat-one.svg",
+            "music-shuffle.svg", "music-stop.svg", "music-heart.svg", "music-heart-filled.svg",
+            "viewer-external.svg", "viewer-fit.svg", "viewer-folder.svg",
+            "viewer-forward.svg", "viewer-next.svg", "viewer-pause.svg", "viewer-play.svg",
+            "viewer-prev.svg", "viewer-rewind.svg", "viewer-rotate-left.svg", "viewer-rotate-right.svg",
+            "viewer-fullscreen-exit.svg", "viewer-zoom-in.svg", "viewer-zoom-out.svg"]
+        if (monochrome.indexOf(raw) !== -1)
+            return "image://bundledicon/" + raw + "|" + encodeURIComponent(String(foreground === undefined ? text : foreground))
+        return "qrc:/qt/qml/Lurviko/App/assets/icons/" + raw
     }
 }

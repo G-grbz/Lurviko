@@ -126,7 +126,7 @@ QNetworkRequest OneDriveManager::request(const QUrl &url) const
 {
     QNetworkRequest req(url);
     req.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_accessToken.toUtf8());
-    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10"));
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0"));
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     return req;
 }
@@ -136,7 +136,7 @@ QNetworkRequest OneDriveManager::downloadRequest(const QUrl &url) const
     // Microsoft Graph returns a short-lived, preauthenticated OneDrive CDN URL.
     // Do not forward the Graph Bearer token to that host.
     QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10"));
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0"));
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     return req;
 }

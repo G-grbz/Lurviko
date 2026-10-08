@@ -17,7 +17,7 @@ QString resumeStoragePath()
     QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (base.isEmpty())
         base = QDir::homePath() + QStringLiteral("/.local/share");
-    const QString dir = QDir(base).filePath(QStringLiteral("g-File"));
+    const QString dir = QDir(base).filePath(QStringLiteral("Lurviko"));
     QDir().mkpath(dir);
     return QDir(dir).filePath(QStringLiteral("playback-resume.json"));
 }

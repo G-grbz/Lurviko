@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -14,6 +15,7 @@
 #include <cstdio>
 #include <array>
 #include <functional>
+#include <sys/stat.h>
 #include "backend_test_types.h"
 
 static void pause(int ms) {
@@ -40,21 +42,26 @@ static QQuickItem *findView(QQuickItem *root, const QString &name) {
 
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
-    app.setOrganizationName("GFile-QA"); app.setApplicationName("Menus");
+    app.setOrganizationName("Lurviko-QA"); app.setApplicationName("Menus");
     QQuickStyle::setStyle("Basic");
     // REGISTER_BACKEND_TYPES
-    const QString base = QString::fromLocal8Bit(qgetenv("GFILE_MENU_TEST_ROOT")) + "/fixture";
-    QDir().mkpath(base);
+    const QString base = QString::fromLocal8Bit(qgetenv("LURVIKO_MENU_TEST_ROOT")) + "/fixture";
+    QDir().mkpath(base + "/folder");
+    QFile source(base + "/source.txt");
+    require(source.open(QIODevice::WriteOnly), "link source fixture opens");
+    source.write("Copy actions fixture\n");
+    source.close();
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
+    engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", base);
     engine.loadData(R"qml(
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 ApplicationWindow {
     width: 1600; height: 900; visible: true
     LanguageManager {id: language}
@@ -66,7 +73,7 @@ ApplicationWindow {
     QtObject {id: google}
     QtObject {id: one}
     QtObject {id: storage; property var favoriteItems: []}
-    MusicPlayer {id: music; lang: language; opened: true; panelVisible: false}
+    MusicPlayer {id: music; objectName: "music"; lang: language; opened: true; panelVisible: false}
     RowLayout {
         anchors.fill: parent; anchors.margins: 11; spacing: 7
         AppSidebar {
@@ -210,6 +217,66 @@ ApplicationWindow {
     click(hiddenButton);
     require(!backgroundMenu->property("visible").toBool() && !sortPopup->property("visible").toBool() && hidden->property("visible").toBool(), "submenu to toolbar switches in one click");
     click(hiddenButton);
+    // Follow the actual selection-menu path, including modal Enter acceptance.
+    auto evaluatePane = [&](const QString &script) {
+        QQmlExpression expression(paneContext, pane, script);
+        auto result = expression.evaluate();
+        require(!expression.hasError(), qPrintable(expression.error().toString()));
+        return result;
+    };
+    auto openCopyActions = [&](const QString &name = QStringLiteral("source.txt")) {
+        require(until([&] { return !directory->loading() && directory->indexOfUrl(base + "/" + name) >= 0; }), "source listed");
+        require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(directory->indexOfUrl(base + "/" + name))), Q_ARG(QVariant, QVariant(0))), "copy source selected");
+        evaluatePane("itemContextMenu.x=100; itemContextMenu.y=100; itemContextMenu.open()");
+        require(until([&] { return pane->property("submenuActivationReady").toBool(); }), "context submenu activation is ready after opening animation");
+        auto button = qobject_cast<QQuickItem *>(item(pane, paneContext,
+            "(function(){ for(let i=0; i<itemContextMenu.count; ++i) { const entry=itemContextMenu.itemAt(i); if(entry && entry.subMenu===copyActionsMenu) { itemContextMenu.currentIndex=i; return entry; } } return null; })()"));
+        pause(50);
+        require(evaluatePane("(function(){ for(let i=1; i<itemContextMenu.count; ++i) { if(itemContextMenu.itemAt(i).subMenu===copyActionsMenu) return itemContextMenu.itemAt(i-1).text.indexOf(KeyboardShortcuts.displaySequence('Ctrl+C')) >= 0; } return false; })()").toBool(), "copy actions sits directly below Copy");
+        click(button);
+        require(item(pane, paneContext, "copyActionsMenu")->property("visible").toBool(), "copy actions submenu opens");
+    };
+    auto acceptLinkName = [&](const char *inputId, const QString &name) {
+        auto input = item(pane, paneContext, inputId);
+        input->setProperty("text", name);
+        require(QMetaObject::invokeMethod(input, "forceActiveFocus"), "link name receives focus");
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QKeyEvent release(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier);
+        QApplication::sendEvent(window, &press);
+        QApplication::sendEvent(window, &release);
+        pause(240);
+    };
+    openCopyActions();
+    click(qobject_cast<QQuickItem *>(item(pane, paneContext, "copyActionsMenu.itemAt(0)")));
+    require(item(pane, paneContext, "newSymlinkDialog")->property("visible").toBool(), "symlink action opens dialog");
+    require(!item(pane, paneContext, "itemContextMenu")->property("visible").toBool(), "link action dismisses parent menu");
+    require(item(pane, paneContext, "newSymlinkTargetInput")->property("text").toString() == base + "/source.txt", "symlink source is prefilled");
+    acceptLinkName("newSymlinkNameInput", "source-link.txt");
+    require(QFileInfo(base + "/source-link.txt").isSymLink()
+            && QFileInfo(base + "/source-link.txt").symLinkTarget() == base + "/source.txt", "Enter creates symlink to selected source");
+    require(until([&] { return !directory->loading() && !pane->property("pendingResultSelection").toBool()
+        && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(base + "/source-link.txt").toString(); }), "created symlink receives selection after folder refresh");
+    openCopyActions();
+    click(qobject_cast<QQuickItem *>(item(pane, paneContext, "copyActionsMenu.itemAt(1)")));
+    require(item(pane, paneContext, "newHardlinkDialog")->property("visible").toBool(), "hardlink action opens dialog");
+    require(item(pane, paneContext, "newHardlinkTargetInput")->property("text").toString() == base + "/source.txt", "hardlink source is prefilled");
+    acceptLinkName("newHardlinkNameInput", "source-hardlink.txt");
+    struct stat sourceStat{}, linkStat{};
+    require(::stat(QFile::encodeName(base + "/source.txt").constData(), &sourceStat) == 0
+            && ::stat(QFile::encodeName(base + "/source-hardlink.txt").constData(), &linkStat) == 0
+            && sourceStat.st_dev == linkStat.st_dev && sourceStat.st_ino == linkStat.st_ino, "Enter creates hardlink with matching inode");
+    require(until([&] { return !directory->loading() && !pane->property("pendingResultSelection").toBool()
+        && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(base + "/source-hardlink.txt").toString(); }), "created hardlink receives selection after folder refresh");
+    openCopyActions("source-link.txt");
+    require(!item(pane, paneContext, "copyActionsMenu.itemAt(1)")->property("enabled").toBool(), "hardlink disabled for symlink");
+    evaluatePane("closeContextMenus()"); pause(100);
+    openCopyActions("folder");
+    require(pane->property("selectedIsDir").toBool(), "folder fixture is selected");
+    require(item(pane, paneContext, "copyActionsMenu.itemAt(0)")->property("enabled").toBool()
+            && !item(pane, paneContext, "copyActionsMenu.itemAt(1)")->property("enabled").toBool(), "folder allows symlink and rejects hardlink");
+    require(evaluatePane("copyActionsMenu.itemAt(3).text.indexOf(KeyboardShortcuts.displaySequence('Ctrl+D')) >= 0").toBool(), "duplicate shortcut retained in submenu");
+    evaluatePane("closeContextMenus()"); pause(100);
+    std::fprintf(stderr, "PASS: selection copy actions create symlink and hardlink through dialogs\n");
     // Internal sidebar ids are visible in one of its child item contexts.
     auto sidebarContext = qmlContext(sidebar->childItems().first());
     auto miniButton = qobject_cast<QQuickItem *>(item(sidebar,sidebarContext,"miniMusicButton"));
@@ -229,5 +296,28 @@ ApplicationWindow {
     click(viewButton); require(!miniPopup->property("visible").toBool() && view->property("visible").toBool(), "mini player to toolbar switches in one click");
     click(miniButton); require(!view->property("visible").toBool() && miniPopup->property("visible").toBool(), "toolbar to mini player switches in one click");
     click(pane); require(!miniPopup->property("visible").toBool(), "clicking file area dismisses mini player");
+    auto music = findView(window->contentItem(), "music");
+    require(music, "global music player exists");
+    music->setProperty("width", 1000);
+    music->setProperty("height", 126);
+    music->setProperty("x", 320);
+    music->setProperty("y", 754);
+    music->setProperty("z", 100);
+    music->setProperty("lyricsText", "Test lyrics");
+    music->setProperty("panelVisible", true);
+    pause(200);
+    auto metadata = music->findChild<MusicMetadataManager *>();
+    require(metadata, "music metadata reader exists");
+    auto musicContext = qmlContext(metadata);
+    auto lyricsButton = qobject_cast<QQuickItem *>(item(music, musicContext, "lyricsButton"));
+    auto lyricsPopup = item(music, musicContext, "lyricsPopup");
+    click(lyricsButton); require(lyricsPopup->property("visible").toBool(), "lyrics button opens popup");
+    click(lyricsButton); require(!lyricsPopup->property("visible").toBool(), "lyrics second click closes without reopening");
+    for (int i = 0; i < 3; ++i) {
+        click(lyricsButton, 20); require(lyricsPopup->property("visible").toBool(), "rapid lyrics open");
+        click(lyricsButton, 20); require(!lyricsPopup->property("visible").toBool(), "rapid lyrics close");
+    }
+    click(lyricsButton); click(pane);
+    require(!lyricsPopup->property("visible").toBool(), "outside click dismisses lyrics popup");
     std::fprintf(stderr,"PASS: real pointer clicks switch popups and toggle mini player\n");
 }

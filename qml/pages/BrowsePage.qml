@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtCore
-import GFile.App
+import Lurviko.App
+import Lurviko.Backend
 import "../components"
 
 Item {
@@ -399,6 +400,7 @@ Item {
         const pane = originPane || activePane
         if (pane && pane.dismissSearchForNavigation())
             return
+        if (pane && pane.closeMusicGroup()) return
         rememberDirectoryView(leftPane.currentLocation, leftPane.navigationViewState())
         const tab = tabAt(currentTab)
         if (!tab || !tab.back || tab.back.length === 0) {
@@ -565,64 +567,91 @@ Item {
         sidebarLocationChanged(start)
     }
 
-    Shortcut {
-        sequence: "Shift+F4"
-        context: Qt.WindowShortcut
-        onActivated: page.activePane.openTerminalHere()
+    function shortcutActionAllowed(action) {
+        const pane = page.activePane
+        if (!page.visible || !pane || KeyboardShortcuts.editorOpen
+            || pane.renameConfirmationOpen
+            || (pane.hostWindow && pane.hostWindow.mediaViewerConsumesF11)) return false
+        if (action === "symlink") return pane.fileShortcutsAllowed && pane.selectedCanCreateLink
+        if (action === "hardlink") return pane.fileShortcutsAllowed && pane.selectedCanCreateLink
+                                            && !pane.selectedIsDir && pane.selectedLinkType !== "symlink"
+        if (action === "show_target") return pane.fileShortcutsAllowed && pane.selectedCount === 1 && pane.selectedLinkType.length > 0
+        if (action === "containing_folder") return pane.fileShortcutsAllowed && pane.selectedCount === 1
+        if (action === "rename") return pane.renameShortcutAllowed
+                                       && (!pane.inlineRenameUrl.length || pane.inlineRenameUrl !== pane.selectedUrl)
+        if (action === "cancel" || action === "find" || action === "location") return true
+        return pane.fileShortcutsAllowed
     }
-    Shortcut { sequences: [StandardKey.SelectAll]; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.selectAll() }
-    Shortcut { sequence: "Ctrl+Shift+A"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.clearSelection() }
-    Shortcut { sequences: [StandardKey.Copy]; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.copySelection() }
-    Shortcut { sequence: "Ctrl+X"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.cutSelection() }
-    Shortcut { sequences: [StandardKey.Paste]; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.pasteHere() }
-    Shortcut { sequences: [StandardKey.Undo]; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.undoLastOperation() }
-    Shortcut { sequence: "Ctrl+D"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.duplicateSelection() }
-    Shortcut { sequence: "F2"; enabled: page.activePane.renameShortcutAllowed; onActivated: page.activePane.renameSelection() }
-    Shortcut { sequence: "Delete"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.trashSelection() }
-    Shortcut { sequence: "Shift+Delete"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.deleteSelection() }
-    Shortcut { sequence: "Return"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.openSelected() }
-    Shortcut { sequence: "Space"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.togglePrimarySelection() }
-    Shortcut { sequence: "Alt+Return"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.showPropertiesForSelection() }
-    Shortcut { sequence: "F5"; context: Qt.ApplicationShortcut; onActivated: page.activePane.refreshDirectory() }
-    Shortcut { sequence: "Ctrl+R"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.refreshDirectory() }
-    Shortcut { sequences: [StandardKey.Find]; onActivated: page.activePane.showSearch() }
-    Shortcut { sequence: "Ctrl+Shift+F"; onActivated: page.activePane.openKFindHere() }
-    Shortcut { sequence: "Ctrl+H"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.toggleHiddenFiles() }
-    Shortcut { sequence: "Ctrl+L"; onActivated: page.activePane.focusLocationField() }
-    Shortcut { sequence: "F6"; onActivated: page.activePane.focusLocationField() }
-    Shortcut { sequence: "Alt+Up"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.navigateUp() }
-    Shortcut { sequence: "Alt+Home"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.navigateTo(StandardPaths.writableLocation(StandardPaths.HomeLocation)) }
-    Shortcut { sequence: "Alt+Left"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.handleBackNavigation() }
-    Shortcut { sequence: "Alt+Right"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.handleForwardNavigation() }
-    Shortcut { sequence: "Backspace"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.handleBackNavigation() }
-    Shortcut { sequence: "Ctrl+Shift+N"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.showNewFolderDialog() }
-    Shortcut { sequence: "Ctrl+N"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.showNewFileDialog() }
-    Shortcut { sequence: "Ctrl+T"; onActivated: page.addTab(page.activePane.currentLocation) }
-    Shortcut { sequence: "Ctrl+W"; onActivated: page.closeTab(page.currentTab) }
-    Shortcut { sequence: "Ctrl+Shift+T"; onActivated: page.reopenClosedTab() }
-    Shortcut { sequence: "Ctrl+Tab"; onActivated: page.switchToTab((page.currentTab + 1) % page.tabs.length) }
-    Shortcut { sequence: "Ctrl+Shift+Tab"; onActivated: page.switchToTab((page.currentTab - 1 + page.tabs.length) % page.tabs.length) }
-    Shortcut { sequence: "Ctrl+PageDown"; onActivated: page.switchToTab((page.currentTab + 1) % page.tabs.length) }
-    Shortcut { sequence: "Ctrl+PageUp"; onActivated: page.switchToTab((page.currentTab - 1 + page.tabs.length) % page.tabs.length) }
-    Shortcut { sequence: "F3"; onActivated: page.setSplitEnabled(!page.splitEnabled) }
-    Shortcut { sequence: "Ctrl+1"; onActivated: page.activePane.setGridView() }
-    Shortcut { sequence: "Ctrl+2"; onActivated: page.activePane.setListView() }
-    Shortcut { sequences: [StandardKey.ZoomIn]; onActivated: page.activePane.adjustIconSize(12) }
-    Shortcut { sequences: [StandardKey.ZoomOut]; onActivated: page.activePane.adjustIconSize(-12) }
-    Shortcut { sequence: "Ctrl+0"; onActivated: page.activePane.resetIconSize() }
-    Shortcut { sequence: "Left"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("left", false) }
-    Shortcut { sequence: "Right"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("right", false) }
-    Shortcut { sequence: "Up"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("up", false) }
-    Shortcut { sequence: "Down"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("down", false) }
-    Shortcut { sequence: "Shift+Left"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("left", true) }
-    Shortcut { sequence: "Shift+Right"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("right", true) }
-    Shortcut { sequence: "Shift+Up"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("up", true) }
-    Shortcut { sequence: "Shift+Down"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.moveSelection("down", true) }
-    Shortcut { sequence: "Home"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.selectEdge(false, false) }
-    Shortcut { sequence: "End"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.selectEdge(true, false) }
-    Shortcut { sequence: "Shift+Home"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.selectEdge(false, true) }
-    Shortcut { sequence: "Shift+End"; enabled: page.activePane.fileShortcutsAllowed; onActivated: page.activePane.selectEdge(true, true) }
-    Shortcut { sequence: "Escape"; onActivated: page.activePane.cancelCurrentAction() }
+
+    function runShortcutAction(action) {
+        switch (action) {
+        case "terminal": page.activePane.openTerminalHere(); break
+        case "select_all": page.activePane.selectAll(); break
+        case "clear_selection": page.activePane.clearSelection(); break
+        case "copy": page.activePane.copySelection(); break
+        case "cut": page.activePane.cutSelection(); break
+        case "paste": page.activePane.pasteHere(); break
+        case "undo": page.activePane.undoLastOperation(); break
+        case "duplicate": page.activePane.duplicateSelection(); break
+        case "rename": page.activePane.renameSelection(); break
+        case "trash": page.activePane.trashSelection(); break
+        case "delete": page.activePane.deleteSelection(); break
+        case "open": page.activePane.openSelected(); break
+        case "toggle_selection": page.activePane.togglePrimarySelection(); break
+        case "properties": page.activePane.showPropertiesForSelection(); break
+        case "refresh": page.activePane.refreshDirectory(); break
+        case "find": page.activePane.showSearch(); break
+        case "kfind": page.activePane.openKFindHere(); break
+        case "hidden": page.activePane.toggleHiddenFiles(); break
+        case "location": page.activePane.focusLocationField(); break
+        case "up": page.activePane.navigateUp(); break
+        case "home": page.activePane.navigateTo(StandardPaths.writableLocation(StandardPaths.HomeLocation)); break
+        case "back": page.activePane.handleBackNavigation(); break
+        case "forward": page.activePane.handleForwardNavigation(); break
+        case "new_folder": page.activePane.showNewFolderDialog(); break
+        case "new_file": page.activePane.showNewFileDialog(); break
+        case "new_tab": page.addTab(page.activePane.currentLocation); break
+        case "close_tab": page.closeTab(page.currentTab); break
+        case "reopen_tab": page.reopenClosedTab(); break
+        case "next_tab": page.switchToTab((page.currentTab + 1) % page.tabs.length); break
+        case "previous_tab": page.switchToTab((page.currentTab - 1 + page.tabs.length) % page.tabs.length); break
+        case "split": page.setSplitEnabled(!page.splitEnabled); break
+        case "grid": page.activePane.setGridView(); break
+        case "list": page.activePane.setListView(); break
+        case "zoom_in": page.activePane.adjustIconSize(12); break
+        case "zoom_out": page.activePane.adjustIconSize(-12); break
+        case "zoom_reset": page.activePane.resetIconSize(); break
+        case "move_left": page.activePane.moveSelection("left", false); break
+        case "move_right": page.activePane.moveSelection("right", false); break
+        case "move_up": page.activePane.moveSelection("up", false); break
+        case "move_down": page.activePane.moveSelection("down", false); break
+        case "extend_left": page.activePane.moveSelection("left", true); break
+        case "extend_right": page.activePane.moveSelection("right", true); break
+        case "extend_up": page.activePane.moveSelection("up", true); break
+        case "extend_down": page.activePane.moveSelection("down", true); break
+        case "first": page.activePane.selectEdge(false, false); break
+        case "last": page.activePane.selectEdge(true, false); break
+        case "extend_first": page.activePane.selectEdge(false, true); break
+        case "extend_last": page.activePane.selectEdge(true, true); break
+        case "cancel": page.activePane.cancelCurrentAction(); break
+        case "paste_into": page.activePane.pasteIntoSelection(); break
+        case "symlink": page.activePane.showNewSymlinkDialog(true); break
+        case "hardlink": page.activePane.showNewHardlinkDialog(true); break
+        case "show_target": page.activePane.showSelectedLinkTarget(false); break
+        case "containing_folder": page.activePane.openSelectedContainingFolder(false); break
+        }
+    }
+
+    Instantiator {
+        model: KeyboardShortcuts.catalog.filter(function(action) { return action.scope === "browser" })
+        delegate: Shortcut {
+            required property var modelData
+            sequences: KeyboardShortcuts.bindings[modelData.id] || []
+            context: Qt.WindowShortcut
+            enabled: page.shortcutActionAllowed(modelData.id)
+            onActivated: page.runShortcutAction(modelData.id)
+        }
+    }
 
 
     Rectangle {
@@ -728,6 +757,21 @@ Item {
             checkable: true
             checked: AppTheme.kioProgressEnabled
             onTriggered: AppTheme.setKioProgressEnabled(!AppTheme.kioProgressEnabled)
+        }
+        GMenuSeparator {}
+        GMenuItem {
+            objectName: "skipHiddenNameConfirmationItem"
+            text: lang.language === "tr" ? "Gizli ad onayını atla" : "Skip hidden name confirmation"
+            checkable: true
+            checked: AppTheme.skipHiddenNameConfirmation
+            onTriggered: AppTheme.setSkipHiddenNameConfirmation(!AppTheme.skipHiddenNameConfirmation)
+        }
+        GMenuItem {
+            objectName: "skipPermanentDeleteConfirmationItem"
+            text: lang.language === "tr" ? "Kalıcı silme onayını atla" : "Skip permanent delete confirmation"
+            checkable: true
+            checked: AppTheme.skipPermanentDeleteConfirmation
+            onTriggered: AppTheme.setSkipPermanentDeleteConfirmation(!AppTheme.skipPermanentDeleteConfirmation)
         }
     }
 
@@ -838,7 +882,7 @@ Item {
         Rectangle {
             id: commandBar
             Layout.fillWidth: true
-            Layout.preferredHeight: 58
+            Layout.preferredHeight: 52
             radius: AppTheme.commandRadius
             color: AppTheme.commandBar
             border.color: AppTheme.border
@@ -852,9 +896,9 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
                     display: AbstractButton.IconOnly
-                    icon.source: AppTheme.icon("chevron-left.svg")
+                    icon.source: AppTheme.icon("nav-back.svg")
                     icon.width: 16; icon.height: 16
-                    implicitWidth: 38; implicitHeight: 40
+                    implicitWidth: 32; implicitHeight: 34
                     enabled: tabScrollView.contentItem && tabScrollView.contentItem.contentX > 0.5
                     onClicked: { page.dismissActivePaneTransientUi(); page.scrollTabsBy(-220) }
                     GToolTip { text: lang.language === "tr" ? "Sekmeleri sola kaydır" : "Scroll tabs left" }
@@ -865,9 +909,9 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
                     display: AbstractButton.IconOnly
-                    icon.source: AppTheme.icon("chevron-right.svg")
+                    icon.source: AppTheme.icon("nav-forward.svg")
                     icon.width: 16; icon.height: 16
-                    implicitWidth: 38; implicitHeight: 40
+                    implicitWidth: 32; implicitHeight: 34
                     enabled: tabScrollView.contentItem
                              && tabScrollView.contentItem.contentX < Math.max(0, tabScrollView.contentItem.contentWidth - tabScrollView.contentItem.width) - 0.5
                     onClicked: { page.dismissActivePaneTransientUi(); page.scrollTabsBy(220) }
@@ -878,8 +922,8 @@ Item {
                 ScrollView {
                     id: tabScrollView
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
-                    contentHeight: 44
+                    Layout.preferredHeight: 36
+                    contentHeight: 36
                     ScrollBar.vertical.policy: ScrollBar.AlwaysOff
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                     TapHandler {
@@ -901,7 +945,7 @@ Item {
                                 readonly property bool dragging: tabDrag.active
                                 readonly property bool dragTarget: page.tabDragTarget === index && page.tabDragFrom !== index
                                 width: 160
-                                height: 40
+                                height: 34
                                 radius: 11
                                 readonly property bool administratorTab: page.isAdminLocation(modelData.location)
                                 color: dragTarget
@@ -1050,7 +1094,9 @@ Item {
                     id: wheelSpeedButton
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: "↕ " + AppTheme.wheelScrollStep
-                    implicitWidth: 78; implicitHeight: 40
+                    implicitWidth: 72; implicitHeight: 34
+                    topPadding: 4; bottomPadding: 4
+                    font.pixelSize: 12
                     GToolTip { text: lang.t("wheel_speed") }
                     onPressed: page.prepareToolbarMenu(wheelSpeedPopup)
                     onClicked: page.openToolbarMenu(wheelSpeedPopup, wheelSpeedButton)
@@ -1068,7 +1114,7 @@ Item {
                     display: AbstractButton.IconOnly
                     icon.source: AppTheme.icon("plus.svg")
                     icon.width: 16; icon.height: 16
-                    implicitWidth: 40; implicitHeight: 40
+                    implicitWidth: 34; implicitHeight: 34
                     GToolTip {
                         text: lang.t("new_tab")
                     }
@@ -1079,18 +1125,18 @@ Item {
                     id: splitButton
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
-                    implicitWidth: 44; implicitHeight: 40
+                    implicitWidth: 34; implicitHeight: 34
                     GToolTip {
                         text: page.splitEnabled ? lang.t("close_split") : lang.t("split_view")
                     }
                     onClicked: { page.dismissActivePaneTransientUi(); page.setSplitEnabled(!page.splitEnabled) }
                     contentItem: Item {
                         anchors.centerIn: parent
-                        implicitWidth: 22
-                        implicitHeight: 22
+                        implicitWidth: 18
+                        implicitHeight: 18
                         CrispIcon {
                             anchors.centerIn: parent
-                            width: 22; height: 22
+                            width: 16; height: 16
                             source: AppTheme.icon("split-view.svg")
                             opacity: page.splitEnabled ? 1.0 : 0.88
                         }
@@ -1117,16 +1163,20 @@ Item {
                     id: hiddenFilesButton
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
-                    implicitWidth: 42; implicitHeight: 40
+                    implicitWidth: 34; implicitHeight: 34
                     GToolTip {
                         text: lang.t("show_hidden")
                     }
                     onPressed: page.prepareToolbarMenu(hiddenFilesMenu)
                     onClicked: page.openToolbarMenu(hiddenFilesMenu, hiddenFilesButton)
-                    contentItem: CrispIcon {
-                        source: AppTheme.icon("eye.svg")
-                        width: 22; height: 22
-                        opacity: page.activePane.showHiddenFiles ? 1.0 : 0.68
+                    contentItem: Item {
+                        implicitWidth: 18; implicitHeight: 18
+                        CrispIcon {
+                            anchors.centerIn: parent
+                            source: AppTheme.icon("eye.svg")
+                            width: 16; height: 16
+                            opacity: page.activePane.showHiddenFiles ? 1.0 : 0.68
+                        }
                     }
                     background: Rectangle {
                         radius: 11
@@ -1138,7 +1188,7 @@ Item {
                     id: viewButton
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
-                    implicitWidth: 44; implicitHeight: 40
+                    implicitWidth: 34; implicitHeight: 34
                     GToolTip {
                         text: lang.t("view")
                     }
@@ -1146,17 +1196,17 @@ Item {
                     onClicked: page.openToolbarMenu(toolbarViewMenu, viewButton)
                     contentItem: Item {
                         anchors.centerIn: parent
-                        implicitWidth: 22
-                        implicitHeight: 22
+                        implicitWidth: 18
+                        implicitHeight: 18
                         CrispIcon {
                             anchors.centerIn: parent
-                            width: 22; height: 22
+                            width: 16; height: 16
                             source: AppTheme.icon("view-layout.svg")
                             opacity: 0.92
                         }
                         Rectangle {
-                            width: 6
-                            height: 6
+                            width: 4
+                            height: 4
                             radius: 3
                             color: page.activePane.gridMode ? AppTheme.accent : AppTheme.textMuted
                             anchors.right: parent.right
@@ -1176,7 +1226,9 @@ Item {
                     property bool menuWasOpenOnPress: false
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: "⋯"
-                    implicitWidth: 42; implicitHeight: 40
+                    implicitWidth: 34; implicitHeight: 34
+                    topPadding: 4; bottomPadding: 4
+                    font.pixelSize: 14
                     GToolTip {
                         text: lang.t("directory_menu")
                     }

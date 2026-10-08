@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import GFile.App
+import Lurviko.App
+import Lurviko.Backend
 
 Popup {
     id: viewer
@@ -15,7 +16,7 @@ Popup {
     property int slideshowIntervalMs: 3500
     property var hostWindow: null
     property bool controlsVisible: true
-    // Fullscreen belongs to a dedicated viewer window. The G-File main
+    // Fullscreen belongs to a dedicated viewer window. The Lurviko main
     // window never changes visibility mode when the photo viewer goes full screen.
     property bool viewerFullScreen: false
     property var normalOverlayParent: null
@@ -47,7 +48,7 @@ Popup {
     readonly property real controlsOpacity: viewerFullScreen && !controlsVisible ? 0.0 : 1.0
 
     function viewerIcon(name) {
-        return "qrc:/qt/qml/GFile/App/assets/icons/" + name
+        return "qrc:/qt/qml/Lurviko/App/assets/icons/" + name
     }
 
     function thumbSource(item) {
@@ -299,7 +300,7 @@ Popup {
         id: viewerFullScreenWindow
         visible: false
         color: AppTheme.viewerBackground
-        title: viewer.lang.language === "tr" ? "G-File Fotoğraf Görüntüleyici" : "G-File Photo Viewer"
+        title: viewer.lang.language === "tr" ? "Lurviko Fotoğraf Görüntüleyici" : "Lurviko Photo Viewer"
         flags: Qt.Window | Qt.FramelessWindowHint
         onClosing: function(close) {
             if (viewer.viewerFullScreen) {
@@ -376,14 +377,14 @@ Popup {
         onTriggered: viewer.next(false)
     }
 
-    Shortcut { sequence: "Escape"; enabled: viewer.visible; onActivated: viewer.close() }
-    Shortcut { sequence: "Left"; enabled: viewer.visible; onActivated: viewer.previous(true) }
-    Shortcut { sequence: "Right"; enabled: viewer.visible; onActivated: viewer.next(true) }
-    Shortcut { sequence: "F11"; enabled: viewer.visible; context: Qt.ApplicationShortcut; onActivated: viewer.toggleViewerFullScreen() }
-    Shortcut { sequence: "Space"; enabled: viewer.visible; onActivated: viewer.slideshowRunning = !viewer.slideshowRunning }
-    Shortcut { sequence: "+"; enabled: viewer.visible; onActivated: viewer.zoom = Math.min(5.0, viewer.zoom * 1.15) }
-    Shortcut { sequence: "-"; enabled: viewer.visible; onActivated: viewer.zoom = Math.max(0.25, viewer.zoom / 1.15) }
-    Shortcut { sequence: "0"; enabled: viewer.visible; onActivated: viewer.resetView() }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_close"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.close() }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_previous"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.previous(true) }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_next"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.next(true) }
+    Shortcut { sequences: KeyboardShortcuts.bindings["fullscreen"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; context: Qt.ApplicationShortcut; onActivated: viewer.toggleViewerFullScreen() }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_slideshow"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.slideshowRunning = !viewer.slideshowRunning }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_zoom_in"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.zoom = Math.min(5.0, viewer.zoom * 1.15) }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_zoom_out"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.zoom = Math.max(0.25, viewer.zoom / 1.15) }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_reset"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.resetView() }
 
     Item {
         id: stage
@@ -545,7 +546,7 @@ Popup {
                     ViewerIconButton {
                         Layout.preferredWidth: 36
                         Layout.preferredHeight: 36
-                        iconName: "viewer-close.svg"
+                        iconName: "close-ui.svg"
                         toolTipText: viewer.lang.language === "tr" ? "Kapat (Esc)" : "Close (Esc)"
                         onClicked: viewer.close()
                     }

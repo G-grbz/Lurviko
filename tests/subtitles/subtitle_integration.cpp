@@ -55,18 +55,19 @@ static void require(bool ok, const char *description) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     qInstallMessageHandler(captureMessages);
-    app.setOrganizationName("GFile-QA"); app.setApplicationName("Subtitles");
+    app.setOrganizationName("Lurviko-QA"); app.setApplicationName("Subtitles");
     QQuickStyle::setStyle("Basic");
     // REGISTER_BACKEND_TYPES
-    const QString path = QString::fromLocal8Bit(qgetenv("GFILE_SUBTITLE_TEST_ROOT")) + "/fixture.mkv";
+    const QString path = QString::fromLocal8Bit(qgetenv("LURVIKO_SUBTITLE_TEST_ROOT")) + "/fixture.mkv";
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new FixtureImages);
+    engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", path);
     engine.rootContext()->setContextProperty("fixtureUrl", QUrl::fromLocalFile(path));
     engine.loadData(R"qml(
 import QtQuick
 import QtQuick.Controls
-import GFile.App
+import Lurviko.App
 ApplicationWindow {
     id: host
     width: 900; height: 600; visible: true
@@ -220,7 +221,7 @@ ApplicationWindow {
 
     // Keep subtitles, icons, and pause-screen effects alive while switching
     // between windows. Rendering resources must belong to only one window.
-    const QString realPath = qEnvironmentVariable("GFILE_VIDEO_REAL_PATH");
+    const QString realPath = qEnvironmentVariable("LURVIKO_VIDEO_REAL_PATH");
     if (!realPath.isEmpty()) {
         player->stop();
         player->setSource(QUrl());
@@ -251,7 +252,7 @@ ApplicationWindow {
     require(transientWindowWarnings == 0, "fullscreen window never becomes its own transient parent");
     std::fprintf(stderr, "PASS: 16 fullscreen transitions with subtitle and pause effects\n");
     QElapsedTimer soak; soak.start();
-    const int soakMs = qEnvironmentVariableIntValue("GFILE_VIDEO_SOAK_SECONDS") * 1000;
+    const int soakMs = qEnvironmentVariableIntValue("LURVIKO_VIDEO_SOAK_SECONDS") * 1000;
     int frames = 0;
     for (auto quickWindow : app.allWindows())
         if (auto rendered = qobject_cast<QQuickWindow *>(quickWindow))

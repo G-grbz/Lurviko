@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
+#include "appmigration.h"
 #include <QSet>
 #include <QUrlQuery>
 #include <algorithm>
@@ -103,31 +104,8 @@ TmdbMetadataManager::TmdbMetadataManager(QObject *parent)
     if (configRoot.isEmpty())
         configRoot = QDir::home().filePath(QStringLiteral(".config"));
 
-    // Keep all g-File configuration under the application's existing
-    // canonical directory (~/.config/g-File). Older TMDB builds used the
-    // lower-case ~/.config/g-file directory; migrate that subtree once.
-    const QString appConfigDirectory = QDir(configRoot).filePath(QStringLiteral("g-File"));
-    const QString legacyBaseDirectory = QDir(configRoot).filePath(QStringLiteral("g-file/tmdb"));
-    m_baseDirectory = QDir(appConfigDirectory).filePath(QStringLiteral("tmdb"));
-
-    if (!QFileInfo::exists(m_baseDirectory) && QFileInfo::exists(legacyBaseDirectory)) {
-        QDir configDirectory(configRoot);
-        configDirectory.mkpath(QStringLiteral("g-File"));
-        // Both directories live under XDG_CONFIG_HOME, so this is normally an
-        // atomic same-filesystem rename and preserves token + cached artwork.
-        if (!configDirectory.rename(QStringLiteral("g-file/tmdb"), QStringLiteral("g-File/tmdb"))) {
-            // Keep the legacy tree untouched if migration is not possible.
-            // New writes still go to the canonical directory.
-            QDir().mkpath(m_baseDirectory);
-        } else {
-            // Do not leave a second empty ~/.config/g-file tree behind after
-            // the successful one-time migration.
-            QDir legacyRoot(QDir(configRoot).filePath(QStringLiteral("g-file")));
-            if (legacyRoot.exists()
-                    && legacyRoot.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty())
-                QDir(configRoot).rmdir(QStringLiteral("g-file"));
-        }
-    }
+    // Application startup migrates legacy configuration before model creation.
+    m_baseDirectory = QDir(configRoot).filePath(QStringLiteral("Lurviko/tmdb"));
     m_metadataDirectory = QDir(m_baseDirectory).filePath(QStringLiteral("metadata"));
     m_imageDirectory = QDir(m_baseDirectory).filePath(QStringLiteral("images"));
     m_settingsFile = QDir(m_baseDirectory).filePath(QStringLiteral("settings.ini"));
@@ -425,6 +403,9 @@ QVariantMap TmdbMetadataManager::readCache(const QString &sourcePath, const QStr
     }
 
     QVariantMap result = root.value(QStringLiteral("metadata")).toObject().toVariantMap();
+    for (const auto &field : {QStringLiteral("posterUrl"), QStringLiteral("backdropUrl"), QStringLiteral("logoUrl")}) {
+        if (result.contains(field)) result[field] = relocatedAppPath(result.value(field).toString());
+    }
     if (!result.contains(QStringLiteral("state")))
         result.insert(QStringLiteral("state"), QStringLiteral("ready"));
     result.insert(QStringLiteral("cached"), true);
@@ -1605,7 +1586,7 @@ void TmdbMetadataManager::getJson(const QUrl &url, const JsonCallback &callback)
     request.setTransferTimeout(15000);
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_apiToken.toUtf8());
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5 TMDB metadata client"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0 TMDB metadata client"));
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
         const QByteArray payload = reply->readAll();
@@ -1644,7 +1625,7 @@ void TmdbMetadataManager::downloadImage(const QString &tmdbPath,
     QUrl url(QStringLiteral("https://image.tmdb.org/t/p/%1%2").arg(size, tmdbPath));
     QNetworkRequest request(url);
     request.setTransferTimeout(20000);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5 TMDB metadata client"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0 TMDB metadata client"));
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [reply, targetPath, callback]() {
         const QByteArray data = reply->readAll();

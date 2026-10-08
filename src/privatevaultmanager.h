@@ -26,6 +26,13 @@ class PrivateVaultManager : public QAbstractListModel
     Q_PROPERTY(bool kwalletEnabled READ kwalletEnabled NOTIFY securitySettingsChanged)
     Q_PROPERTY(bool autoLockEnabled READ autoLockEnabled NOTIFY securitySettingsChanged)
     Q_PROPERTY(int autoLockMinutes READ autoLockMinutes NOTIFY securitySettingsChanged)
+    Q_PROPERTY(bool passwordProtectionEnabled READ passwordProtectionEnabled NOTIFY securitySettingsChanged)
+    Q_PROPERTY(int maxPasswordAttempts READ maxPasswordAttempts NOTIFY securitySettingsChanged)
+    Q_PROPERTY(int passwordLockoutSeconds READ passwordLockoutSeconds NOTIFY securitySettingsChanged)
+    Q_PROPERTY(int passwordRetrySeconds READ passwordRetrySeconds NOTIFY securitySettingsChanged)
+    Q_PROPERTY(int failedPasswordAttempts READ failedPasswordAttempts NOTIFY authenticationStateChanged)
+    Q_PROPERTY(int passwordWaitSeconds READ passwordWaitSeconds NOTIFY authenticationStateChanged)
+    Q_PROPERTY(bool passwordLockedOut READ passwordLockedOut NOTIFY authenticationStateChanged)
 
 public:
     enum Roles {
@@ -58,6 +65,13 @@ public:
     bool kwalletEnabled() const { return m_kwalletEnabled; }
     bool autoLockEnabled() const { return m_autoLockEnabled; }
     int autoLockMinutes() const { return m_autoLockMinutes; }
+    bool passwordProtectionEnabled() const { return m_passwordProtectionEnabled; }
+    int maxPasswordAttempts() const { return m_maxPasswordAttempts; }
+    int passwordLockoutSeconds() const { return m_passwordLockoutSeconds; }
+    int passwordRetrySeconds() const { return m_passwordRetrySeconds; }
+    int failedPasswordAttempts() const { return m_failedPasswordAttempts; }
+    int passwordWaitSeconds() const;
+    bool passwordLockedOut() const;
 
     Q_INVOKABLE bool createVault(const QString &password);
     Q_INVOKABLE bool unlock(const QString &password);
@@ -67,6 +81,7 @@ public:
     Q_INVOKABLE bool setKWalletEnabled(bool enabled);
     Q_INVOKABLE bool setAutoLockEnabled(bool enabled);
     Q_INVOKABLE bool setAutoLockMinutes(int minutes);
+    Q_INVOKABLE bool setPasswordProtection(bool enabled, int attempts, int lockoutSeconds, int retrySeconds);
     Q_INVOKABLE QString thumbnailUrl(const QString &objectId);
     Q_INVOKABLE bool createFolder(const QString &name);
     Q_INVOKABLE bool renameItem(const QString &objectId, const QString &newName);
@@ -91,6 +106,7 @@ signals:
     void statusMessageChanged();
     void operationFinished(bool success, const QString &message);
     void securitySettingsChanged();
+    void authenticationStateChanged();
 
 private:
     static constexpr int KeySize = 32;
@@ -128,6 +144,12 @@ private:
     bool unwrapMasterKey(const QJsonObject &header, const QString &password, QByteArray *masterKey) const;
     void loadSecurityPreferences();
     bool persistSecurityPreferences();
+    void loadAuthenticationState();
+    bool persistAuthenticationState();
+    void refreshAuthenticationState();
+    bool allowPasswordAttempt();
+    void recordPasswordFailure();
+    bool resetPasswordFailures();
     void startAutoLockCountdown();
     QString walletEntryKey(const QJsonObject &header) const;
     KWallet::Wallet *openVaultWallet();
@@ -165,5 +187,13 @@ private:
     bool m_autoLockEnabled = false;
     int m_autoLockMinutes = 15;
     QTimer *m_autoLockTimer = nullptr;
+    bool m_passwordProtectionEnabled = true;
+    int m_maxPasswordAttempts = 5;
+    int m_passwordLockoutSeconds = 300;
+    int m_passwordRetrySeconds = 2;
+    int m_failedPasswordAttempts = 0;
+    qint64 m_passwordLockoutUntil = 0;
+    qint64 m_passwordRetryUntil = 0;
+    QTimer *m_authenticationTimer = nullptr;
     KWallet::Wallet *m_wallet = nullptr;
 };

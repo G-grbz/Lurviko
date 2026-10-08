@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 import "../components"
 
 Rectangle {
@@ -145,8 +145,8 @@ Rectangle {
 
         // Documents and other supported desktop formats are opened from a
         // random-name 0600 runtime copy.  This is not an export: the plaintext
-        // copy remains inside G-File's private runtime area and is removed when
-        // the vault locks / G-File exits.
+        // copy remains inside Lurviko's private runtime area and is removed when
+        // the vault locks / Lurviko exits.
         if (!Qt.openUrlExternally(url)) {
             vault.releaseMaterialized(url)
             infoPopupTitle.text = lang.language === "tr" ? "Dosya açılamadı" : "Could not open file"
@@ -174,8 +174,13 @@ Rectangle {
         target: vault
         function onAboutToLock() { page.closeVaultMedia() }
         function onStateChanged() {
-            if (!vault.unlocked)
+            if (!vault.unlocked) {
                 page.selectedId = ""
+                securityPopup.close()
+                currentPassword.text = ""
+                newPassword.text = ""
+                newPasswordAgain.text = ""
+            }
         }
     }
 
@@ -347,6 +352,7 @@ Rectangle {
 
     GModalPopup {
         id: securityPopup
+        objectName: "vaultSecurityPopup"
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(620, page.width - 40)
@@ -360,6 +366,10 @@ Rectangle {
             newPasswordAgain.text = ""
             passwordMismatch.visible = false
             vault.clearStatus()
+            passwordProtectionCheck.checked = vault.passwordProtectionEnabled
+            passwordAttemptLimit.value = vault.maxPasswordAttempts
+            passwordLockoutDuration.value = vault.passwordLockoutSeconds
+            passwordRetryDelay.value = vault.passwordRetrySeconds
         }
         ColumnLayout {
             anchors.fill: parent
@@ -371,87 +381,156 @@ Rectangle {
                 font.pixelSize: 20
                 font.bold: true
             }
-            Text {
+            Flickable {
+                id: securityScroll
+                objectName: "vaultSecurityScroll"
                 Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                color: AppTheme.textMuted
-                font.pixelSize: 10
-                text: lang.language === "tr"
-                      ? "Kasa kapanınca ana anahtar RAM'den temizlenir. KWallet etkinse bu cihazda parolayı tekrar yazmadan güvenli hızlı açma kullanılabilir."
-                      : "The master key is cleared from RAM when the vault locks. With KWallet enabled, this device can securely quick-unlock without retyping the vault password."
-            }
-
-            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
-            Text { text: lang.language === "tr" ? "Parolayı değiştir" : "Change password"; color: AppTheme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
-            GTextField { id: currentPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Mevcut parola" : "Current password"; color: AppTheme.text }
-            GTextField { id: newPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; color: AppTheme.text }
-            GTextField { id: newPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; color: AppTheme.text }
-            Text { id: passwordMismatch; visible: false; color: AppTheme.danger; font.pixelSize: 10; text: lang.language === "tr" ? "Yeni parolalar eşleşmiyor." : "New passwords do not match." }
-            GModalButton {
-                text: lang.language === "tr" ? "Parolayı Değiştir" : "Change Password"
-                enabled: currentPassword.text.length > 0 && newPassword.text.length >= 8 && !vault.busy
-                onClicked: {
-                    passwordMismatch.visible = newPassword.text !== newPasswordAgain.text
-                    if (passwordMismatch.visible)
-                        return
-                    if (vault.changePassword(currentPassword.text, newPassword.text)) {
-                        currentPassword.text = ""
-                        newPassword.text = ""
-                        newPasswordAgain.text = ""
-                    }
-                }
-            }
-
-            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
-            RowLayout {
-                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: securityContent.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-                    Text { text: lang.language === "tr" ? "KWallet ile hızlı kilit aç" : "Quick unlock with KWallet"; color: AppTheme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
-                    Text { Layout.fillWidth: true; wrapMode: Text.Wrap; text: lang.language === "tr" ? "Ana kasa anahtarını KDE KWallet içinde saklar; parola kasanın kendi şifrelemesi için yine geçerlidir." : "Stores the vault master key inside KDE KWallet; the vault password still remains valid."; color: AppTheme.textMuted; font.pixelSize: 9 }
-                }
-                GSwitch {
-                    id: kwalletSwitch
-                    checked: vault.kwalletEnabled
-                    onClicked: {
-                        if (!vault.setKWalletEnabled(checked))
-                            checked = vault.kwalletEnabled
+                    id: securityContent
+                    width: Math.max(0, securityScroll.width - 16)
+                    spacing: 14
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        text: lang.language === "tr"
+                              ? "Kasa kapanınca ana anahtar RAM'den temizlenir. KWallet etkinse bu cihazda parolayı tekrar yazmadan güvenli hızlı açma kullanılabilir."
+                              : "The master key is cleared from RAM when the vault locks. With KWallet enabled, this device can securely quick-unlock without retyping the vault password."
                     }
-                }
-            }
 
-            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
-            RowLayout {
-                Layout.fillWidth: true
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-                    Text { text: lang.language === "tr" ? "Açık kalma süresi" : "Unlocked duration"; color: AppTheme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
-                    Text { Layout.fillWidth: true; wrapMode: Text.Wrap; text: lang.language === "tr" ? "Açıksa kasa kilidi açıldıktan sonra seçilen süre dolunca otomatik kilitlenir. Kapalıysa Sana Özel'den çıkar çıkmaz veya G-File kapanınca kilitlenir." : "When enabled, the vault locks after the selected time from unlock. When disabled, it locks as soon as you leave Private or when G-File exits."; color: AppTheme.textMuted; font.pixelSize: 9 }
-                }
-                GSwitch {
-                    id: autoLockSwitch
-                    checked: vault.autoLockEnabled
-                    onClicked: {
-                        if (!vault.setAutoLockEnabled(checked))
-                            checked = vault.autoLockEnabled
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+                    Text { text: lang.language === "tr" ? "Parolayı değiştir" : "Change password"; color: AppTheme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
+                    GTextField { id: currentPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Mevcut parola" : "Current password"; color: AppTheme.text }
+                    GTextField { id: newPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; color: AppTheme.text }
+                    GTextField { id: newPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; color: AppTheme.text }
+                    Text { id: passwordMismatch; visible: false; color: AppTheme.danger; font.pixelSize: 10; text: lang.language === "tr" ? "Yeni parolalar eşleşmiyor." : "New passwords do not match." }
+                    GModalButton {
+                        text: lang.language === "tr" ? "Parolayı Değiştir" : "Change Password"
+                        enabled: currentPassword.text.length > 0 && newPassword.text.length >= 8 && !vault.busy
+                        onClicked: {
+                            passwordMismatch.visible = newPassword.text !== newPasswordAgain.text
+                            if (passwordMismatch.visible)
+                                return
+                            if (vault.changePassword(currentPassword.text, newPassword.text)) {
+                                currentPassword.text = ""
+                                newPassword.text = ""
+                                newPasswordAgain.text = ""
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text { text: lang.language === "tr" ? "KWallet ile hızlı kilit aç" : "Quick unlock with KWallet"; color: AppTheme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
+                            Text { Layout.fillWidth: true; wrapMode: Text.Wrap; text: lang.language === "tr" ? "Ana kasa anahtarını KDE KWallet içinde saklar; parola kasanın kendi şifrelemesi için yine geçerlidir." : "Stores the vault master key inside KDE KWallet; the vault password still remains valid."; color: AppTheme.textMuted; font.pixelSize: 9 }
+                        }
+                        GSwitch {
+                            id: kwalletSwitch
+                            checked: vault.kwalletEnabled
+                            onClicked: {
+                                if (!vault.setKWalletEnabled(checked))
+                                    checked = vault.kwalletEnabled
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text { text: lang.language === "tr" ? "Açık kalma süresi" : "Unlocked duration"; color: AppTheme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
+                            Text { Layout.fillWidth: true; wrapMode: Text.Wrap; text: lang.language === "tr" ? "Açıksa kasa kilidi açıldıktan sonra seçilen süre dolunca otomatik kilitlenir. Kapalıysa Sana Özel'den çıkar çıkmaz veya Lurviko kapanınca kilitlenir." : "When enabled, the vault locks after the selected time from unlock. When disabled, it locks as soon as you leave Private or when Lurviko exits."; color: AppTheme.textMuted; font.pixelSize: 9 }
+                        }
+                        GSwitch {
+                            id: autoLockSwitch
+                            checked: vault.autoLockEnabled
+                            onClicked: {
+                                if (!vault.setAutoLockEnabled(checked))
+                                    checked = vault.autoLockEnabled
+                            }
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        enabled: vault.autoLockEnabled
+                        opacity: enabled ? 1.0 : 0.45
+                        Text { text: lang.language === "tr" ? "Süre" : "Duration"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                        Item { Layout.fillWidth: true }
+                        GComboBox {
+                            id: autoLockDuration
+                            model: [5, 15, 30, 60]
+                            currentIndex: vault.autoLockMinutes === 5 ? 0 : (vault.autoLockMinutes === 15 ? 1 : (vault.autoLockMinutes === 30 ? 2 : 3))
+                            textRole: ""
+                            displayText: currentValue + " " + (lang.language === "tr" ? "dakika" : "minutes")
+                            onActivated: function(index) { vault.setAutoLockMinutes(Number(model[index])) }
+                        }
+                    }
+
+
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+                    GCheckBox {
+                        id: passwordProtectionCheck
+                        objectName: "vaultPasswordProtection"
+                        Layout.fillWidth: true
+                        text: lang.language === "tr" ? "Hatalı parola denemelerine karşı koruma" : "Protect against failed password attempts"
+                        checked: vault.passwordProtectionEnabled
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        text: lang.language === "tr"
+                              ? "Deneme sınırına ulaşılınca giriş geçici olarak kilitlenir. Başarılı giriş ve kilit süresinin dolması sayacı sıfırlar. Uygulamayı yeniden açmak beklemeyi sıfırlamaz."
+                              : "Reaching the attempt limit temporarily blocks sign-in. Successful sign-in and lockout expiry reset the counter. Restarting the app keeps the remaining wait."
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        enabled: passwordProtectionCheck.checked
+                        opacity: enabled ? 1 : 0.45
+                        spacing: 10
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: lang.language === "tr" ? "En fazla hatalı deneme" : "Maximum failed attempts"; color: AppTheme.text; font.pixelSize: 11 }
+                            GSpinBox { id: passwordAttemptLimit; objectName: "vaultPasswordAttemptLimit"; editable: true; from: 1; to: 100; value: vault.maxPasswordAttempts; implicitWidth: 146 }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: lang.language === "tr" ? "Geçici kilit süresi (saniye)" : "Lockout duration (seconds)"; color: AppTheme.text; font.pixelSize: 11 }
+                            GSpinBox { id: passwordLockoutDuration; objectName: "vaultPasswordLockoutDuration"; editable: true; from: 1; to: 86400; value: vault.passwordLockoutSeconds; implicitWidth: 146 }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: lang.language === "tr" ? "Hatalı denemeler arası bekleme (saniye)" : "Delay after a failed attempt (seconds)"; color: AppTheme.text; font.pixelSize: 11 }
+                            GSpinBox { id: passwordRetryDelay; objectName: "vaultPasswordRetryDelay"; editable: true; from: 0; to: 3600; value: vault.passwordRetrySeconds; implicitWidth: 146 }
+                        }
+                    }
+                    GModalButton {
+                        objectName: "vaultSavePasswordProtection"
+                        text: lang.language === "tr" ? "Koruma ayarlarını kaydet" : "Save protection settings"
+                        enabled: !vault.busy
+                        onClicked: vault.setPasswordProtection(passwordProtectionCheck.checked, passwordAttemptLimit.value,
+                                                               passwordLockoutDuration.value, passwordRetryDelay.value)
                     }
                 }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                enabled: vault.autoLockEnabled
-                opacity: enabled ? 1.0 : 0.45
-                Text { text: lang.language === "tr" ? "Süre" : "Duration"; color: AppTheme.textMuted; font.pixelSize: 10 }
-                Item { Layout.fillWidth: true }
-                GComboBox {
-                    id: autoLockDuration
-                    model: [5, 15, 30, 60]
-                    currentIndex: vault.autoLockMinutes === 5 ? 0 : (vault.autoLockMinutes === 15 ? 1 : (vault.autoLockMinutes === 30 ? 2 : 3))
-                    textRole: ""
-                    displayText: currentValue + " " + (lang.language === "tr" ? "dakika" : "minutes")
-                    onActivated: function(index) { vault.setAutoLockMinutes(Number(model[index])) }
+                ScrollBar.vertical: ScrollBar {
+                    width: 8
+                    policy: ScrollBar.AsNeeded
+                    active: hovered || pressed || securityScroll.moving
+                    background: null
+                    contentItem: Rectangle { radius: 4; color: AppTheme.textMuted; opacity: parent.active ? 0.75 : 0 }
                 }
             }
 
@@ -463,7 +542,6 @@ Rectangle {
                 color: vault.lastError.length > 0 ? AppTheme.danger : AppTheme.success
                 font.pixelSize: 10
             }
-            Item { Layout.fillHeight: true }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
@@ -482,7 +560,7 @@ Rectangle {
             spacing: 9
             GToolButton {
                 implicitWidth: 36; implicitHeight: 36
-                icon.source: AppTheme.icon("viewer-prev.svg")
+                icon.source: AppTheme.icon("nav-back.svg")
                 onClicked: page.leavePrivatePage()
                 GToolTip { text: lang.language === "tr" ? "Keşfet'e dön" : "Back to Discover" }
                 background: Rectangle { radius: 9; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
@@ -494,7 +572,7 @@ Rectangle {
                 Text { text: lang.language === "tr" ? "Sana Özel" : "Private"; color: AppTheme.text; font.pixelSize: 20; font.bold: true }
                 Text {
                     text: vault.unlocked ? vault.currentPathLabel
-                                         : (lang.language === "tr" ? "G-File şifreli kasası" : "G-File encrypted vault")
+                                         : (lang.language === "tr" ? "Lurviko şifreli kasası" : "Lurviko encrypted vault")
                     color: AppTheme.textMuted
                     font.pixelSize: 10
                     elide: Text.ElideMiddle
@@ -538,8 +616,8 @@ Rectangle {
                     wrapMode: Text.Wrap
                     color: AppTheme.textMuted
                     text: lang.language === "tr"
-                          ? "Dosya adları, klasör yapısı, metadata ve içerikler şifreli tutulur. Diskte yalnız rastgele isimli bloblar vardır; G-File kasayı mount etmez."
-                          : "Names, folder structure, metadata and contents stay encrypted. Only randomly named blobs exist on disk; G-File never mounts a plaintext filesystem."
+                          ? "Dosya adları, klasör yapısı, metadata ve içerikler şifreli tutulur. Diskte yalnız rastgele isimli bloblar vardır; Lurviko kasayı mount etmez."
+                          : "Names, folder structure, metadata and contents stay encrypted. Only randomly named blobs exist on disk; Lurviko never mounts a plaintext filesystem."
                 }
                 GTextField { id: createPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "En az 8 karakter parola" : "Password, at least 8 characters"; color: AppTheme.text }
                 GTextField { id: createPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Parolayı tekrar yaz" : "Repeat password"; color: AppTheme.text }
@@ -577,17 +655,19 @@ Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(470, parent.width - 60)
                 spacing: 14
-                CrispIcon { Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 76; Layout.preferredHeight: 76; width: 76; height: 76; source: AppTheme.icon("private.svg") }
+                CrispIcon { Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 76; Layout.preferredHeight: 76; width: 76; height: 76; source: AppTheme.icon("lock.svg") }
                 Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: lang.language === "tr" ? "Kasa kilitli" : "Vault locked"; color: AppTheme.text; font.pixelSize: 22; font.bold: true }
                 Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap; text: lang.language === "tr" ? "Parola diske kaydedilmez. Kasa anahtarı yalnız bu oturumda bellekte tutulur." : "The password is never stored. The vault key stays in memory only for this session."; color: AppTheme.textMuted; font.pixelSize: 10 }
-                GTextField { id: unlockPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Kasa parolası" : "Vault password"; color: AppTheme.text; onAccepted: unlockButton.clicked() }
+                GTextField { id: unlockPassword; objectName: "vaultUnlockPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Kasa parolası" : "Vault password"; color: AppTheme.text; onAccepted: unlockButton.clicked() }
+                VaultAttemptStatus { Layout.fillWidth: true; vault: page.vault; lang: page.lang }
                 Text { visible: vault.lastError.length > 0; Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.danger; text: vault.lastError; font.pixelSize: 10 }
                 GModalButton {
                     id: unlockButton
+                    objectName: "vaultUnlockButton"
                     Layout.alignment: Qt.AlignHCenter
                     text: lang.language === "tr" ? "Kilidi Aç" : "Unlock"
                     primary: true
-                    enabled: !vault.busy && unlockPassword.text.length > 0
+                    enabled: !vault.busy && unlockPassword.text.length > 0 && vault.passwordWaitSeconds === 0
                     onClicked: {
                         if (vault.unlock(unlockPassword.text))
                             unlockPassword.text = ""
@@ -597,7 +677,7 @@ Rectangle {
                     visible: vault.kwalletEnabled
                     Layout.alignment: Qt.AlignHCenter
                     text: lang.language === "tr" ? "KWallet ile Hızlı Aç" : "Quick Unlock with KWallet"
-                    enabled: !vault.busy
+                    enabled: !vault.busy && vault.passwordWaitSeconds === 0
                     onClicked: vault.quickUnlock()
                 }
             }
@@ -618,7 +698,7 @@ Rectangle {
                     GToolButton {
                         implicitWidth: 34; implicitHeight: 34
                         enabled: vault.currentFolderId !== "root" && !vault.busy
-                        icon.source: AppTheme.icon("viewer-prev.svg")
+                        icon.source: AppTheme.icon("nav-back.svg")
                         onClicked: vault.goUp()
                         background: Rectangle { radius: 9; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
                     }

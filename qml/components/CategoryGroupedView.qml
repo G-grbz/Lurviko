@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQml.Models
-import GFile.App
+import Lurviko.App
 
 Item {
     id: root
@@ -19,8 +19,9 @@ Item {
     signal itemPressed(int modelIndex, int modifiers)
     signal itemActivated(int modelIndex)
     signal contextRequested(var sourceItem, int modelIndex, real x, real y)
-    signal renameCommit(string itemUrl, string value, bool backwards)
+    signal renameCommit(string itemUrl, string value, bool backwards, bool advance)
     signal renameCancel()
+    signal renamePrepare(var editor, string itemName, bool itemIsDir)
     signal zoomRequested(int delta)
 
     property var groups: []
@@ -253,7 +254,7 @@ Item {
         clip: true
         spacing: root.cellGap
         model: rowModel
-        cacheBuffer: Math.min(400, height * 0.5)
+        cacheBuffer: Math.max(0, Math.min(400, height * 0.5))
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         onDraggingChanged: if (dragging) wheelScrollAnimation.stop()
@@ -392,15 +393,28 @@ Item {
                                     rightPadding: 7
                                     topPadding: 1
                                     bottomPadding: 1
+                                    function prepareEditor() {
+                                        if (!visible)
+                                            return
+                                        root.renamePrepare(renameField, String(cell.modelData.name || ""), !!cell.modelData.isDir)
+                                        if (!activeFocus) {
+                                            forceActiveFocus()
+                                            selectAll()
+                                        }
+                                    }
                                     onVisibleChanged: {
                                         if (visible)
-                                            Qt.callLater(function() { renameField.forceActiveFocus(); renameField.selectAll() })
+                                            Qt.callLater(renameField.prepareEditor)
                                     }
-                                    onAccepted: root.renameCommit(String(cell.modelData.itemUrl || ""), text, false)
+                                    Component.onCompleted: {
+                                        if (visible)
+                                            Qt.callLater(renameField.prepareEditor)
+                                    }
+                                    onAccepted: root.renameCommit(String(cell.modelData.itemUrl || ""), text, false, false)
                                     Keys.onPressed: function(event) {
                                         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                                             root.renameCommit(String(cell.modelData.itemUrl || ""), text,
-                                                              event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier))
+                                                              event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier), true)
                                             event.accepted = true
                                         } else if (event.key === Qt.Key_Escape) {
                                             root.renameCancel()

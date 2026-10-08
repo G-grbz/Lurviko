@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import GFile.App
+import Lurviko.App
 
 RowLayout {
     property string title: ""

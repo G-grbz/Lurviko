@@ -1,5 +1,6 @@
 #include "directorymodel.h"
 #include "contentindexmodel.h"
+#include "svgpreviewidentity.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -41,6 +42,7 @@ namespace {
 struct LocalLinkMetadata {
     QString type;
     QString target;
+    QString previewRevision;
 };
 
 LocalLinkMetadata localLinkMetadata(const QString &path, const QString &suffix)
@@ -50,6 +52,7 @@ LocalLinkMetadata localLinkMetadata(const QString &path, const QString &suffix)
     if (info.isSymLink()) {
         result.type = QStringLiteral("symlink");
         result.target = info.symLinkTarget();
+        if (suffix == QStringLiteral("svg")) result.previewRevision = svgPreviewIdentity(path);
         return result;
     }
 
@@ -68,8 +71,9 @@ LocalLinkMetadata localLinkMetadata(const QString &path, const QString &suffix)
 
     struct stat st {};
     const QByteArray nativePath = QFile::encodeName(path);
-    if (::lstat(nativePath.constData(), &st) == 0 && S_ISREG(st.st_mode) && st.st_nlink > 1) {
-        result.type = QStringLiteral("hardlink");
+    if (::lstat(nativePath.constData(), &st) == 0) {
+        if (S_ISREG(st.st_mode) && st.st_nlink > 1) result.type = QStringLiteral("hardlink");
+        if (suffix == QStringLiteral("svg")) result.previewRevision = svgPreviewIdentity(st);
     }
     return result;
 }
@@ -209,7 +213,7 @@ int folderPreviewPriority(const QString &suffix)
 DirectoryModel::DirectoryModel(QObject *parent)
     : QAbstractListModel(parent), m_location(QUrl::fromLocalFile(QDir::homePath()))
 {
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     m_showHidden = settings.value(QStringLiteral("browser/showHidden"), false).toBool();
     m_hiddenPlacement = settings.value(QStringLiteral("browser/hiddenPlacement"), QStringLiteral("normal")).toString();
     if (m_hiddenPlacement != QStringLiteral("top") && m_hiddenPlacement != QStringLiteral("bottom"))
@@ -273,6 +277,9 @@ DirectoryModel::DirectoryModel(QObject *parent)
             this, &DirectoryModel::installLocalFileWatchBatch);
 
     m_localMetadataTimer.setSingleShot(true);
+    m_previewSettleTimer.setSingleShot(true);
+    m_previewSettleTimer.setInterval(3000);
+    connect(&m_previewSettleTimer, &QTimer::timeout, this, &DirectoryModel::settleVideoPreviews);
     m_localMetadataTimer.setInterval(220);
     connect(&m_localMetadataTimer, &QTimer::timeout, this, &DirectoryModel::refreshLocalFileMetadata);
     connect(&m_localWatcher, &QFileSystemWatcher::fileChanged, this,
@@ -343,6 +350,8 @@ QVariant DirectoryModel::data(const QModelIndex &index, int role) const
     case FolderPreviewPathsRole: return e.folderPreviewPaths;
     case LinkTypeRole: return e.linkType;
     case LinkTargetRole: return e.linkTarget;
+    case PreviewRevisionRole: return e.previewRevision.isEmpty()
+        ? QString::number(e.modified.toMSecsSinceEpoch()) + '-' + QString::number(e.size) : e.previewRevision;
     default: return {};
     }
 }
@@ -361,6 +370,7 @@ QVariantMap DirectoryModel::itemAt(int row) const
     result.insert(QStringLiteral("isDir"), e.isDir);
     result.insert(QStringLiteral("size"), e.size);
     result.insert(QStringLiteral("modified"), e.modified);
+    result.insert(QStringLiteral("previewRevision"), data(index(row, 0), PreviewRevisionRole));
     result.insert(QStringLiteral("created"), e.created);
     result.insert(QStringLiteral("suffix"), e.suffix);
     result.insert(QStringLiteral("hidden"), e.hidden);
@@ -508,6 +518,7 @@ QHash<int, QByteArray> DirectoryModel::roleNames() const
         {IsDirRole, "isDir"},
         {SizeRole, "size"},
         {ModifiedRole, "modified"},
+        {PreviewRevisionRole, "previewRevision"},
         {CreatedRole, "created"},
         {SuffixRole, "suffix"},
         {HiddenRole, "hidden"},
@@ -607,7 +618,7 @@ void DirectoryModel::setShowHidden(bool value)
     if (m_showHidden == value)
         return;
     m_showHidden = value;
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     settings.setValue(QStringLiteral("browser/showHidden"), m_showHidden);
     emit showHiddenChanged();
     refresh();
@@ -621,7 +632,7 @@ void DirectoryModel::setHiddenPlacement(const QString &value)
     if (m_hiddenPlacement == normalized)
         return;
     m_hiddenPlacement = normalized;
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     settings.setValue(QStringLiteral("browser/hiddenPlacement"), m_hiddenPlacement);
     emit hiddenPlacementChanged();
     sortEntries();
@@ -637,7 +648,7 @@ void DirectoryModel::setSortMode(const QString &value)
     if (m_sortMode == normalized)
         return;
     m_sortMode = normalized;
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     if (m_location.scheme() == QStringLiteral("category")) {
         m_categorySortMode = m_sortMode;
         settings.setValue(QStringLiteral("category/sortMode"), m_categorySortMode);
@@ -654,7 +665,7 @@ void DirectoryModel::setSortAscending(bool value)
     if (m_sortAscending == value)
         return;
     m_sortAscending = value;
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     if (m_location.scheme() == QStringLiteral("category")) {
         m_categorySortAscending = m_sortAscending;
         settings.setValue(QStringLiteral("category/sortAscending"), m_categorySortAscending);
@@ -938,6 +949,7 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
                 const LocalLinkMetadata linkMetadata = localLinkMetadata(entry.localPath, entry.suffix);
                 entry.linkType = linkMetadata.type;
                 entry.linkTarget = linkMetadata.target;
+                entry.previewRevision = linkMetadata.previewRevision;
             }
             entry.hidden = name.startsWith(QLatin1Char('.')) || path.contains(QStringLiteral("/."));
             auto mimeIt = mimeBySuffix.constFind(entry.suffix);
@@ -1413,6 +1425,7 @@ void DirectoryModel::loadSearch(bool incremental)
                 const LocalLinkMetadata linkMetadata = localLinkMetadata(e.localPath, e.suffix);
                 e.linkType = linkMetadata.type;
                 e.linkTarget = linkMetadata.target;
+                e.previewRevision = linkMetadata.previewRevision;
                 const QMimeType mime = e.isDir
                     ? mimeDb.mimeTypeForName(QStringLiteral("inode/directory"))
                     : mimeDb.mimeTypeForFile(name, QMimeDatabase::MatchExtension);
@@ -1505,6 +1518,7 @@ void DirectoryModel::loadSearch(bool incremental)
                 const LocalLinkMetadata linkMetadata = localLinkMetadata(e.localPath, e.suffix);
                 e.linkType = linkMetadata.type;
                 e.linkTarget = linkMetadata.target;
+                e.previewRevision = linkMetadata.previewRevision;
                 const QMimeType mime = e.isDir
                     ? mimeDb.mimeTypeForName(QStringLiteral("inode/directory"))
                     : mimeDb.mimeTypeForFile(name, QMimeDatabase::MatchExtension);
@@ -1582,6 +1596,7 @@ void DirectoryModel::loadSearch(bool incremental)
                 const LocalLinkMetadata linkMetadata = localLinkMetadata(e.localPath, e.suffix);
                 e.linkType = linkMetadata.type;
                 e.linkTarget = linkMetadata.target;
+                e.previewRevision = linkMetadata.previewRevision;
             } else {
                 const QString linkDest = uds.stringValue(KIO::UDSEntry::UDS_LINK_DEST);
                 if (!linkDest.isEmpty()) {
@@ -1716,6 +1731,7 @@ void DirectoryModel::loadLocal(bool incremental)
             const LocalLinkMetadata linkMetadata = localLinkMetadata(e.localPath, e.suffix);
             e.linkType = linkMetadata.type;
             e.linkTarget = linkMetadata.target;
+            e.previewRevision = linkMetadata.previewRevision;
             const QMimeType mime = e.isDir
                 ? mimeDb.mimeTypeForName(QStringLiteral("inode/directory"))
                 : mimeDb.mimeTypeForFile(fi, QMimeDatabase::MatchExtension);
@@ -1866,6 +1882,14 @@ void DirectoryModel::reconcileLocalEntries(QVector<Entry> target)
         }
 
         Entry &current = m_items[row];
+        const QString oldPreview = current.previewRevision.isEmpty()
+            ? QString::number(current.modified.toMSecsSinceEpoch()) + '-' + QString::number(current.size)
+            : current.previewRevision;
+        if (isVideoEntry(desired.mimeType, desired.suffix)) {
+            desired.previewRevision = oldPreview;
+            if (current.size != desired.size || current.modified != desired.modified)
+                schedulePreviewSettlement(desired.localPath);
+        }
         // Keep already-probed video metadata across watcher refreshes.
         if (desired.videoInfo.isEmpty())
             desired.videoInfo = current.videoInfo;
@@ -1877,6 +1901,10 @@ void DirectoryModel::reconcileLocalEntries(QVector<Entry> target)
         if (current.isDir != desired.isDir) changedRoles << IsDirRole;
         if (current.size != desired.size) changedRoles << SizeRole;
         if (current.modified != desired.modified) changedRoles << ModifiedRole;
+        if (!isVideoEntry(desired.mimeType, desired.suffix)
+                && (current.size != desired.size || current.modified != desired.modified
+                    || current.previewRevision != desired.previewRevision))
+            changedRoles << PreviewRevisionRole;
         if (current.created != desired.created) changedRoles << CreatedRole;
         if (current.suffix != desired.suffix) changedRoles << SuffixRole;
         if (current.hidden != desired.hidden) changedRoles << HiddenRole;
@@ -2021,7 +2049,18 @@ void DirectoryModel::refreshLocalFileMetadata()
         Entry &entry = m_items[row];
         const qint64 newSize = info.isDir() ? 0 : info.size();
         const QDateTime newModified = info.lastModified();
+        const QString svgRevision = entry.suffix == QStringLiteral("svg") ? svgPreviewIdentity(path) : QString();
+        const bool previewChanged = entry.size != newSize || entry.modified != newModified;
+        if (previewChanged && isVideoEntry(entry.mimeType, entry.suffix)) {
+            if (entry.previewRevision.isEmpty())
+                entry.previewRevision = QString::number(entry.modified.toMSecsSinceEpoch()) + '-' + QString::number(entry.size);
+            schedulePreviewSettlement(path);
+        }
         QList<int> roles;
+        if (!svgRevision.isEmpty() && entry.previewRevision != svgRevision) {
+            entry.previewRevision = svgRevision;
+            roles.append(PreviewRevisionRole);
+        }
         if (entry.size != newSize) {
             entry.size = newSize;
             roles.append(SizeRole);
@@ -2031,6 +2070,7 @@ void DirectoryModel::refreshLocalFileMetadata()
             roles.append(ModifiedRole);
         }
         if (!roles.isEmpty()) {
+            if (!isVideoEntry(entry.mimeType, entry.suffix)) roles.append(PreviewRevisionRole);
             const QModelIndex changed = index(row, 0);
             emit dataChanged(changed, changed, roles);
         }
@@ -2052,6 +2092,32 @@ void DirectoryModel::cancelKioListing()
         m_kioJob->disconnect(this);
         m_kioJob->kill();
         m_kioJob.clear();
+    }
+}
+
+void DirectoryModel::schedulePreviewSettlement(const QString &path)
+{
+    if (path.isEmpty()) return;
+    m_pendingPreviewPaths.insert(path);
+    m_previewSettleTimer.start();
+}
+
+void DirectoryModel::settleVideoPreviews()
+{
+    const auto paths = std::exchange(m_pendingPreviewPaths, {});
+    for (int row = 0; row < m_items.size(); ++row) {
+        auto &entry = m_items[row];
+        if (!paths.contains(entry.localPath)) continue;
+        const QFileInfo info(entry.localPath);
+        if (!info.exists()) continue;
+        if (info.size() != entry.size || info.lastModified() != entry.modified) {
+            schedulePreviewSettlement(entry.localPath);
+            continue;
+        }
+        const QString revision = QString::number(entry.modified.toMSecsSinceEpoch()) + '-' + QString::number(entry.size);
+        if (entry.previewRevision == revision) continue;
+        entry.previewRevision = revision;
+        emit dataChanged(index(row, 0), index(row, 0), {PreviewRevisionRole});
     }
 }
 
@@ -2252,6 +2318,7 @@ void DirectoryModel::loadTrashLocal(const QString &localPath, const QUrl &trashL
             const LocalLinkMetadata linkMetadata = localLinkMetadata(e.localPath, e.suffix);
             e.linkType = linkMetadata.type;
             e.linkTarget = linkMetadata.target;
+            e.previewRevision = linkMetadata.previewRevision;
             const QMimeType mime = e.isDir
                 ? mimeDb.mimeTypeForName(QStringLiteral("inode/directory"))
                 : mimeDb.mimeTypeForFile(fi, QMimeDatabase::MatchExtension);
@@ -2354,6 +2421,7 @@ void DirectoryModel::loadKio()
                 const LocalLinkMetadata linkMetadata = localLinkMetadata(e.localPath, e.suffix);
                 e.linkType = linkMetadata.type;
                 e.linkTarget = linkMetadata.target;
+                e.previewRevision = linkMetadata.previewRevision;
             } else {
                 const QString linkDest = uds.stringValue(KIO::UDSEntry::UDS_LINK_DEST);
                 if (!linkDest.isEmpty()) {
@@ -2635,7 +2703,7 @@ void DirectoryModel::requestGoogleDriveFolderMetadata(const QString &folderId, i
 
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_googleAccessToken.toUtf8());
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0"));
 
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, generation]() {
@@ -2675,7 +2743,7 @@ void DirectoryModel::requestGoogleDrivePage(const QString &folderId, const QStri
 
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_googleAccessToken.toUtf8());
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0"));
 
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, folderId, generation]() {
@@ -2880,7 +2948,7 @@ QString DirectoryModel::oneDriveFileIdFromUrl(const QString &itemUrl) const
 
 QNetworkRequest DirectoryModel::oneDriveRequest(const QUrl &url) const
 {
-    QNetworkRequest req(url); req.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_oneDriveAccessToken.toUtf8()); req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10")); req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::NoLessSafeRedirectPolicy); return req;
+    QNetworkRequest req(url); req.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_oneDriveAccessToken.toUtf8()); req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0")); req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::NoLessSafeRedirectPolicy); return req;
 }
 
 QString DirectoryModel::oneDriveApiError(const QByteArray &payload, const QString &fallback) const
@@ -2944,7 +3012,7 @@ QNetworkRequest DirectoryModel::googleRequest(const QUrl &url) const
 {
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_googleAccessToken.toUtf8());
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0"));
     return request;
 }
 
@@ -3156,7 +3224,7 @@ void DirectoryModel::googleOpenItem(const QString &itemUrl)
         return;
 
     // Google-native documents are best opened by Drive itself. Regular files are
-    // downloaded to g-File's cache and opened with the desktop default application.
+    // downloaded to Lurviko's cache and opened with the desktop default application.
     if (entry->mimeType.startsWith(QStringLiteral("application/vnd.google-apps."))) {
         QUrl webUrl(QStringLiteral("https://drive.google.com/open"));
         QUrlQuery query;

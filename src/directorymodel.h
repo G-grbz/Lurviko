@@ -69,7 +69,8 @@ public:
         ChildCountRole,
         FolderPreviewPathsRole,
         LinkTypeRole,
-        LinkTargetRole
+        LinkTargetRole,
+        PreviewRevisionRole
     };
 
     explicit DirectoryModel(QObject *parent = nullptr);
@@ -177,6 +178,7 @@ private:
         QStringList folderPreviewPaths;
         QString linkType;
         QString linkTarget;
+        QString previewRevision;
     };
 
     // Only this bounded mailbox crosses the worker/UI boundary. Session
@@ -254,6 +256,8 @@ private:
     void watchLocalFiles(const QVector<Entry> &entries);
     void installLocalFileWatchBatch();
     void refreshLocalFileMetadata();
+    void settleVideoPreviews();
+    void schedulePreviewSettlement(const QString &path);
     void updateStorageInfo();
     void scheduleVideoMetadata();
     void startNextVideoProbe(int generation);
@@ -301,6 +305,8 @@ private:
     QTimer m_localRefreshTimer;
     QTimer m_localMetadataTimer;
     QTimer m_localWatchInstallTimer;
+    QTimer m_previewSettleTimer;
+    QSet<QString> m_pendingPreviewPaths;
     QStringList m_localWatchQueue;
     QSet<QString> m_pendingLocalMetadataPaths;
     qint64 m_storageTotalBytes = 0;

@@ -1,0 +1,14 @@
+Font Awesome Free 7.3.1 — SVG icon attribution
+Copyright 2026 Fonticons, Inc. https://fontawesome.com
+
+Font Awesome SVG artwork in assets/icons/, including renamed or edited copies,
+is licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
+License: https://creativecommons.org/licenses/by/4.0/
+Legal code: https://creativecommons.org/licenses/by/4.0/legalcode
+Upstream notice: https://github.com/FortAwesome/Font-Awesome/blob/7.x/LICENSE.txt
+
+Some icons have been renamed, recolored or adjusted for g-File. The application
+also adapts their display color and size. Preserve the upstream attribution
+comments in the SVG files. Fonticons does not endorse this application.
+
+This notice applies to Font Awesome artwork; other assets retain their own terms.

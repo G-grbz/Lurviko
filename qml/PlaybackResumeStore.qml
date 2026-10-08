@@ -27,7 +27,7 @@ QtObject {
         settings.positionsJson = json
         settings.setValue("positionsJson", json)
         // Resume is user state, not a cosmetic preference: force it to disk so
-        // closing g-File immediately after pausing cannot lose the position.
+        // closing Lurviko immediately after pausing cannot lose the position.
         settings.sync()
     }
 

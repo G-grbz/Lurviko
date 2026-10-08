@@ -6,8 +6,8 @@ import QtQuick.Effects
 import QtQuick.Window
 import QtQml
 import QtMultimedia
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 
 Popup {
     id: viewer
@@ -61,11 +61,13 @@ Popup {
     property var files: []
     property int currentIndex: -1
     property var hostWindow: null
-    // Fullscreen belongs to a dedicated video-player window. The main G-File
+    // Fullscreen belongs to a dedicated video-player window. The main Lurviko
     // window keeps its current Windowed/Maximized state, matching PhotoViewer.
     property bool viewerFullScreen: false
     property bool movingToWindow: false
     property bool playbackSessionOpen: false
+    readonly property var chapters: chapterReader.chapters
+    readonly property int activeChapterIndex: chapters.length ? chapterReader.chapterAt(player.position) : -1
     property var normalOverlayParent: null
     property bool controlsVisible: true
     property bool controlsSettling: false
@@ -175,6 +177,21 @@ Popup {
     readonly property bool hostFullScreen: viewerFullScreen
     readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
     readonly property bool paused: player.playbackState === MediaPlayer.PausedState
+    readonly property string currentUrl: currentItem ? String(currentItem.url || "") : ""
+    readonly property string currentTitle: currentItem ? String(currentItem.name || "") : ""
+    readonly property string playbackStatus: playing ? "Playing" : (paused ? "Paused" : "Stopped")
+    readonly property real duration: player.duration
+    readonly property real position: player.position
+    readonly property real volume: audioOutput.volume
+    readonly property string currentArtwork: String(pauseMetadata.artworkUrl || pauseMetadata.posterUrl
+                                                   || pauseMetadata.backdropUrl || thumbSource(currentItem) || "")
+    readonly property var sessionMetadata: ({
+        title: pauseMetadata.title || trackMetadataString(player.metaData, 0),
+        artist: trackMetadataString(player.metaData, 20) || trackMetadataString(player.metaData, 1),
+        album: trackMetadataString(player.metaData, 18),
+        year: pauseMetadata.year || trackMetadataString(player.metaData, 5),
+        genre: pauseMetadata.genres || trackMetadataString(player.metaData, 4)
+    })
     readonly property var frameMatchMediaPlayer: player
     readonly property real controlsOpacity: !controlsVisible ? 0.0 : 1.0
     readonly property int sourceVideoWidth: Math.max(0, Math.round(videoOutput.sourceRect.width))
@@ -182,7 +199,7 @@ Popup {
     readonly property string sourceVideoResolution: sourceVideoWidth > 0 && sourceVideoHeight > 0
                                                     ? sourceVideoWidth + "×" + sourceVideoHeight : ""
 
-    function viewerIcon(name) { return "qrc:/qt/qml/GFile/App/assets/icons/" + name }
+    function viewerIcon(name) { return "qrc:/qt/qml/Lurviko/App/assets/icons/" + name }
     function thumbSource(item) {
         if (!item) return ""
         if (item.thumbnailUrl && String(item.thumbnailUrl).length)
@@ -829,6 +846,7 @@ Popup {
         // A live ShaderEffectSource can otherwise retain the old window's
         // render context and try to draw without a valid command buffer.
         movingToWindow = true
+        chapterPopup.close()
         audioTrackPopup.close()
         subtitleTrackPopup.close()
         subtitleAiSubtitlePopup.close()
@@ -881,9 +899,26 @@ Popup {
     function previousVideo() { if (files.length) setIndex((currentIndex - 1 + files.length) % files.length, true) }
     function nextVideo() { if (files.length) setIndex((currentIndex + 1) % files.length, true) }
     function togglePlayback() { if (playing) player.pause(); else player.play() }
+    function play() { player.play() }
+    function pause() { player.pause() }
+    function stopPlayback() { player.stop() }
+    function seekTo(positionMs) { player.position = Math.max(0, Math.min(player.duration, positionMs)) }
+    function selectChapter(index) {
+        if (index < 0 || index >= chapters.length || !player.seekable) return
+        seekTo(Number(chapters[index].startMs))
+        chapterPopup.close()
+        revealControls()
+    }
+    function setVolume(value) { audioOutput.volume = Math.max(0, Math.min(1, value)) }
     function seekBy(deltaMs) { player.position = Math.max(0, Math.min(player.duration, player.position + deltaMs)) }
     function handleGlobalAction(action) {
         revealControls()
+        if (chapterPopup.visible && (action === "up" || action === "down")) {
+            chapterList.currentIndex = Math.max(0, Math.min(chapters.length - 1, chapterList.currentIndex + (action === "up" ? -1 : 1)))
+            chapterList.positionViewAtIndex(chapterList.currentIndex, ListView.Contain)
+            return
+        }
+        if (chapterPopup.visible && action === "toggle") { selectChapter(chapterList.currentIndex); return }
         if (action === "escape") {
             if (subtitleStylePopup.visible) { subtitleStylePopup.close(); return }
             if (subtitleAiSubtitlePopup.visible) {
@@ -891,6 +926,7 @@ Popup {
                     subtitleAiSubtitlePopup.close()
                 return
             }
+            if (chapterPopup.visible) { chapterPopup.close(); return }
             if (audioTrackPopup.visible) { audioTrackPopup.close(); return }
             if (subtitleTrackPopup.visible) { subtitleTrackPopup.close(); return }
             if (hostFullScreen) toggleHostFullScreen()
@@ -910,6 +946,13 @@ Popup {
         id: subtitleAiManager
         objectName: "videoSubtitleAiManager"
     }
+
+    VideoChapterReader {
+        id: chapterReader
+        objectName: "videoChapterReader"
+        source: viewer.playbackSessionOpen && viewer.currentItem ? viewer.currentItem.url : ""
+        onSourceChanged: chapterPopup.close()
+    }
     SubtitleStyleManager {
         id: subtitleStyleManager
     }
@@ -924,6 +967,37 @@ Popup {
             })
         }
         function onFailed(_message) { Qt.callLater(viewer.refreshSubtitleAiCacheState) }
+    }
+
+    component ChapterTimelineMarkers: Item {
+        id: markers
+        required property var chapterModel
+        required property real durationMs
+
+        // Purely visual: the timeline keeps handling clicks and drags itself.
+        Repeater {
+            model: markers.chapterModel
+            delegate: Rectangle {
+                required property var modelData
+                required property int index
+                objectName: markers.objectName + "Boundary" + index
+                readonly property real startMs: Number(modelData.startMs)
+                visible: markers.durationMs > 0 && startMs > 0 && startMs < markers.durationMs
+                x: markers.durationMs > 0 ? markers.width * startMs / markers.durationMs - width / 2 : 0
+                y: (markers.height - height) / 2
+                width: 4
+                height: 11
+                radius: 1
+                color: "#99080B11"
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 2
+                    height: 9
+                    radius: 1
+                    color: "#F7FAFF"
+                }
+            }
+        }
     }
 
     component ViewerIconButton: GToolButton { colorTheme: videoTheme;
@@ -1001,7 +1075,7 @@ Popup {
         transientParent: viewer.normalOverlayParent ? viewer.normalOverlayParent.Window.window : null
         visible: false
         color: videoTheme.viewerBackground
-        title: viewer.lang.language === "tr" ? "G-File Video Oynatıcı" : "G-File Video Player"
+        title: viewer.lang.language === "tr" ? "Lurviko Video Oynatıcı" : "Lurviko Video Player"
         flags: Qt.Window | Qt.FramelessWindowHint
         onClosing: function(close) {
             if (viewer.viewerFullScreen) {
@@ -1042,7 +1116,7 @@ Popup {
         videoOutput: videoOutput
         onMediaStatusChanged: {
             if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) {
-                // G-File renders every subtitle through its own styled overlay.
+                // Lurviko renders every subtitle through its own styled overlay.
                 // Keep Qt Multimedia's native subtitle track disabled to avoid
                 // the same cue being rendered twice.
                 if (player.activeSubtitleTrack >= 0)
@@ -1125,6 +1199,7 @@ Popup {
     }
     onClosed: {
         playbackSessionOpen = false
+        chapterPopup.close()
         saveResumePosition()
         saveTrackPreferences()
         player.stop()
@@ -1186,7 +1261,7 @@ Popup {
         interval: 1800
         onTriggered: {
             if (topHover.hovered || bottomHover.hovered || stripHover.hovered || infoHover.hovered
-                    || audioTrackPopup.visible || subtitleTrackPopup.visible) { restart(); return }
+                    || chapterPopup.visible || audioTrackPopup.visible || subtitleTrackPopup.visible) { restart(); return }
             viewer.controlsSettling = true
             viewer.controlsVisible = false
             settleTimer.restart()
@@ -1257,7 +1332,10 @@ Popup {
         onTriggered: viewer.saveResumePosition()
     }
 
-    Component.onCompleted: VideoPlayerInputManager.registerViewer(viewer)
+    Component.onCompleted: {
+        VideoPlayerInputManager.setShortcutManager(KeyboardShortcuts)
+        VideoPlayerInputManager.registerViewer(viewer)
+    }
     Component.onDestruction: {
         VideoPlayerInputManager.unregisterViewer(viewer)
         saveResumePosition()
@@ -1601,6 +1679,12 @@ Popup {
                     radius: parent.radius
                     color: "#F7FAFF"
                 }
+                ChapterTimelineMarkers {
+                    objectName: "videoPauseChapterMarkers"
+                    anchors.fill: parent
+                    chapterModel: viewer.chapters
+                    durationMs: player.duration
+                }
             }
         }
 
@@ -1641,7 +1725,7 @@ Popup {
                     anchors.leftMargin: 7
                     anchors.rightMargin: 12
                     spacing: 9
-                    ViewerIconButton { Layout.preferredWidth: 36; Layout.preferredHeight: 36; iconName: "viewer-close.svg"; toolTipText: viewer.lang.language === "tr" ? "Kapat (Esc)" : "Close (Esc)"; onClicked: viewer.close() }
+                    ViewerIconButton { Layout.preferredWidth: 36; Layout.preferredHeight: 36; iconName: "close-ui.svg"; toolTipText: viewer.lang.language === "tr" ? "Kapat (Esc)" : "Close (Esc)"; onClicked: viewer.close() }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 0
@@ -1715,6 +1799,7 @@ Popup {
 
                     GSlider { colorTheme: videoTheme;
                         id: seekSlider
+                        objectName: "videoSeekSlider"
                         Layout.fillWidth: true
                         Layout.preferredHeight: 22
                         Layout.maximumHeight: 22
@@ -1725,13 +1810,19 @@ Popup {
                         onMoved: viewer.revealControls()
                         Binding { target: seekSlider; property: "value"; value: player.position; when: !seekSlider.pressed }
                         background: Rectangle {
-                            x: seekSlider.leftPadding
+                            x: seekSlider.leftPadding + seekSlider.handle.width / 2
                             y: seekSlider.topPadding + seekSlider.availableHeight / 2 - height / 2
-                            width: seekSlider.availableWidth
+                            width: seekSlider.availableWidth - seekSlider.handle.width
                             height: 4
                             radius: 2
                             color: videoTheme.viewerTrack
                             Rectangle { width: seekSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: videoTheme.accent }
+                            ChapterTimelineMarkers {
+                                objectName: "videoSeekChapterMarkers"
+                                anchors.fill: parent
+                                chapterModel: viewer.chapters
+                                durationMs: player.duration
+                            }
                         }
                         handle: Rectangle {
                             x: seekSlider.leftPadding + seekSlider.visualPosition * (seekSlider.availableWidth - width)
@@ -1767,6 +1858,25 @@ Popup {
                             onClicked: viewer.restoreSubtitleAiPanel()
                         }
                         ViewerTextButton {
+                            objectName: "videoChaptersButton"
+                            label: viewer.lang.language === "tr" ? "BÖLÜMLER" : "CHAPTERS"
+                            implicitWidth: 82
+                            enabled: !chapterReader.loading && viewer.chapters.length > 0
+                            emphasized: chapterPopup.visible
+                            toolTipText: chapterReader.loading
+                                ? (viewer.lang.language === "tr" ? "Bölümler okunuyor…" : "Reading chapters…")
+                                : (chapterReader.error === "missing-ffprobe"
+                                   ? (viewer.lang.language === "tr" ? "Bölümleri okumak için ffprobe gerekli" : "ffprobe is required to read chapters")
+                                   : (viewer.chapters.length ? (viewer.lang.language === "tr" ? "Bölüm seç" : "Select chapter")
+                                      : (viewer.lang.language === "tr" ? "Bu videoda bölüm bilgisi yok" : "This video has no chapter information")))
+                            onClicked: {
+                                audioTrackPopup.close(); subtitleTrackPopup.close()
+                                if (chapterPopup.visible) chapterPopup.close()
+                                else chapterPopup.open()
+                            }
+                        }
+                        ViewerTextButton {
+                            objectName: "videoAudioButton"
                             label: viewer.lang.language === "tr" ? "SES" : "AUDIO"
                             implicitWidth: viewer.lang.language === "tr" ? 42 : 50
                             enabled: player.audioTracks.length > 0
@@ -1774,7 +1884,7 @@ Popup {
                             toolTipText: player.audioTracks.length > 0
                                          ? (viewer.lang.language === "tr" ? "Ses parçası: " : "Audio track: ") + viewer.audioTrackLabel(player.activeAudioTrack)
                                          : (viewer.lang.language === "tr" ? "Ses parçası bulunamadı" : "No audio tracks")
-                            onClicked: { subtitleTrackPopup.close(); audioTrackPopup.open() }
+                            onClicked: { chapterPopup.close(); subtitleTrackPopup.close(); audioTrackPopup.open() }
                         }
                         ViewerTextButton {
                             label: "CC"
@@ -1783,7 +1893,7 @@ Popup {
                             toolTipText: (player.activeSubtitleTrack >= 0 || viewer.selectedSubtitleSource !== null)
                                          ? (viewer.lang.language === "tr" ? "Altyazı: " : "Subtitle: ") + viewer.currentSubtitleLabel()
                                          : (viewer.lang.language === "tr" ? "Altyazı seçenekleri" : "Subtitle options")
-                            onClicked: { audioTrackPopup.close(); subtitleTrackPopup.open() }
+                            onClicked: { chapterPopup.close(); audioTrackPopup.close(); subtitleTrackPopup.open() }
                         }
                         ViewerIconButton { iconName: audioOutput.muted || audioOutput.volume <= 0.001 ? "viewer-volume-muted.svg" : "viewer-volume.svg"; toolTipText: viewer.lang.language === "tr" ? "Sesi aç/kapat (M)" : "Mute / unmute (M)"; onClicked: audioOutput.muted = !audioOutput.muted }
                         GSlider { colorTheme: videoTheme;
@@ -1849,6 +1959,113 @@ Popup {
                             GViewerIcon { anchors.centerIn: parent; width: 12; height: 12; source: viewer.viewerIcon("viewer-play.svg"); tintColor: videoTheme.viewerText }
                         }
                         MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: viewer.setIndex(index, true) }
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: chapterPopup
+        objectName: "videoChapterPopup"
+        palette: viewer.palette
+        parent: viewer.contentItem
+        modal: false
+        focus: true
+        width: Math.min(400, Math.max(240, viewer.width - 32))
+        height: Math.min(420, Math.max(100, viewer.height - 192), 62 + Math.min(7, viewer.chapters.length) * 50)
+        x: Math.max(16, viewer.width - width - 18)
+        y: Math.max(16, viewer.height - height - 176)
+        padding: 10
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: {
+            viewer.revealControls()
+            Qt.callLater(function() {
+                chapterList.currentIndex = Math.max(0, viewer.activeChapterIndex)
+                chapterList.positionViewAtIndex(chapterList.currentIndex, ListView.Center)
+                chapterList.forceActiveFocus()
+            })
+        }
+        background: GGlassPanel {
+            sourceItem: videoScene
+            radius: 14
+            tintColor: videoTheme.viewerGlassStrong
+            borderColor: videoTheme.viewerGlassBorder
+            blurAmount: 0.66
+        }
+        contentItem: ColumnLayout {
+            spacing: 6
+            Text {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 32
+                text: (viewer.lang.language === "tr" ? "Bölümler" : "Chapters") + " · " + viewer.chapters.length
+                color: videoTheme.viewerText
+                font.pixelSize: 13; font.weight: Font.DemiBold
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: 10
+            }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: videoTheme.viewerGlassBorderSoft }
+            ListView {
+                id: chapterList
+                objectName: "videoChapterList"
+                Layout.fillWidth: true; Layout.fillHeight: true
+                clip: true
+                model: viewer.chapters
+                boundsBehavior: Flickable.StopAtBounds
+                Keys.onReturnPressed: viewer.selectChapter(currentIndex)
+                Keys.onEnterPressed: viewer.selectChapter(currentIndex)
+                delegate: ItemDelegate {
+                    required property int index
+                    required property var modelData
+                    objectName: "videoChapterRow" + index
+                    width: chapterList.width - 12
+                    height: 50
+                    hoverEnabled: true
+                    enabled: player.seekable
+                    highlighted: viewer.activeChapterIndex === index
+                    readonly property bool keyboardSelected: chapterList.activeFocus && chapterList.currentIndex === index
+                    contentItem: Column {
+                        spacing: 4
+                        Text {
+                            leftPadding: 10
+                            width: parent.width - 20
+                            text: modelData.title || ((viewer.lang.language === "tr" ? "Bölüm " : "Chapter ") + (index + 1))
+                            textFormat: Text.PlainText
+                            color: videoTheme.viewerText; font.pixelSize: 11
+                            font.weight: viewer.activeChapterIndex === index ? Font.DemiBold : Font.Normal
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            leftPadding: 10
+                            text: viewer.formatTime(Number(modelData.startMs))
+                            color: viewer.activeChapterIndex === index ? videoTheme.accent : videoTheme.viewerTextMuted
+                            font.pixelSize: 10
+                        }
+                    }
+                    background: Rectangle {
+                        radius: 8
+                        color: parent.down ? videoTheme.viewerGlassPressed
+                               : (parent.hovered || parent.highlighted || parent.keyboardSelected ? videoTheme.viewerGlassHover : "transparent")
+                        border.width: parent.highlighted ? 1 : 0
+                        border.color: videoTheme.accent
+                    }
+                    onClicked: viewer.selectChapter(index)
+                    GToolTip {
+                        colorTheme: videoTheme
+                        text: modelData.title || ((viewer.lang.language === "tr" ? "Bölüm " : "Chapter ") + (index + 1))
+                    }
+                }
+                ScrollBar.vertical: ScrollBar {
+                    id: chapterScrollBar
+                    policy: ScrollBar.AsNeeded
+                    width: 8
+                    background: Item {}
+                    contentItem: Rectangle {
+                        implicitWidth: 5
+                        radius: 3
+                        color: chapterScrollBar.pressed ? videoTheme.accent : videoTheme.viewerTextMuted
+                        opacity: chapterScrollBar.active ? 0.7 : 0
+                        Behavior on opacity { NumberAnimation { duration: 140 } }
                     }
                 }
             }
@@ -2531,8 +2748,8 @@ Popup {
                     Text {
                         Layout.fillWidth: true
                         text: viewer.subtitleAiMode === "subtitle"
-                              ? (viewer.lang.language === "tr" ? "G-File AI · Altyazı Çevir" : "G-File AI · Translate Subtitle")
-                              : (viewer.lang.language === "tr" ? "G-File AI · Altyazı Oluştur" : "G-File AI · Generate Subtitles")
+                              ? (viewer.lang.language === "tr" ? "Lurviko AI · Altyazı Çevir" : "Lurviko AI · Translate Subtitle")
+                              : (viewer.lang.language === "tr" ? "Lurviko AI · Altyazı Oluştur" : "Lurviko AI · Generate Subtitles")
                         color: videoTheme.viewerText
                         font.pixelSize: 18
                         font.weight: Font.Bold
@@ -2829,8 +3046,8 @@ Popup {
                     Text {
                         Layout.fillWidth: true
                         text: viewer.lang.language === "tr"
-                              ? "Dosya videonun yanına yazıldı. G-File klasör görünümünde otomatik olarak görünecek."
-                              : "The file was written next to the video and will appear in the G-File folder view."
+                              ? "Dosya videonun yanına yazıldı. Lurviko klasör görünümünde otomatik olarak görünecek."
+                              : "The file was written next to the video and will appear in the Lurviko folder view."
                         color: videoTheme.viewerTextMuted
                         font.pixelSize: 9
                         wrapMode: Text.Wrap

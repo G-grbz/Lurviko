@@ -1,5 +1,5 @@
 import QtQuick
-import GFile.App
+import Lurviko.App
 
 Item {
     id: surface

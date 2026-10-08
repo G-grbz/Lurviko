@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import GFile.App
+import Lurviko.App
 
 Rectangle {
     id: card
+    property string language: "en"
     property int diskIndex: -1
     property bool diskReorder: true
     property bool dragging: reorderDrag.active
@@ -103,7 +104,7 @@ Rectangle {
     GMenu {
         id: diskContextMenu
         GMenuItem {
-            text: qsTr("Düzenle")
+            text: card.language === "tr" ? "Düzenle" : "Edit"
             onTriggered: card.editRequested(card.stableId, card.title, card.iconName)
         }
     }

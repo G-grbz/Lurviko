@@ -1333,6 +1333,20 @@ bool FileOperations::renameItem(const QString &itemUrl, const QString &newName)
     destination.setPath(path);
 
     auto *job = KIO::moveAs(source, destination);
+    const auto renamedDestination = std::make_shared<QUrl>();
+    connect(job, &KIO::CopyJob::copyingDone, this,
+            [source, renamedDestination](KIO::Job *, const QUrl &from, const QUrl &to, const QDateTime &, bool, bool) {
+        if (from.adjusted(QUrl::StripTrailingSlash) == source.adjusted(QUrl::StripTrailingSlash))
+            *renamedDestination = to;
+    });
+    connect(job, &KJob::result, this, [this, job, source, renamedDestination]() {
+        if (!job->error()) {
+            QStringList results;
+            if (!renamedDestination->isEmpty())
+                results.push_back(renamedDestination->toString());
+            emit itemsRenamed({source.toString()}, results);
+        }
+    });
     const QUrl parent = source.adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash);
     KIO::FileUndoManager::self()->recordJob(KIO::FileUndoManager::Rename, {source}, parent, job);
     finishJob(job, QStringLiteral("Renamed"));
@@ -1360,6 +1374,22 @@ bool FileOperations::batchRename(const QStringList &itemUrls, const QString &new
     }
 
     auto *job = KIO::batchRename(urls, trimmed, qMax(0, startIndex), QLatin1Char('#'));
+    const auto renamed = std::make_shared<QHash<QUrl, QUrl>>();
+    connect(job, &KIO::BatchRenameJob::fileRenamed, this,
+            [renamed](const QUrl &source, const QUrl &destination) { renamed->insert(source, destination); });
+    connect(job, &KJob::result, this, [this, job, urls, renamed]() {
+        if (job->error())
+            return;
+        QStringList sources;
+        QStringList results;
+        for (const QUrl &source : urls) {
+            if (!renamed->contains(source))
+                continue;
+            sources.push_back(source.toString());
+            results.push_back(renamed->value(source).toString());
+        }
+        emit itemsRenamed(sources, results);
+    });
     const QUrl parent = urls.constFirst().adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash);
     KIO::FileUndoManager::self()->recordJob(KIO::FileUndoManager::BatchRename, urls, parent, job);
     finishJob(job, QStringLiteral("Renamed"));

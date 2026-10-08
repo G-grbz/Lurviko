@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import GFile.App
+import Lurviko.App
 
 ToolButton {
     id: control
@@ -13,7 +13,7 @@ ToolButton {
     // ToolButton defaults to TextBesideIcon even when text is empty. Several
     // compact player controls therefore kept the full text-button padding and
     // left only a few pixels for the icon. Empty text is the reliable signal
-    // that these controls are icon-only in G-File.
+    // that these controls are icon-only in Lurviko.
     readonly property bool iconOnlyLayout: text.length === 0
     readonly property bool compactGlyphLayout: !iconOnlyLayout && text.length <= 2
 
@@ -57,7 +57,9 @@ ToolButton {
             if (control.flat || control.quiet || control.iconOnlyLayout) {
                 if (control.down || control.checked) return control.colorTheme.accentSoft
                 if (control.hovered) return control.colorTheme.surfaceHover
-                return "transparent"
+                return Qt.rgba(control.colorTheme.surfaceHover.r,
+                               control.colorTheme.surfaceHover.g,
+                               control.colorTheme.surfaceHover.b, 0)
             }
             if (!control.enabled) return control.colorTheme.surfaceRaised
             if (control.primary) return control.down ? control.colorTheme.accentHover : control.colorTheme.accent

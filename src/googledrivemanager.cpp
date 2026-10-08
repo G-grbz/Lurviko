@@ -152,7 +152,7 @@ QNetworkRequest GoogleDriveManager::request(const QUrl &url) const
 {
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_accessToken.toUtf8());
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("g-File/0.5.10"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/1.0.0"));
     return request;
 }
 

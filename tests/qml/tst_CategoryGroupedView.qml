@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtTest
-import GFile.App
+import Lurviko.App
 
 Item {
     width: 1020
@@ -154,6 +154,11 @@ Item {
             tryCompare(rename, "count", 1)
             compare(rename.signalArguments[0][0], card.modelData.itemUrl)
             compare(rename.signalArguments[0][1], "Renamed.mp3")
+            compare(rename.signalArguments[0][3], false)
+            rename.clear()
+            keyClick(Qt.Key_Tab)
+            tryCompare(rename, "count", 1)
+            compare(rename.signalArguments[0][3], true)
         }
     }
 }

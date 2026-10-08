@@ -2,13 +2,16 @@
 
 #include <QObject>
 #include <QVariantMap>
-#include <QTimer>
+#include <QPointer>
+
+class QQuickImageResponse;
 
 class MprisController : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
     Q_PROPERTY(QString playbackStatus READ playbackStatus WRITE setPlaybackStatus NOTIFY playbackStatusChanged)
+    Q_PROPERTY(QVariantMap trackMetadata READ trackMetadata WRITE setTrackMetadata NOTIFY metadataChanged)
     Q_PROPERTY(QString title READ title WRITE setTitle NOTIFY metadataChanged)
     Q_PROPERTY(QString trackUrl READ trackUrl WRITE setTrackUrl NOTIFY metadataChanged)
     Q_PROPERTY(QString artworkHint READ artworkHint WRITE setArtworkHint NOTIFY metadataChanged)
@@ -24,6 +27,7 @@ public:
 
     bool active() const { return m_active; }
     QString playbackStatus() const { return m_playbackStatus; }
+    QVariantMap trackMetadata() const { return m_trackMetadata; }
     QString title() const { return m_title; }
     QString trackUrl() const { return m_trackUrl; }
     QString artworkHint() const { return m_artworkHint; }
@@ -35,6 +39,7 @@ public:
 
     void setActive(bool value);
     void setPlaybackStatus(const QString &value);
+    void setTrackMetadata(const QVariantMap &value);
     void setTitle(const QString &value);
     void setTrackUrl(const QString &value);
     void setArtworkHint(const QString &value);
@@ -80,11 +85,12 @@ private:
     void emitRootProperties(const QVariantMap &changed);
     void emitPlayerProperties(const QVariantMap &changed);
     void refreshArtwork();
-    QString localArtworkCachePath() const;
+    void cancelArtworkRequest();
     QString trackObjectPath() const;
 
     bool m_active = false;
     QString m_playbackStatus = QStringLiteral("Stopped");
+    QVariantMap m_trackMetadata;
     QString m_title;
     QString m_trackUrl;
     QString m_artworkHint;
@@ -94,6 +100,6 @@ private:
     double m_volume = 0.82;
     bool m_shuffle = false;
     int m_repeatMode = 0;
-    QTimer m_artworkRetry;
-    int m_artworkRetryCount = 0;
+    QPointer<QQuickImageResponse> m_artworkResponse;
+    QString m_artworkRequestUrl;
 };

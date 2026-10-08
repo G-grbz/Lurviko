@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -38,9 +39,10 @@ jobs:
         run: bash .github/scripts/run-headless-tests.sh
       - name: Check installation and desktop integration
         run: |
-          cmake --install build --prefix /tmp/g-file-install
-          test -x /tmp/g-file-install/bin/g-file
-          test -f /tmp/g-file-install/share/icons/hicolor/512x512/apps/g-file.png
-          test -f /tmp/g-file-install/share/dbus-1/services/org.freedesktop.FileManager1.service
-          test -f /tmp/g-file-install/share/g-File/subtitle-ai/worker.py
-          desktop-file-validate /tmp/g-file-install/share/applications/g-file.desktop
+          cmake --install build --prefix /tmp/lurviko-install
+          test -x /tmp/lurviko-install/bin/lurviko
+          grep -q '^Exec=.' /tmp/lurviko-install/share/applications/lurviko.desktop
+          test -f /tmp/lurviko-install/share/icons/hicolor/512x512/apps/lurviko.png
+          test -f /tmp/lurviko-install/share/dbus-1/services/org.freedesktop.FileManager1.service
+          test -f /tmp/lurviko-install/share/Lurviko/subtitle-ai/worker.py
+          desktop-file-validate /tmp/lurviko-install/share/applications/lurviko.desktop

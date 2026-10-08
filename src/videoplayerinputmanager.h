@@ -4,6 +4,8 @@
 #include <QPointer>
 #include <QVector>
 
+class KeyboardShortcutManager;
+
 class VideoPlayerInputManager : public QObject
 {
     Q_OBJECT
@@ -16,6 +18,7 @@ public:
     void setActive(bool active);
     Q_INVOKABLE void registerViewer(QObject *viewer);
     Q_INVOKABLE void unregisterViewer(QObject *viewer);
+    Q_INVOKABLE void setShortcutManager(QObject *manager);
 
 signals:
     void activeChanged();
@@ -35,4 +38,5 @@ private:
     bool hasVisibleViewer() const;
     void compactViewers();
     QVector<QPointer<QObject>> m_viewers;
+    QPointer<KeyboardShortcutManager> m_shortcuts;
 };

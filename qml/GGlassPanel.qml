@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Effects
-import GFile.App
+import Lurviko.App
 
 Item {
     id: glass

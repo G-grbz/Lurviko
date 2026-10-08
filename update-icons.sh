@@ -18,5 +18,5 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$install_prefix/share/applications"
 fi
 
-printf 'g-File ikonları yenilendi ve %s dizinine kuruldu.\n' "$install_prefix"
-printf 'Açık g-File pencerelerini kapatıp uygulamayı yeniden başlatın.\n'
+printf 'Lurviko ikonları yenilendi ve %s dizinine kuruldu.\n' "$install_prefix"
+printf 'Açık Lurviko pencerelerini kapatıp uygulamayı yeniden başlatın.\n'

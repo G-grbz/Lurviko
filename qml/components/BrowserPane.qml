@@ -5,8 +5,8 @@ import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQml.Models
 import QtCore
-import GFile.Backend
-import GFile.App
+import Lurviko.Backend
+import Lurviko.App
 
 Rectangle {
     id: root
@@ -17,7 +17,8 @@ Rectangle {
     property int iconSize: 168
     // Category views have their own zoom level. Changing a category must not
     // silently resize ordinary directories (and vice versa).
-    property int categoryIconSize: 168
+    readonly property int categoryIconSize: AppTheme.categoryIconSize
+    readonly property int musicIconSize: AppTheme.musicIconSize
     readonly property var hostWindow: ApplicationWindow.window
     readonly property var systemDirectoryIconSizes: iconPicker.availableSystemIconSizes("folder", 256)
     property alias showHiddenFiles: directory.showHidden
@@ -92,6 +93,8 @@ Rectangle {
     property string pendingResultMode: ""
     property string pendingResultLocation: ""
     property var pendingResultNames: []
+    property var pendingRenameSourceUrls: []
+    property var pendingRenameResultUrls: []
     property var pendingResultBeforeUrls: []
     property bool pendingResultRevealSingle: false
     property var pendingResultBeforeSignatures: ({})
@@ -138,6 +141,13 @@ Rectangle {
     property bool loadingOverlayReady: false
     property string inlineRenameUrl: ""
     property string inlineRenameOriginalName: ""
+    property var inlineRenameEditor: null
+    readonly property bool renameConfirmationOpen: hiddenRenameDialog.visible
+    onInlineRenameUrlChanged: {
+        if (hiddenRenameDialog.actionType === "rename" && hiddenRenameDialog.targetUrl.length
+            && inlineRenameUrl !== hiddenRenameDialog.targetUrl)
+            hiddenRenameDialog.close()
+    }
     property string typeAheadBuffer: ""
     // Consecutive wheel events share a destination so a fast spin builds
     // speed instead of restarting from the current visible position.
@@ -165,7 +175,38 @@ Rectangle {
     }
     property int categoryViewRevision: 0
     property var groupedCategoryFiles: []
-    readonly property int activeIconSize: root.isCategoryLocation ? root.categoryIconSize : root.iconSize
+    property int musicLibraryTab: 0
+    property string musicLibraryFilter: ""
+    property string musicGenreFilter: ""
+    property string musicYearFilter: ""
+    onMusicGenreFilterChanged: musicGenreCombo.syncSelection()
+    onMusicYearFilterChanged: musicYearCombo.syncSelection()
+    readonly property var musicLibraryTracks: root.visible && root.categoryKey === "music"
+                                              && root.musicPlayer && root.musicPlayer.libraryManager
+                                              ? root.musicPlayer.libraryManager.tracks : []
+    readonly property var musicTabLabels: lang.language === "tr"
+                                          ? ["Parçalar", "Albümler", "Sanatçılar", "Favoriler", "Çalma listeleri", "Son dinlenenler", "En çok dinlenenler", "İstatistikler"]
+                                          : ["Tracks", "Albums", "Artists", "Favorites", "Playlists", "Recently played", "Most played", "Statistics"]
+    readonly property var musicGenreOptions: musicLibraryView.genreOptions
+    function selectMusicGenre(value) {
+        root.musicGenreFilter = String(value || "")
+        // Genre browsing lists the whole collection, rather than only the
+        // recently played/favorite tracks from a previously selected tab.
+        if (root.musicGenreFilter.length) root.musicLibraryTab = 0
+    }
+    readonly property var musicYearOptions: {
+        const values = ({})
+        const tracks = root.musicLibraryTracks || []
+        for (let i = 0; i < tracks.length; ++i) {
+            const value = String(tracks[i].year || "").trim()
+            if (value.length) values[value] = true
+        }
+        const years = Object.keys(values).sort(function(a, b) { return Number(b) - Number(a) })
+        const result = [lang.language === "tr" ? "Tüm yıllar" : "All years"]
+        return result.concat(years)
+    }
+    readonly property int activeIconSize: root.categoryKey === "music" ? root.musicIconSize
+                                         : (root.isCategoryLocation ? root.categoryIconSize : root.iconSize)
     readonly property real categoryTextScale: Math.max(0.94, Math.min(1.18,
                                                      1.0 + ((root.categoryIconSize / 168.0) - 1.0) * 0.12))
     property var mediaGalleryFiles: []
@@ -176,7 +217,8 @@ Rectangle {
     property var activeDlnaNavigator: null
     property bool dlnaSourceForwardAvailable: false
     readonly property bool effectiveBackNavigationEnabled:
-        (root.categoryKey === "videos" && root.dlnaViewActive) || root.backNavigationEnabled
+        (root.categoryKey === "videos" && root.dlnaViewActive)
+        || (root.categoryKey === "music" && !!musicLibraryView.groupSelection) || root.backNavigationEnabled
     readonly property bool effectiveForwardNavigationEnabled:
         root.categoryKey === "videos" && root.dlnaViewActive
         ? (!!root.activeDlnaNavigator && root.activeDlnaNavigator.canNavigateForward)
@@ -188,6 +230,9 @@ Rectangle {
     readonly property real mediaGalleryStorageShare: mediaGalleryHomeBytes > 0
                                                     ? Math.min(1.0, mediaGalleryBytes / mediaGalleryHomeBytes) : 0
     readonly property bool currentLocationIsLocal: directory.location.startsWith("/") || directory.location.startsWith("file://")
+    readonly property bool selectedCanCreateLink: selectedCount === 1
+                                                 && selectedUrl.startsWith("file://")
+                                                 && selectedLocalPath.startsWith("/")
     readonly property bool isTrashLocation: directory.location.startsWith("trash:")
     readonly property string homeLocation: StandardPaths.writableLocation(StandardPaths.HomeLocation)
     readonly property bool currentLocationIsHome: root.normalizedLocalPath(directory.location) === root.normalizedLocalPath(root.homeLocation)
@@ -199,6 +244,7 @@ Rectangle {
                                                   && !newFolderInput.activeFocus
                                                   && !newFileInput.activeFocus
                                                   && !renameDialog.opened
+                                                  && !hiddenRenameDialog.visible
     readonly property bool fileShortcutsAllowed: root.renameShortcutAllowed
                                                 && inlineRenameUrl.length === 0
                                                 && (!root.hostWindow
@@ -295,8 +341,6 @@ Rectangle {
         category: "BrowserView"
         property int iconSize: 168
         property int systemIconSize: 128
-        property int categoryIconSize: 168
-        property bool skipPermanentDeleteConfirmation: false
         property bool folderPreviewsEnabled: true
     }
 
@@ -359,7 +403,6 @@ Rectangle {
     // stalls the render loop, so keep visual updates live and persist once the
     // drag has briefly settled.
     onIconSizeChanged: directoryIconSizeSaveTimer.restart()
-    onCategoryIconSizeChanged: categoryIconSizeSaveTimer.restart()
 
     Timer {
         id: directoryIconSizeSaveTimer
@@ -373,12 +416,6 @@ Rectangle {
         }
     }
 
-    Timer {
-        id: categoryIconSizeSaveTimer
-        interval: 180
-        repeat: false
-        onTriggered: paneSettings.categoryIconSize = Math.max(104, Math.min(360, root.categoryIconSize))
-    }
 
     function directorySystemIconMinimum() {
         const values = systemDirectoryIconSizes
@@ -395,7 +432,6 @@ Rectangle {
             root.iconSize = Math.max(directorySystemIconMinimum(), Math.min(directorySystemIconMaximum(), paneSettings.systemIconSize))
         else
             root.iconSize = Math.max(104, Math.min(360, paneSettings.iconSize))
-        root.categoryIconSize = Math.max(104, Math.min(360, paneSettings.categoryIconSize))
     }
 
     Connections {
@@ -506,7 +542,7 @@ Rectangle {
         return filtered
     }
 
-    function categoryGroupedFilesForView() {
+    function categoryGroupedFilesForView(ignoreSearch) {
         if (!root.groupedCategory || !root.visible || directory.loading)
             return []
         const result = []
@@ -514,7 +550,7 @@ Rectangle {
             const entry = directory.itemAt(row)
             if (!entry || !entry.itemUrl)
                 continue
-            if (root.searchVisible && searchInput.text.trim().length) {
+            if (!ignoreSearch && root.searchVisible && searchInput.text.trim().length) {
                 const query = searchInput.text.trim().toLowerCase()
                 if (String(entry.name || "").toLowerCase().indexOf(query) < 0)
                     continue
@@ -547,7 +583,7 @@ Rectangle {
                 createdMs: createdMs,
                 groupDateMs: directory.sortMode === "created" ? createdMs : modifiedMs,
                 iconSource: iconName,
-                thumbnailSource: !entry.isDir ? root.thumbSource(String(entry.localPath || ""), String(entry.suffix || ""), entry.modified, entry.size) : "",
+                thumbnailSource: !entry.isDir ? root.thumbSource(String(entry.localPath || ""), String(entry.suffix || ""), entry.modified, entry.size, entry.previewRevision) : "",
                 metaText: entry.isDir
                           ? (lang.language === "tr" ? "Klasör" : "Folder")
                           : directory.formatBytes(Number(entry.size || 0))
@@ -567,7 +603,11 @@ Rectangle {
         id: groupedCategoryReloadTimer
         interval: 0
         onTriggered: {
-            if (!directory.loading) root.groupedCategoryFiles = root.categoryGroupedFilesForView()
+            if (directory.loading)
+                return
+            root.groupedCategoryFiles = root.categoryGroupedFilesForView(false)
+            if (root.categoryKey === "music" && root.musicPlayer && root.musicPlayer.libraryManager)
+                root.musicPlayer.libraryManager.setItems(root.categoryGroupedFilesForView(true))
         }
     }
 
@@ -987,7 +1027,7 @@ Rectangle {
     }
 
     function iconForItem(isDir, suffix, systemIconName, itemName) {
-        // Bundled/default icon mode must always return to g-File's own folder
+        // Bundled/default icon mode must always return to Lurviko's own folder
         // artwork, even if the directory has a custom .directory icon.
         if (AppTheme.useSystemIcons)
             return AppTheme.systemIcon(isDir
@@ -1017,9 +1057,11 @@ Rectangle {
         return ""
     }
 
-    function thumbSource(localPath, suffix, modified, size) {
+    function thumbSource(localPath, suffix, modified, size, previewRevision) {
         if (!localPath || !isPreviewable(suffix)) return ""
         let stamp = thumbnailRevision
+        if (previewRevision)
+            return "image://gfilethumb/" + encodeURIComponent(localPath) + "|" + stamp + "-" + previewRevision
         if (modified) {
             if (modified.getTime)
                 stamp += "-" + modified.getTime()
@@ -1150,6 +1192,14 @@ Rectangle {
     }
 
     function setActiveIconSize(value) {
+        if (root.categoryKey === "music") {
+            const nextSize = Math.max(104, Math.min(360, Math.round(value)))
+            if (nextSize !== root.musicIconSize) {
+                musicLibraryView.prepareForResize()
+                AppTheme.musicIconSize = nextSize
+            }
+            return
+        }
         if (root.isCategoryLocation) {
             const nextSize = Math.max(104, Math.min(360, Math.round(value)))
             if (nextSize === root.categoryIconSize)
@@ -1158,7 +1208,7 @@ Rectangle {
                 mediaGalleryLoader.item.prepareForResize()
             else if (root.groupedCategory)
                 groupedCategoryView.prepareForResize()
-            root.categoryIconSize = nextSize
+            AppTheme.categoryIconSize = nextSize
             return
         }
         if (AppTheme.useSystemIcons) {
@@ -1727,6 +1777,8 @@ Rectangle {
         pendingResultMode = ""
         pendingResultLocation = ""
         pendingResultNames = []
+        pendingRenameSourceUrls = []
+        pendingRenameResultUrls = []
         pendingResultBeforeUrls = []
         pendingResultRevealSingle = false
         pendingResultBeforeSignatures = ({})
@@ -1813,6 +1865,18 @@ Rectangle {
         pendingResultTimeout.restart()
     }
 
+    function armResultSelectionForRename(sourceUrls, knownResultUrls) {
+        clearPendingResultSelection()
+        pendingResultSelection = sourceUrls.length > 0
+        pendingResultMode = "rename"
+        pendingResultLocation = directory.location
+        pendingRenameSourceUrls = sourceUrls.slice()
+        pendingRenameResultUrls = knownResultUrls ? knownResultUrls.slice() : []
+        pendingResultKeepUntilMatch = true
+        pendingResultRevealSingle = true
+        pendingResultTimeout.restart()
+    }
+
     function finalizePendingResultSelection() {
         if (!pendingResultSelection || !pendingResultAwaitRefresh || directory.loading)
             return
@@ -1832,6 +1896,8 @@ Rectangle {
                 include = pendingResultBeforeUrls.indexOf(item.itemUrl) < 0
             else if (pendingResultMode === "names")
                 include = pendingResultNames.indexOf(item.name) >= 0
+            else if (pendingResultMode === "rename")
+                include = pendingRenameResultUrls.indexOf(String(item.itemUrl)) >= 0
             else if (pendingResultMode === "changedItems") {
                 let modified = ""
                 if (item.modified) {
@@ -1859,9 +1925,10 @@ Rectangle {
             setSelectedUrls(matches, primary, primary)
         clearPendingResultSelection()
         if (revealResult && primary >= 0) {
+            const primaryUrl = matches[0]
             Qt.callLater(function() {
                 root.focusDirectoryView()
-                root.focusResultIndex(primary)
+                root.focusResultIndex(directory.indexOfUrl(primaryUrl))
             })
         }
     }
@@ -1957,6 +2024,7 @@ Rectangle {
         if (inlineRenameUrl.length && inlineRenameUrl !== selectedUrl) {
             inlineRenameUrl = ""
             inlineRenameOriginalName = ""
+            inlineRenameEditor = null
         }
 
         inlineRenameOriginalName = selectedName
@@ -1966,6 +2034,7 @@ Rectangle {
     function prepareInlineRenameEditor(editor, itemName, itemIsDir) {
         if (!editor || !editor.visible)
             return
+        inlineRenameEditor = editor
         editor.text = itemName
         editor.forceActiveFocus()
         const dot = itemIsDir ? -1 : itemName.lastIndexOf(".")
@@ -1980,12 +2049,29 @@ Rectangle {
             return
         inlineRenameUrl = ""
         inlineRenameOriginalName = ""
+        inlineRenameEditor = null
         root.forceActiveFocus()
     }
 
-    function commitInlineRename(itemUrl, value) {
+    function needsHiddenNameConfirmation(name, originalName) {
+        return !AppTheme.skipHiddenNameConfirmation && name.startsWith(".")
+               && name !== "." && name !== ".." && !String(originalName || "").startsWith(".")
+    }
+
+    function requestHiddenNameConfirmation(actionType, name, targetUrl) {
+        hiddenRenameDialog.actionType = actionType
+        hiddenRenameDialog.targetUrl = targetUrl
+        hiddenRenameDialog.newName = name
+        hiddenRenameDialog.open()
+    }
+
+    function commitInlineRename(itemUrl, value, allowHidden, advancing) {
         if (!inlineRenameUrl.length || inlineRenameUrl !== itemUrl)
             return true
+        // Opening a modal moves focus out of the inline field. Its deferred
+        // focus-loss callback must not submit the rename a second time.
+        if (hiddenRenameDialog.actionType === "rename" && hiddenRenameDialog.targetUrl.length && !allowHidden)
+            return false
         const newName = value.trim()
         if (!newName.length) {
             root.requestToast(lang.language === "tr" ? "Ad boş bırakılamaz." : "Name cannot be empty.")
@@ -1996,9 +2082,19 @@ Rectangle {
             return true
         }
 
+        if (!allowHidden && needsHiddenNameConfirmation(newName, inlineRenameOriginalName)) {
+            requestHiddenNameConfirmation("rename", newName, itemUrl)
+            return false
+        }
+
         const targetUrl = inlineRenameUrl
+        const originalName = inlineRenameOriginalName
         inlineRenameUrl = ""
         inlineRenameOriginalName = ""
+        // Hidden entries cannot be selected in a view that excludes them.
+        // Tab/Shift+Tab keeps focus on the next editor instead of the result.
+        if (!advancing && (!newName.startsWith(".") || root.showHiddenFiles || root.isCategoryLocation))
+            armResultSelectionForRename([targetUrl], root.isCloudUrl(targetUrl) ? [targetUrl] : [])
         if (targetUrl.startsWith("gdrive://")) {
             directory.googleRenameItem(targetUrl, newName)
             root.forceActiveFocus()
@@ -2014,8 +2110,9 @@ Rectangle {
             return true
         }
 
-        inlineRenameOriginalName = root.selectedName
+        inlineRenameOriginalName = originalName
         inlineRenameUrl = targetUrl
+        clearPendingResultSelection()
         root.requestToast(lang.localizeMessage(fileOps.lastError))
         return false
     }
@@ -2036,7 +2133,7 @@ Rectangle {
             }
         }
 
-        if (!commitInlineRename(itemUrl, value))
+        if (!commitInlineRename(itemUrl, value, false, true))
             return false
 
         if (!nextUrl.length)
@@ -2093,21 +2190,36 @@ Rectangle {
         return rows.join("\n")
     }
 
-    function commitRename() {
+    function commitRename(allowHidden) {
         const newName = renameInput.text.trim()
         if (!newName.length) {
             renameDialog.errorText = lang.language === "tr" ? "Ad boş bırakılamaz." : "Name cannot be empty."
-            return
+            return false
         }
 
         if (renameDialog.batchMode) {
+            if (!allowHidden && renameDialog.targetUrls.some(function(url) {
+                const itemIndex = directory.indexOfUrl(url)
+                const item = itemIndex >= 0 ? directory.itemAt(itemIndex) : null
+                const oldName = item ? item.name : decodeURIComponent(url.substring(url.lastIndexOf("/") + 1))
+                return root.needsHiddenNameConfirmation(newName, oldName)
+            })) {
+                requestHiddenNameConfirmation("batch_rename", newName, directory.location)
+                return false
+            }
+            if (!newName.startsWith(".") || root.showHiddenFiles || root.isCategoryLocation)
+                armResultSelectionForRename(renameDialog.targetUrls)
             if (fileOps.batchRename(renameDialog.targetUrls, newName, batchRenameStart.value))
                 renameDialog.close()
-            else
+            else {
                 renameDialog.errorText = lang.localizeMessage(fileOps.lastError)
-            return
+                clearPendingResultSelection()
+                return false
+            }
+            return true
         }
 
+        armResultSelectionForRename([root.selectedUrl], root.selectedIsCloud ? [root.selectedUrl] : [])
         if (root.selectedIsGoogleDrive) {
             directory.googleRenameItem(root.selectedUrl, newName)
             renameDialog.close()
@@ -2118,7 +2230,10 @@ Rectangle {
             renameDialog.close()
         } else {
             renameDialog.errorText = lang.localizeMessage(fileOps.lastError)
+            clearPendingResultSelection()
+            return false
         }
+        return true
     }
 
     function openSelected() {
@@ -2188,7 +2303,7 @@ Rectangle {
     function deleteSelection() {
         if (!selectedUrls.length)
             return
-        if (paneSettings.skipPermanentDeleteConfirmation) {
+        if (AppTheme.skipPermanentDeleteConfirmation) {
             performPermanentDelete()
             return
         }
@@ -2200,22 +2315,36 @@ Rectangle {
             openPropertiesForSelection()
     }
 
-    function showNewSymlinkDialog() {
-        if (!root.currentLocationIsLocal)
-            return
-        newSymlinkNameInput.text = ""
-        newSymlinkTargetInput.text = ""
-        newSymlinkDialog.open()
-        Qt.callLater(function() { newSymlinkNameInput.forceActiveFocus() })
+    function prepareLinkDialog(dialog, nameInput, targetInput, fromSelection) {
+        if (fromSelection) {
+            if (!root.selectedCanCreateLink)
+                return
+            const info = fileOps.navigationTarget(root.selectedUrl, root.selectedLocalPath)
+            if (!info.parentLocation || !info.localPath)
+                return
+            // Search and category results may belong to another local folder.
+            dialog.destinationLocation = root.locationsEquivalent(info.parentLocation, directory.location)
+                                         ? directory.location : String(info.parentLocation)
+            targetInput.text = String(info.localPath)
+        } else {
+            if (!root.currentLocationIsLocal)
+                return
+            dialog.destinationLocation = directory.location
+            targetInput.text = ""
+        }
+        nameInput.text = ""
+        dialog.open()
+        Qt.callLater(function() { nameInput.forceActiveFocus() })
     }
 
-    function showNewHardlinkDialog() {
-        if (!root.currentLocationIsLocal)
+    function showNewSymlinkDialog(fromSelection) {
+        prepareLinkDialog(newSymlinkDialog, newSymlinkNameInput, newSymlinkTargetInput, fromSelection)
+    }
+
+    function showNewHardlinkDialog(fromSelection) {
+        if (fromSelection && (root.selectedIsDir || root.selectedLinkType === "symlink"))
             return
-        newHardlinkNameInput.text = ""
-        newHardlinkTargetInput.text = ""
-        newHardlinkDialog.open()
-        Qt.callLater(function() { newHardlinkNameInput.forceActiveFocus() })
+        prepareLinkDialog(newHardlinkDialog, newHardlinkNameInput, newHardlinkTargetInput, fromSelection)
     }
 
     function showNewFolderDialog() {
@@ -2507,11 +2636,17 @@ Rectangle {
     function revealExternalItem(location, itemUrl, centerItem) {
         if (!location || !location.length || !itemUrl || !itemUrl.length)
             return
+        const centerTarget = centerItem === undefined ? true : !!centerItem
+        // Reveal against the directory's full model: the target need not match
+        // the query. Keep the open search field and its text as a draft so Enter
+        // can run it again. Selection-only tab restoration retains its session.
+        if (centerTarget && directory.searchActive)
+            directory.clearSearch()
         pendingExternalRevealLocation = location
         pendingExternalRevealUrl = itemUrl
         pendingExternalRevealAttempts = 0
         pendingExternalRevealRefreshRequested = false
-        pendingExternalRevealCenter = centerItem === undefined ? true : !!centerItem
+        pendingExternalRevealCenter = centerTarget
         // External reveal owns the final scroll/selection for this navigation.
         // Suppress the normal "fresh folder at top" positioning while the
         // requested item is being revealed.
@@ -2673,6 +2808,7 @@ Rectangle {
     function handleBackNavigation() {
         if (root.dismissSearchForNavigation())
             return
+        if (root.closeMusicGroup()) return
         if (root.categoryKey === "videos" && root.dlnaViewActive) {
             if (root.activeDlnaNavigator && root.activeDlnaNavigator.canNavigateBack) {
                 root.activeDlnaNavigator.navigateBack()
@@ -2708,6 +2844,7 @@ Rectangle {
     function handleUpNavigation() {
         if (root.dismissSearchForNavigation())
             return
+        if (root.closeMusicGroup()) return
         if (root.categoryKey === "videos" && root.dlnaViewActive) {
             if (root.activeDlnaNavigator && root.activeDlnaNavigator.navigateUp())
                 return
@@ -2727,6 +2864,12 @@ Rectangle {
         root.navigateTo(directory.parentLocation)
     }
 
+    function closeMusicGroup() {
+        if (root.categoryKey !== "music" || !musicLibraryView.groupSelection) return false
+        musicLibraryView.closeGroup()
+        return true
+    }
+
     function navigateTo(location) {
         if (!location || !location.length)
             return
@@ -2741,7 +2884,9 @@ Rectangle {
         pendingNavigationSelection = null
         pendingNavigationPrimaryUrl = ""
         tabScrollRestoreRetry.stop()
-        if (searchVisible) {
+        const keepSearchInput = pendingExternalRevealUrl.length > 0
+                                && locationsEquivalent(pendingExternalRevealLocation, location)
+        if (searchVisible && !keepSearchInput) {
             searchVisible = false
             searchInput.text = ""
             searchEverywhere = false
@@ -2907,8 +3052,14 @@ Rectangle {
         menu.y = Math.max(8, Math.min(root.height - menu.implicitHeight - 8, p.y))
     }
 
+    function shortcutSuffix(action) {
+        const keys = KeyboardShortcuts.bindings[action] || []
+        return keys.length ? "    " + keys.map(function(key) { return KeyboardShortcuts.displaySequence(key) }).join(" / ") : ""
+    }
+
     function closeContextMenus() {
         breadcrumbContextMenu.close()
+        copyActionsMenu.close()
         applicationServiceMenu.close()
         compressMenu.close()
         shareMenu.close()
@@ -2933,7 +3084,7 @@ Rectangle {
         const hadOpenMenu = itemContextMenu.visible || backgroundContextMenu.visible
                             || breadcrumbContextMenu.visible || applicationServiceMenu.visible || compressMenu.visible
                             || shareMenu.visible || fileActionsMenu.visible || openWithMenu.visible || sortMenu.visible
-                            || newItemMenu.visible
+                            || newItemMenu.visible || copyActionsMenu.visible
         closeContextMenus()
         if (hadOpenMenu) {
             pendingContextMenu = menu
@@ -3135,6 +3286,20 @@ Rectangle {
                     && !root.pendingResultSelection && resultUrls.length > 0)
                 root.armResultSelectionForUrls(resultUrls, destinationLocation)
         }
+        onItemsRenamed: function(sourceUrls, resultUrls) {
+            if (!root.pendingResultSelection || root.pendingResultMode !== "rename"
+                || root.pendingResultLocation !== directory.location || !sourceUrls.length)
+                return
+            for (let i = 0; i < sourceUrls.length; ++i) {
+                if (root.pendingRenameSourceUrls.indexOf(String(sourceUrls[i])) < 0)
+                    return
+            }
+            if (!resultUrls.length) {
+                root.clearPendingResultSelection()
+                return
+            }
+            root.pendingRenameResultUrls = resultUrls.slice()
+        }
         onOperationFinished: function(success, message, refreshNeeded, externallyPresented) {
             if (!success)
                 root.clearPendingResultSelection()
@@ -3211,8 +3376,6 @@ Rectangle {
             else
                 paneSettings.iconSize = root.iconSize
         }
-        if (categoryIconSizeSaveTimer.running)
-            paneSettings.categoryIconSize = Math.max(104, Math.min(360, root.categoryIconSize))
     }
 
     Connections {
@@ -3658,7 +3821,7 @@ Rectangle {
                 implicitWidth: 38
                 implicitHeight: 38
                 GToolTip {
-                    text: lang.language === "tr" ? "Ara (Ctrl+F)" : "Search (Ctrl+F)"
+                    text: (lang.language === "tr" ? "Ara" : "Search") + root.shortcutSuffix("find")
                 }
                 onClicked: root.searchVisible ? root.closeSearch() : root.showSearch()
                 contentItem: CrispIcon {
@@ -3696,13 +3859,17 @@ Rectangle {
                     }
                     GSlider {
                         id: iconSizeSlider
+                        objectName: "iconSizeSlider"
                         Layout.fillWidth: true
                         from: root.isCategoryLocation ? 104
                               : (AppTheme.useSystemIcons ? root.directorySystemIconMinimum() : 104)
                         to: root.isCategoryLocation ? 360
                             : (AppTheme.useSystemIcons ? root.directorySystemIconMaximum() : 360)
                         stepSize: root.isCategoryLocation ? 1 : (AppTheme.useSystemIcons ? 1 : 4)
-                        value: root.activeIconSize
+                        // Navigation changes the range as well as the size. Qt
+                        // can clamp value before the new range arrives; include
+                        // both bounds so the binding restores the actual size.
+                        value: Math.max(from, Math.min(to, root.activeIconSize))
                         onMoved: root.setActiveIconSize(value)
                         onPressedChanged: {
                             if (root.mediaGalleryCategory && mediaGalleryLoader.item) {
@@ -4222,6 +4389,7 @@ Rectangle {
                     required property bool isDir
                     required property var size
                     required property var modified
+                    required property string previewRevision
                     required property string suffix
                     required property string mimeType
                     required property string systemIconName
@@ -4346,7 +4514,7 @@ Rectangle {
                                     // decoding/rendering a 4x image for every delegate while scrolling.
                                     sourceSize.width: Math.max(160, Math.ceil(parent.width * 1.75))
                                     sourceSize.height: Math.max(160, Math.ceil(parent.height * 1.75))
-                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size) : ""
+                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision) : ""
                                     paused: fileOps.ioBusy
                                     fileIdentity: localPath
                                     fileSuffix: suffix
@@ -4548,6 +4716,12 @@ Rectangle {
                                     topPadding: 1
                                     bottomPadding: 1
                                     onVisibleChanged: {
+                                        if (visible)
+                                            Qt.callLater(function() {
+                                                root.prepareInlineRenameEditor(gridRenameInput, name, isDir)
+                                            })
+                                    }
+                                    Component.onCompleted: {
                                         if (visible)
                                             Qt.callLater(function() {
                                                 root.prepareInlineRenameEditor(gridRenameInput, name, isDir)
@@ -4872,6 +5046,7 @@ Rectangle {
                     required property bool isDir
                     required property var size
                     required property var modified
+                    required property string previewRevision
                     required property string suffix
                     required property string mimeType
                     required property string systemIconName
@@ -4973,7 +5148,7 @@ Rectangle {
                                 DeferredThumbnail {
                                     id: listPreview
                                     anchors.fill: parent
-                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size) : ""
+                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision) : ""
                                     paused: fileOps.ioBusy
                                     fileIdentity: localPath
                                     fileSuffix: suffix
@@ -5039,6 +5214,12 @@ Rectangle {
                                     topPadding: 3
                                     bottomPadding: 3
                                     onVisibleChanged: {
+                                        if (visible)
+                                            Qt.callLater(function() {
+                                                root.prepareInlineRenameEditor(listRenameInput, name, isDir)
+                                            })
+                                    }
+                                    Component.onCompleted: {
                                         if (visible)
                                             Qt.callLater(function() {
                                                 root.prepareInlineRenameEditor(listRenameInput, name, isDir)
@@ -5285,6 +5466,44 @@ Rectangle {
                                         }
                                     }
 
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 90
+                                        Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
+                                        spacing: 2
+                                        Text {
+                                            Layout.fillWidth: true
+                                            horizontalAlignment: Text.AlignLeft
+                                            text: root.categoryKey === "videos" && root.dlnaViewActive
+                                                  ? (dlnaMedia.selectedServerName.length
+                                                     ? dlnaMedia.selectedServerName
+                                                     : (lang.language === "tr" ? "DLNA medya sunucusu" : "DLNA media server"))
+                                                  : (root.contentIndexModel
+                                                     ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
+                                                     : root.categoryKey)
+                                            color: AppTheme.text
+                                            font.pixelSize: Math.round(16 * root.categoryTextScale)
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            horizontalAlignment: Text.AlignLeft
+                                            text: root.categoryKey === "videos" && root.dlnaViewActive
+                                                  ? (dlnaMedia.selectedServerId
+                                                     ? ((dlnaMedia.selectedProvider || "DLNA") + " · "
+                                                        + (lang.language === "tr" ? "yerel ağ medya kataloğu" : "local network media catalog"))
+                                                     : (dlnaMedia.discovering
+                                                        ? (lang.language === "tr" ? "Sunucular aranıyor…" : "Searching for servers…")
+                                                        : (lang.language === "tr" ? "GiG, Jellyfin veya Emby seç" : "Choose GiG, Jellyfin, or Emby")))
+                                                  : (root.galleryFilesForView().length + " "
+                                                     + (lang.language === "tr" ? "medya öğesi" : "media items"))
+                                            color: AppTheme.textMuted
+                                            font.pixelSize: Math.round(9 * root.categoryTextScale)
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
                                     Rectangle {
                                         visible: root.categoryKey === "videos"
                                         Layout.preferredWidth: Math.min(250, Math.max(210, mediaSourceHeader.width * 0.20))
@@ -5359,38 +5578,6 @@ Rectangle {
                                                     }
                                                 }
                                             }
-                                        }
-                                    }
-
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Text {
-                                            text: root.categoryKey === "videos" && root.dlnaViewActive
-                                                  ? (dlnaMedia.selectedServerName.length
-                                                     ? dlnaMedia.selectedServerName
-                                                     : (lang.language === "tr" ? "DLNA medya sunucusu" : "DLNA media server"))
-                                                  : (root.contentIndexModel
-                                                     ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
-                                                     : root.categoryKey)
-                                            color: AppTheme.text
-                                            font.pixelSize: Math.round(16 * root.categoryTextScale)
-                                            font.weight: Font.DemiBold
-                                            elide: Text.ElideRight
-                                        }
-                                        Text {
-                                            text: root.categoryKey === "videos" && root.dlnaViewActive
-                                                  ? (dlnaMedia.selectedServerId
-                                                     ? ((dlnaMedia.selectedProvider || "DLNA") + " · "
-                                                        + (lang.language === "tr" ? "yerel ağ medya kataloğu" : "local network media catalog"))
-                                                     : (dlnaMedia.discovering
-                                                        ? (lang.language === "tr" ? "Sunucular aranıyor…" : "Searching for servers…")
-                                                        : (lang.language === "tr" ? "GiG, Jellyfin veya Emby seç" : "Choose GiG, Jellyfin, or Emby")))
-                                                  : (root.galleryFilesForView().length + " "
-                                                     + (lang.language === "tr" ? "medya öğesi" : "media items"))
-                                            color: AppTheme.textMuted
-                                            font.pixelSize: Math.round(9 * root.categoryTextScale)
-                                            elide: Text.ElideRight
                                         }
                                     }
 
@@ -5571,15 +5758,19 @@ Rectangle {
                     anchors.top: parent.top
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    height: visible ? 52 : 0
+                    height: visible ? (root.categoryKey === "music" ? 42 + musicTabs.implicitHeight + 44 : 52) : 0
                     radius: 12
                     color: AppTheme.surface
                     border.color: AppTheme.border
 
                     RowLayout {
-                        anchors.fill: parent
+                        id: categoryHeaderTopRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.leftMargin: 14
                         anchors.rightMargin: 56
+                        height: root.categoryKey === "music" ? 42 : 50
                         spacing: 10
                         Rectangle {
                             Layout.preferredWidth: 34
@@ -5597,21 +5788,31 @@ Rectangle {
                         }
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
                             spacing: 1
                             Text {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignLeft
                                 text: root.contentIndexModel
                                       ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
                                       : root.categoryKey
+                                elide: Text.ElideRight
                                 color: AppTheme.text
                                 font.pixelSize: 12
                                 font.weight: Font.DemiBold
                             }
                             Text {
-                                text: lang.language === "tr"
-                                      ? "Bu kategori yalnızca seçtiğin dizinleri ve kuralları indeksler"
-                                      : "This category indexes only its selected folders and rules"
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignLeft
+                                text: root.categoryKey === "music"
+                                      ? ((root.musicLibraryTracks || []).length
+                                         + (lang.language === "tr" ? " parça" : " tracks"))
+                                      : (lang.language === "tr"
+                                         ? "Bu kategori yalnızca seçtiğin dizinleri ve kuralları indeksler"
+                                         : "This category indexes only its selected folders and rules")
                                 color: AppTheme.textMuted
                                 font.pixelSize: 8
+                                elide: Text.ElideRight
                             }
                         }
                     }
@@ -5620,7 +5821,8 @@ Rectangle {
                         id: musicSettingsButton
                         anchors.right: parent.right
                         anchors.rightMargin: 10
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.top: parent.top
+                        anchors.topMargin: root.categoryKey === "music" ? 4 : 8
                         width: 36
                         height: 36
                         icon.source: AppTheme.icon("settings.svg")
@@ -5638,10 +5840,102 @@ Rectangle {
                                        ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
                                        : root.categoryKey) + (lang.language === "tr" ? " Ayarları" : " Settings")
                     }
+
+                    Flow {
+                        id: musicTabs
+                        objectName: "musicTabs"
+                        visible: root.categoryKey === "music"
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: categoryHeaderTopRow.bottom
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 5
+                        Repeater {
+                            model: root.musicTabLabels
+                            delegate: GButton {
+                                required property string modelData
+                                required property int index
+                                height: 30
+                                width: Math.max(70, tabLabel.implicitWidth + 20)
+                                padding: 0
+                                checked: root.musicLibraryTab === index
+                                onClicked: root.musicLibraryTab = index
+                                background: Rectangle {
+                                    radius: 8
+                                    color: parent.checked ? AppTheme.accentSoft
+                                                          : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                                    border.width: parent.checked ? 1 : 0
+                                    border.color: parent.checked ? AppTheme.accentBorder : "transparent"
+                                }
+                                contentItem: Text {
+                                    id: tabLabel
+                                    text: modelData
+                                    color: parent.checked ? AppTheme.accent : AppTheme.textMuted
+                                    font.pixelSize: 10
+                                    font.weight: parent.checked ? Font.DemiBold : Font.Medium
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        visible: root.categoryKey === "music"
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        height: 41
+                        spacing: 6
+
+                        GTextField {
+                            id: musicFilterField
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 90
+                            Layout.preferredHeight: 32
+                            placeholderText: lang.language === "tr" ? "Müzikte filtrele…" : "Filter music…"
+                            text: root.musicLibraryFilter
+                            onTextChanged: root.musicLibraryFilter = text
+                        }
+                        GComboBox {
+                            id: musicGenreCombo
+                            objectName: "musicGenreCombo"
+                            Layout.preferredWidth: 180
+                            Layout.minimumWidth: 110
+                            Layout.preferredHeight: 32
+                            model: root.musicGenreOptions
+                            textRole: "text"
+                            valueRole: "value"
+                            function syncSelection() {
+                                const key = musicLibraryView.genreKey(root.musicGenreFilter)
+                                for (let i = 0; i < root.musicGenreOptions.length; ++i)
+                                    if (musicLibraryView.genreKey(root.musicGenreOptions[i].value) === key) {
+                                        currentIndex = i
+                                        return
+                                    }
+                                currentIndex = 0
+                            }
+                            onModelChanged: Qt.callLater(syncSelection)
+                            onActivated: root.selectMusicGenre(currentValue)
+                        }
+                        GComboBox {
+                            id: musicYearCombo
+                            Layout.preferredWidth: 92
+                            Layout.preferredHeight: 32
+                            model: root.musicYearOptions
+                            function syncSelection() { currentIndex = Math.max(0, root.musicYearOptions.indexOf(root.musicYearFilter)) }
+                            onModelChanged: Qt.callLater(syncSelection)
+                            onActivated: root.musicYearFilter = currentIndex <= 0 ? "" : currentText
+                        }
+                    }
                 }
 
                 CategoryGroupedView {
                     id: groupedCategoryView
+                    visible: root.categoryKey !== "music"
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: musicDockHostItem.visible ? musicDockHostItem.top : parent.bottom
@@ -5654,6 +5948,9 @@ Rectangle {
                     selectionRevision: root.selectionRevision
                     isSelected: function(url) { return root.isSelected(url) }
                     inlineRenameUrl: root.inlineRenameUrl
+                    onRenamePrepare: function(editor, itemName, itemIsDir) {
+                        root.prepareInlineRenameEditor(editor, itemName, itemIsDir)
+                    }
                     dateAscending: (directory.sortMode === "date" || directory.sortMode === "created")
                                    ? directory.sortAscending : false
                     wheelStep: AppTheme.wheelScrollStep
@@ -5687,10 +5984,36 @@ Rectangle {
                         root.selectIndex(modelIndex, Qt.NoModifier)
                         root.showContextMenu(itemContextMenu, sourceItem, x, y)
                     }
-                    onRenameCommit: function(itemUrl, value, backwards) {
-                        root.commitInlineRenameAndAdvance(itemUrl, value, backwards)
+                    onRenameCommit: function(itemUrl, value, backwards, advance) {
+                        if (advance)
+                            root.commitInlineRenameAndAdvance(itemUrl, value, backwards)
+                        else
+                            root.commitInlineRename(itemUrl, value)
                     }
                     onRenameCancel: root.cancelInlineRename()
+                }
+
+
+                MusicLibraryView {
+                    id: musicLibraryView
+                    objectName: "musicLibraryView"
+                    visible: root.categoryKey === "music"
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: musicDockHostItem.visible ? musicDockHostItem.top : parent.bottom
+                    anchors.top: musicCategoryHeader.visible ? musicCategoryHeader.bottom : parent.top
+                    anchors.topMargin: musicCategoryHeader.visible ? 10 : 0
+                    lang: root.lang
+                    manager: root.musicPlayer ? root.musicPlayer.libraryManager : null
+                    player: root.musicPlayer
+                    tabIndex: root.musicLibraryTab
+                    query: ((root.searchVisible ? searchInput.text : "") + " " + root.musicLibraryFilter).trim()
+                    genreFilter: root.musicGenreFilter
+                    yearFilter: root.musicYearFilter
+                    cardSize: root.musicIconSize
+                    wheelStep: AppTheme.wheelScrollStep
+                    sortMode: directory.sortMode
+                    sortAscending: directory.sortAscending
                 }
 
 
@@ -5926,6 +6249,98 @@ Rectangle {
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         spacing: 10
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: lang.language === "tr" ? "Müzik etiketleri" : "Music tags"
+                            color: AppTheme.text
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: lang.language === "tr"
+                                  ? "Albüm, sanatçı, yıl ve tür bilgileri arka planda okunur. Taramayı durdurup daha sonra kaldığın yerden devam ettirebilirsin."
+                                  : "Album, artist, year and genre tags are read in the background. You can pause the scan and resume it later."
+                            color: AppTheme.textMuted
+                            font.pixelSize: 9
+                            wrapMode: Text.Wrap
+                        }
+
+                        GProgressBar {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 8
+                            from: 0
+                            to: 1
+                            value: root.musicPlayer && root.musicPlayer.libraryManager
+                                   ? root.musicPlayer.libraryManager.scanProgress : 0
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    Layout.fillWidth: true
+                                    readonly property var library: root.musicPlayer ? root.musicPlayer.libraryManager : null
+                                    text: {
+                                        if (!library)
+                                            return ""
+                                        const done = Number(library.scanCompleted || 0)
+                                        const total = Number(library.scanTotal || 0)
+                                        const remaining = Number(library.scanRemaining || 0)
+                                        if (library.loading && library.scanPaused)
+                                            return lang.language === "tr"
+                                                   ? "Durduruldu · " + done + " / " + total + " okundu · " + remaining + " kaldı"
+                                                   : "Paused · " + done + " / " + total + " read · " + remaining + " remaining"
+                                        if (library.loading)
+                                            return lang.language === "tr"
+                                                   ? "Etiketler okunuyor · " + done + " / " + total + " okundu · " + remaining + " kaldı"
+                                                   : "Reading tags · " + done + " / " + total + " read · " + remaining + " remaining"
+                                        if (total > 0)
+                                            return lang.language === "tr"
+                                                   ? "Tamamlandı · " + done + " / " + total + " okundu"
+                                                   : "Completed · " + done + " / " + total + " read"
+                                        return lang.language === "tr" ? "Taranacak parça yok" : "No tracks to scan"
+                                    }
+                                    color: library && library.scanPaused ? AppTheme.warning
+                                           : (library && library.loading ? AppTheme.accent : AppTheme.textMuted)
+                                    font.pixelSize: 9
+                                    font.weight: Font.Medium
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    readonly property var library: root.musicPlayer ? root.musicPlayer.libraryManager : null
+                                    text: library && Number(library.scanTotal || 0) > 0
+                                          ? Math.round(Number(library.scanProgress || 0) * 100) + "%" : ""
+                                    color: AppTheme.textFaint
+                                    font.pixelSize: 8
+                                }
+                            }
+                            GButton {
+                                readonly property var library: root.musicPlayer ? root.musicPlayer.libraryManager : null
+                                visible: library && library.loading
+                                Layout.preferredWidth: 92
+                                Layout.preferredHeight: 32
+                                text: library && library.scanPaused
+                                      ? (lang.language === "tr" ? "Devam et" : "Resume")
+                                      : (lang.language === "tr" ? "Durdur" : "Pause")
+                                onClicked: {
+                                    if (!library) return
+                                    if (library.scanPaused) library.resumeMetadataScan()
+                                    else library.pauseMetadataScan()
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 1
+                            color: AppTheme.border
+                        }
 
                         Text {
                             Layout.fillWidth: true
@@ -6229,6 +6644,7 @@ Rectangle {
         parent: root
         onOpened: {
             root.submenuActivationReady = false
+            copyActionsMenu.close()
             applicationServiceMenu.close()
             compressMenu.close()
             shareMenu.close()
@@ -6240,6 +6656,7 @@ Rectangle {
         }
         onClosed: {
             root.submenuActivationReady = false
+            copyActionsMenu.close()
             applicationServiceMenu.close()
             compressMenu.close()
             shareMenu.close()
@@ -6355,18 +6772,41 @@ Rectangle {
         GMenuSeparator {}
 
         GMenuItem {
-            text: lang.language === "tr" ? "Kes    Ctrl+X" : "Cut    Ctrl+X"
+            text: (lang.language === "tr" ? "Kes" : "Cut") + root.shortcutSuffix("cut")
             enabled: root.selectedCount > 0
             onTriggered: root.cutSelection()
         }
         GMenuItem {
-            text: lang.language === "tr" ? "Kopyala    Ctrl+C" : "Copy    Ctrl+C"
+            text: (lang.language === "tr" ? "Kopyala" : "Copy") + root.shortcutSuffix("copy")
             enabled: root.selectedCount > 0
             onTriggered: root.copySelection()
         }
+        GMenu {
+            id: copyActionsMenu
+            title: lang.language === "tr" ? "Kopyalama Eylemleri" : "Copy Actions"
+            enabled: root.selectedCount > 0 && root.submenuActivationReady
+
+            GMenuItem {
+                text: (lang.language === "tr" ? "Symlink Oluştur…" : "Create Symlink…") + root.shortcutSuffix("symlink")
+                enabled: root.selectedCanCreateLink
+                onTriggered: root.showNewSymlinkDialog(true)
+            }
+            GMenuItem {
+                text: (lang.language === "tr" ? "Hardlink Oluştur…" : "Create Hardlink…") + root.shortcutSuffix("hardlink")
+                enabled: root.selectedCanCreateLink && !root.selectedIsDir
+                         && root.selectedLinkType !== "symlink"
+                onTriggered: root.showNewHardlinkDialog(true)
+            }
+            GMenuSeparator {}
+            GMenuItem {
+                text: lang.t("duplicate") + root.shortcutSuffix("duplicate")
+                enabled: root.selectedCount > 0
+                onTriggered: root.duplicateSelection()
+            }
+        }
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedIsDir && !root.selectedIsCloud
-            text: lang.language === "tr" ? "Klasöre yapıştır    Ctrl+V" : "Paste into folder    Ctrl+V"
+            text: (lang.language === "tr" ? "Klasöre yapıştır" : "Paste into folder") + root.shortcutSuffix("paste_into")
             enabled: fileOps.canPaste
             onTriggered: root.pasteIntoSelection()
         }
@@ -6395,12 +6835,6 @@ Rectangle {
             enabled: root.selectedCount > 0
                      && (root.selectedCount === 1 || !root.isCloudUrl(directory.location))
             onTriggered: root.renameSelection()
-        }
-
-        GMenuItem {
-            text: lang.t("duplicate") + "    Ctrl+D"
-            enabled: root.selectedCount > 0
-            onTriggered: root.duplicateSelection()
         }
 
         GMenu {
@@ -6704,7 +7138,7 @@ Rectangle {
 
         GMenuItem {
             visible: !root.isCloudUrl(directory.location) && !root.isCategoryLocation
-            text: lang.language === "tr" ? "Yapıştır    Ctrl+V" : "Paste    Ctrl+V"
+            text: (lang.language === "tr" ? "Yapıştır" : "Paste") + root.shortcutSuffix("paste")
             enabled: fileOps.canPaste
             onTriggered: root.pasteHere()
         }
@@ -6726,8 +7160,8 @@ Rectangle {
         }
 
         GMenuSeparator {}
-        GMenuItem { text: lang.t("select_all") + "    Ctrl+A"; onTriggered: root.selectAll() }
-        GMenuItem { text: lang.t("clear_selection") + "    Ctrl+Shift+A"; enabled: root.selectedCount > 0; onTriggered: root.clearSelection() }
+        GMenuItem { text: lang.t("select_all") + root.shortcutSuffix("select_all"); onTriggered: root.selectAll() }
+        GMenuItem { text: lang.t("clear_selection") + root.shortcutSuffix("clear_selection"); enabled: root.selectedCount > 0; onTriggered: root.clearSelection() }
 
         GMenuSeparator {}
 
@@ -7424,10 +7858,14 @@ Rectangle {
         padding: 18
         background: GModalSurface { }
 
-        function createFolder() {
+        function createFolder(allowHidden) {
             const folderName = newFolderInput.text.trim()
             if (!folderName.length)
-                return
+                return false
+            if (!allowHidden && root.needsHiddenNameConfirmation(folderName, "")) {
+                root.requestHiddenNameConfirmation("create_folder", folderName, directory.location)
+                return false
+            }
 
             root.armResultSelectionForNames([folderName], directory.location)
             if (directory.location.startsWith("gdrive://")) {
@@ -7441,7 +7879,9 @@ Rectangle {
             } else {
                 root.clearPendingResultSelection()
                 root.requestToast(lang.localizeMessage(fileOps.lastError))
+                return false
             }
+            return true
         }
 
         ColumnLayout {
@@ -7479,9 +7919,17 @@ Rectangle {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: GModalSurface { }
 
-        function createFile() {
-            if (fileOps.createFile(directory.location, newFileInput.text))
+        function createFile(allowHidden) {
+            const fileName = newFileInput.text.trim()
+            if (!allowHidden && root.needsHiddenNameConfirmation(fileName, "")) {
+                root.requestHiddenNameConfirmation("create_file", fileName, directory.location)
+                return false
+            }
+            if (fileOps.createFile(directory.location, fileName)) {
                 newFileDialog.close()
+                return true
+            }
+            return false
         }
 
         ColumnLayout {
@@ -7516,6 +7964,7 @@ Rectangle {
 
     GModalPopup {
         id: newSymlinkDialog
+        property string destinationLocation: ""
         parent: Overlay.overlay
         modal: true
         focus: true
@@ -7531,8 +7980,8 @@ Rectangle {
             const target = newSymlinkTargetInput.text.trim()
             if (!name.length || !target.length)
                 return
-            root.armResultSelectionForNames([name], directory.location)
-            if (fileOps.createSymbolicLink(directory.location, name, target)) {
+            root.armResultSelectionForNames([name], destinationLocation)
+            if (fileOps.createSymbolicLink(destinationLocation, name, target)) {
                 newSymlinkDialog.close()
             } else {
                 root.clearPendingResultSelection()
@@ -7553,6 +8002,7 @@ Rectangle {
                 id: newSymlinkNameInput
                 Layout.fillWidth: true
                 placeholderText: lang.language === "tr" ? "Bağlantı adı" : "Link name"
+                onAccepted: newSymlinkDialog.createLink()
             }
             GTextField {
                 id: newSymlinkTargetInput
@@ -7585,6 +8035,7 @@ Rectangle {
 
     GModalPopup {
         id: newHardlinkDialog
+        property string destinationLocation: ""
         parent: Overlay.overlay
         modal: true
         focus: true
@@ -7600,8 +8051,8 @@ Rectangle {
             const target = newHardlinkTargetInput.text.trim()
             if (!name.length || !target.length)
                 return
-            root.armResultSelectionForNames([name], directory.location)
-            if (fileOps.createHardLink(directory.location, name, target)) {
+            root.armResultSelectionForNames([name], destinationLocation)
+            if (fileOps.createHardLink(destinationLocation, name, target)) {
                 newHardlinkDialog.close()
             } else {
                 root.clearPendingResultSelection()
@@ -7622,6 +8073,7 @@ Rectangle {
                 id: newHardlinkNameInput
                 Layout.fillWidth: true
                 placeholderText: lang.language === "tr" ? "Bağlantı adı" : "Link name"
+                onAccepted: newHardlinkDialog.createLink()
             }
             GTextField {
                 id: newHardlinkTargetInput
@@ -7932,6 +8384,141 @@ Rectangle {
     }
 
     GModalPopup {
+        id: hiddenRenameDialog
+        objectName: "hiddenRenameDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(460, parent.width - 32)
+        implicitHeight: hiddenRenameContent.implicitHeight + topPadding + bottomPadding
+        closePolicy: Popup.CloseOnEscape
+        property string actionType: "rename"
+        property string targetUrl: ""
+        property string newName: ""
+        onAboutToShow: dontAskHiddenAgain.checked = false
+        onOpened: hiddenRenameCancelButton.forceActiveFocus()
+        onClosed: {
+            const finishedAction = actionType
+            const finishedTarget = targetUrl
+            targetUrl = ""
+            dontAskHiddenAgain.checked = false
+            Qt.callLater(function() {
+                if (finishedAction === "create_folder" && newFolderDialog.visible)
+                    newFolderInput.forceActiveFocus()
+                else if (finishedAction === "create_file" && newFileDialog.visible)
+                    newFileInput.forceActiveFocus()
+                else if (finishedAction === "batch_rename" && renameDialog.visible)
+                    renameInput.forceActiveFocus()
+                else if (finishedAction === "rename" && root.inlineRenameUrl === finishedTarget
+                         && root.inlineRenameEditor && root.inlineRenameEditor.visible)
+                    root.inlineRenameEditor.forceActiveFocus()
+            })
+        }
+        function confirmAction() {
+            const skipNextTime = dontAskHiddenAgain.checked
+            let accepted = false
+            if (actionType === "rename" && targetUrl.length && root.inlineRenameUrl === targetUrl)
+                accepted = root.commitInlineRename(targetUrl, newName, true)
+            else if (targetUrl === directory.location) {
+                if (actionType === "create_folder" && newFolderDialog.visible && newFolderInput.text.trim() === newName)
+                    accepted = newFolderDialog.createFolder(true)
+                else if (actionType === "create_file" && newFileDialog.visible && newFileInput.text.trim() === newName)
+                    accepted = newFileDialog.createFile(true)
+                else if (actionType === "batch_rename" && renameDialog.visible && renameInput.text.trim() === newName)
+                    accepted = root.commitRename(true)
+            }
+            // Cancelling or rejecting an invalid operation must not save the opt-out.
+            if (accepted && skipNextTime)
+                AppTheme.setSkipHiddenNameConfirmation(true)
+            close()
+        }
+        contentItem: ColumnLayout {
+            id: hiddenRenameContent
+            spacing: 16
+            Text {
+                Layout.fillWidth: true
+                text: {
+                    if (hiddenRenameDialog.actionType === "create_folder")
+                        return lang.language === "tr" ? "Gizli klasör oluşturulsun mu?" : "Create a hidden folder?"
+                    if (hiddenRenameDialog.actionType === "create_file")
+                        return lang.language === "tr" ? "Gizli dosya oluşturulsun mu?" : "Create a hidden file?"
+                    return lang.language === "tr" ? "Gizli ad kullanılarak yeniden adlandırılsın mı?" : "Rename using a hidden name?"
+                }
+                color: AppTheme.text
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+                wrapMode: Text.WordWrap
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: hiddenRenameName.implicitHeight + 24
+                radius: 10
+                color: AppTheme.surfaceRaised
+                border.color: AppTheme.border
+                Text {
+                    id: hiddenRenameName
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: hiddenRenameDialog.newName
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WrapAnywhere
+                    maximumLineCount: 3
+                    elide: Text.ElideMiddle
+                    color: AppTheme.text
+                    font.pixelSize: 14
+                    font.weight: Font.Medium
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: lang.language === "tr"
+                      ? "Noktayla başlayan dosya ve klasörler gizlenir. Bunları görüntülemek için “Gizli dosyaları göster” seçeneğini açmak gerekebilir."
+                      : "Files and folders with names beginning with a dot are hidden. You may need to enable “Show hidden files” to see them."
+                color: AppTheme.textMuted
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                GCheckBox {
+                    id: dontAskHiddenAgain
+                    objectName: "dontAskHiddenAgain"
+                    Layout.fillWidth: true
+                    text: lang.t("dont_ask_again")
+                    font.pixelSize: 12
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: lang.language === "tr"
+                          ? "Dosya ve klasör oluşturma ile yeniden adlandırma için geçerlidir. Görünüm menüsünden değiştirilebilir."
+                          : "Applies to file and folder creation and renaming. You can change this in View."
+                    color: AppTheme.textMuted
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                GModalButton {
+                    id: hiddenRenameCancelButton
+                    text: lang.t("cancel")
+                    onClicked: hiddenRenameDialog.close()
+                }
+                GModalButton {
+                    objectName: "confirmHiddenRenameButton"
+                    primary: true
+                    text: hiddenRenameDialog.actionType.startsWith("create_") ? lang.t("create") : lang.t("rename")
+                    onClicked: hiddenRenameDialog.confirmAction()
+                }
+            }
+        }
+    }
+
+    GModalPopup {
         id: confirmDeleteDialog
         parent: Overlay.overlay
         modal: true
@@ -7999,7 +8586,7 @@ Rectangle {
                         // The preference only becomes permanent when the destructive
                         // action itself is confirmed. Cancelling never changes it.
                         if (dontAskDeleteAgain.checked)
-                            paneSettings.skipPermanentDeleteConfirmation = true
+                            AppTheme.setSkipPermanentDeleteConfirmation(true)
                         root.performPermanentDelete()
                         confirmDeleteDialog.close()
                     }

@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 import "../components"
 
 Item {
@@ -110,14 +110,21 @@ Item {
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
                 spacing: 1
                 Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignLeft
+                    elide: Text.ElideRight
                     text: page.categoryTitle
                     color: AppTheme.text
                     font.pixelSize: 19
                     font.weight: Font.DemiBold
                 }
                 Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignLeft
+                    elide: Text.ElideRight
                     text: files.length + " " + (lang.language === "tr" ? "öğe · Ev dizini indeksi" : "items · Home index")
                     color: AppTheme.textMuted
                     font.pixelSize: 10

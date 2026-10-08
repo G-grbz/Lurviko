@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" version="1">
- <defs>
-  <style id="current-color-scheme" type="text/css">
-   .ColorScheme-Text { color:#dfdfdf; } .ColorScheme-Highlight { color:#4285f4; }
-  </style>
- </defs>
- <path style="fill:currentColor" class="ColorScheme-Text" d="m12 5c-3.866 0-7 3.134-7 7v1.3613a4 4 0 0 0 -1 2.639 4 4 0 0 0 4 4h1v-8h-1a4 4 0 0 0 -1 0.133v-0.133c0-2.77 2.23-5 5-5s5 2.23 5 5v0.13086a4 4 0 0 0 -1 -0.131h-1v8h1a4 4 0 0 0 4 -4 4 4 0 0 0 -1 -2.6387v-1.361c0-3.866-3.134-7-7-7z"/>
-</svg>
+<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M320 96C333.5 96 346.3 101.6 355.4 111.6L531.4 303.6C544.3 317.6 547.6 337.9 540 355.4C532.4 372.9 515 384 496 384L144 384C125 384 107.7 372.8 100.1 355.3C92.5 337.8 95.8 317.6 108.7 303.5L284.7 111.5C293.7 101.6 306.5 96 320 96zM96 496C96 469.5 117.5 448 144 448L496 448C522.5 448 544 469.5 544 496C544 522.5 522.5 544 496 544L144 544C117.5 544 96 522.5 96 496z"/></svg>

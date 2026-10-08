@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
- <defs>
-  <style id="current-color-scheme" type="text/css">
-   .ColorScheme-Text { color:#dedede; } .ColorScheme-Highlight { color:#5294e2; }
-  </style>
- </defs>
- <path style="fill:currentColor" class="ColorScheme-Text" d="M 2 2.0039062 C 1 2.0039062 1 3.0039062 1 3.0039062 L 1 7.0039062 L 3 7.0039062 L 3 4.0039062 L 6 4.0039062 L 6 2.0039062 L 2 2.0039062 z M 10 2.0039062 L 10 4.0039062 L 13 4.0039062 L 13 7.0039062 L 15 7.0039062 L 15 3.0039062 C 15 2.0039062 14 2.0039062 14 2.0039062 L 10 2.0039062 z M 1 9.0039062 L 1 13.003906 C 1 14.003906 2 14.003906 2 14.003906 L 6 14.003906 L 6 12.003906 L 3 12.003906 L 3 9.0039062 L 1 9.0039062 z M 13 9.0039062 L 13 12.003906 L 10 12.003906 L 10 14.003906 L 14 14.003906 C 14 14.003906 15 14.003906 15 13.003906 L 15 9.0039062 L 13 9.0039062 z"/>
-</svg>
+<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32S0 334.3 0 352l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"/></svg>

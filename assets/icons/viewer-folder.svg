@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" version="1.1">
- <path style="opacity:.35;fill:#dfdfdf" d="M 2,1 C 2,1 1,1 1,2 V 7 C 1,6 2,6 2,6 H 7 L 9,8 H 14 C 14,8 15,8 15,9 V 4 C 15,3 14,3 14,3 H 9 L 7,1 Z"/>
- <path style="fill:#dfdfdf" d="M 2,7 C 2,7 1,7 1,8 V 13 C 1,13 1,14 2,14 H 14 C 14,14 15,14 15,13 V 10 C 15,9 14,9 14,9 H 9 L 7,7 Z"/>
-</svg>
+<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M448 448L64 448c-35.3 0-64-28.7-64-64l0-176 512 0 0 176c0 35.3-28.7 64-64 64zm64-288L0 160 0 96C0 60.7 28.7 32 64 32l138.7 0c13.8 0 27.3 4.5 38.4 12.8l38.4 28.8c5.5 4.2 12.3 6.4 19.2 6.4L448 80c35.3 0 64 28.7 64 64l0 16z"/></svg>

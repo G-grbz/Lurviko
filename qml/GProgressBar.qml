@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import GFile.App
+import Lurviko.App
 
 ProgressBar {
     id: control

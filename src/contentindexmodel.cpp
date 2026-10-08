@@ -817,7 +817,7 @@ bool ContentIndexModel::shouldSkipDirectory(const QString &path)
 {
     const QString clean = QDir::cleanPath(path);
     const QString home = QDir::cleanPath(QDir::homePath());
-    const QString appData = QDir(home).filePath(QStringLiteral(".local/share/g-File"));
+    const QString appData = QDir(home).filePath(QStringLiteral(".local/share/Lurviko"));
     return clean == QDir(home).filePath(QStringLiteral(".cache"))
         || clean == QDir(home).filePath(QStringLiteral(".local/share/Trash"))
         || clean == appData
@@ -1139,7 +1139,7 @@ QString ContentIndexModel::mediaRootsSignature() const
 QString ContentIndexModel::indexFilePath() const
 {
     const QString base = QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
-                             .filePath(QStringLiteral("g-File"));
+                             .filePath(QStringLiteral("Lurviko"));
     QDir().mkpath(base);
     return QDir(base).filePath(QStringLiteral("content-index.json"));
 }

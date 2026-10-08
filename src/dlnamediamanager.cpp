@@ -85,7 +85,7 @@ QString DlnaMediaManager::configFilePath() const
     QString root = qEnvironmentVariable("XDG_CONFIG_HOME");
     if (root.isEmpty())
         root = QDir::home().filePath(QStringLiteral(".config"));
-    const QString appDir = QDir(root).filePath(QStringLiteral("g-File"));
+    const QString appDir = QDir(root).filePath(QStringLiteral("Lurviko"));
     QDir().mkpath(appDir);
     return QDir(appDir).filePath(QStringLiteral("dlna.ini"));
 }
@@ -127,7 +127,7 @@ void DlnaMediaManager::discover()
         "MAN: \"ssdp:discover\"\r\n"
         "MX: 2\r\n"
         "ST: urn:schemas-upnp-org:device:MediaServer:1\r\n"
-        "USER-AGENT: G-File/0.5 UPnP/1.1\r\n"
+        "USER-AGENT: Lurviko/0.5 UPnP/1.1\r\n"
         "\r\n");
     m_socket->writeDatagram(payload, SsdpAddress, SsdpPort);
 }
@@ -163,7 +163,7 @@ void DlnaMediaManager::fetchDescription(const QUrl &location,
 {
     QNetworkRequest request(location);
     request.setTransferTimeout(8000);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("G-File/0.5 UPnP/1.1"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/0.5 UPnP/1.1"));
     QNetworkReply *reply = m_network.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, location, serverHeader, usn]() {
         const QByteArray body = reply->readAll();
@@ -538,7 +538,7 @@ void DlnaMediaManager::performBrowsePage(const QString &objectId,
     QNetworkRequest request(server->controlUrl);
     request.setTransferTimeout(12000);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("text/xml; charset=\"utf-8\""));
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("G-File/0.5 UPnP/1.1"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Lurviko/0.5 UPnP/1.1"));
     request.setRawHeader("SOAPACTION", (QStringLiteral("\"") + serviceType
                                            + QStringLiteral("#Browse\"")).toUtf8());
     QNetworkReply *reply = m_network.post(request, body.toUtf8());

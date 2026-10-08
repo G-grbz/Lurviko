@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
-import GFile.App
+import Lurviko.App
 
 Rectangle {
     id: card

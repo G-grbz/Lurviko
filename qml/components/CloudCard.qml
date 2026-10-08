@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import GFile.App
+import Lurviko.App
 
 Rectangle {
     id: card
+    property string language: "en"
     property string cloudKey: ""
     property string provider: "Cloud"
     property string iconSource: ""
@@ -90,7 +91,7 @@ Rectangle {
     GMenu {
         id: cloudContextMenu
         GMenuItem {
-            text: qsTr("Düzenle")
+            text: card.language === "tr" ? "Düzenle" : "Edit"
             onTriggered: card.editRequested(card.cloudKey, card.provider, card.iconName)
         }
     }

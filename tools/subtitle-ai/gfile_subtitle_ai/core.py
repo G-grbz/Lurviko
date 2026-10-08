@@ -314,8 +314,8 @@ class OperationCancelled(UserVisibleError):
 def app_config_dir() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-        return base / "g-file" / "subtitle-ai"
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "g-file" / "subtitle-ai"
+        return base / "Lurviko" / "subtitle-ai"
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "Lurviko" / "subtitle-ai"
 
 
 _UI_TEXT = {
@@ -344,7 +344,7 @@ def ui_text(key: str, **values: Any) -> str:
 
 
 def ffmpeg_path() -> str:
-    override = os.environ.get("GFILE_FFMPEG_PATH", "").strip()
+    override = os.environ.get("LURVIKO_FFMPEG_PATH", "").strip()
     if override and Path(override).is_file():
         return override
     found = shutil.which("ffmpeg")
@@ -355,7 +355,7 @@ def ffmpeg_path() -> str:
 
 def ffprobe_path(auto_install: bool = False) -> str | None:
     del auto_install
-    override = os.environ.get("GFILE_FFPROBE_PATH", "").strip()
+    override = os.environ.get("LURVIKO_FFPROBE_PATH", "").strip()
     if override and Path(override).is_file():
         return override
     return shutil.which("ffprobe")

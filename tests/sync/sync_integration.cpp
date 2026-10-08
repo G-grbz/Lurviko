@@ -49,15 +49,16 @@ static bool createFile(const QString &path) {
 }
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
-    app.setOrganizationName("GFile-QA"); app.setApplicationName("Sync");
+    app.setOrganizationName("Lurviko-QA"); app.setApplicationName("Sync");
     QQuickStyle::setStyle("Basic");
     // REGISTER_BACKEND_TYPES
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new FixtureImages);
+    engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.loadData(R"qml(
 import QtQuick
 import QtQuick.Controls
-import GFile.App
+import Lurviko.App
 ApplicationWindow {
     width: 1020; height: 700; visible: true
     QtObject { id: language; property string language: "tr"; function t(key) { return key } }
@@ -97,7 +98,7 @@ ApplicationWindow {
     std::fprintf(stderr, "Gallery retained %d/%d cards after 8 small sync updates\n",
                  retained, int(originalCards.size()));
 
-    const QString base = QString::fromLocal8Bit(qgetenv("GFILE_SYNC_TEST_ROOT"));
+    const QString base = QString::fromLocal8Bit(qgetenv("LURVIKO_SYNC_TEST_ROOT"));
     for (const auto &folder : {"photos", "music", "empty"}) QDir().mkpath(base + "/" + folder);
     for (int i = 0; i < 30; ++i)
         if (!createFile(base + QString("/photos/%1.jpg").arg(i))) return 3;
@@ -125,7 +126,7 @@ ApplicationWindow {
     const int unrelatedResets = resets;
     std::fprintf(stderr, "Image-category resets after music update: %d\n", unrelatedResets);
 
-    qputenv("GFILE_TEST_SLOW_STORAGE", "1");
+    qputenv("LURVIKO_TEST_SLOW_STORAGE", "1");
     QElapsedTimer probeClock; probeClock.start();
     index.homeStorageTotalBytes();
     const qint64 blockingProbeMs = probeClock.elapsed();
@@ -141,7 +142,7 @@ ApplicationWindow {
     if (!createFile(base + "/photos/synced.jpg")) return 8;
     if (!until([&] {return !images.loading() && images.rowCount() == 31;})) return 9;
     pause(100);
-    qunsetenv("GFILE_TEST_SLOW_STORAGE"); heartbeat.stop();
+    qunsetenv("LURVIKO_TEST_SLOW_STORAGE"); heartbeat.stop();
     std::fprintf(stderr, "Main-thread maximum gap with slow disk probe: %lld ms\n", maxGap);
     if (images.storageTotalBytes() <= 0) return 10;
     // Syncthing writes a temporary file and atomically replaces the final

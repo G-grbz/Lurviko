@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/icons/logo.png" width="96" alt="g-File logo">
+  <img src="assets/icons/logo.png" width="96" alt="Lurviko logo">
 </p>
 
-<h1 align="center">g-File</h1>
+<h1 align="center">Lurviko</h1>
 <p align="center">Your files, media and cloud storage in one Linux desktop app.</p>
 <p align="center">
-  <a href="https://github.com/G-grbz/g-File/actions/workflows/ci.yml"><img src="https://github.com/G-grbz/g-File/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
-  <a href="https://github.com/G-grbz/g-File/actions/workflows/codeql.yml"><img src="https://github.com/G-grbz/g-File/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/G-grbz/Lurviko/actions/workflows/ci.yml"><img src="https://github.com/G-grbz/Lurviko/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
+  <a href="https://github.com/G-grbz/Lurviko/actions/workflows/codeql.yml"><img src="https://github.com/G-grbz/Lurviko/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="Source license: GPL 3.0 or later"></a>
   <img src="https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black" alt="Platform: Linux">
   <img src="https://img.shields.io/badge/Qt-6.9%2B-41CD52?logo=qt&logoColor=white" alt="Qt 6.9 or newer">
@@ -14,7 +14,7 @@
 </p>
 <p align="center"><a href="#features">Features</a> · <a href="#screenshots">Screenshots</a> · <a href="#build-and-install">Build & install</a> · <a href="#distribution-support">Distribution support</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
-g-File is a modern Qt Quick file manager for Linux, designed primarily for KDE Plasma and built on Qt 6 and KDE Frameworks 6. It combines everyday file operations with an Explore dashboard, indexed media libraries and built-in image, video and music players.
+Lurviko is a modern Qt Quick file manager for Linux, designed primarily for KDE Plasma and built on Qt 6 and KDE Frameworks 6. It combines everyday file operations with an Explore dashboard, indexed media libraries and built-in image, video and music players.
 
 This is an actively developed Linux desktop application. The repository currently provides source builds; official AppImage or Flatpak packages are not yet shipped.
 
@@ -26,8 +26,8 @@ This is an actively developed Linux desktop application. The repository currentl
     <td width="50%" align="center"><strong>Light theme</strong></td>
   </tr>
   <tr>
-    <td><img src="dark.png" alt="g-File in dark mode"></td>
-    <td><img src="light.png" alt="g-File in light mode"></td>
+    <td><img src="dark.png" alt="Lurviko in dark mode"></td>
+    <td><img src="light.png" alt="Lurviko in light mode"></td>
   </tr>
 </table>
 
@@ -41,8 +41,9 @@ The screenshots show the current application with a locally selected icon theme.
 - **Media:** cached previews, photo viewing, video playback with subtitles, a music player and DLNA browsing/playback. Supported codecs depend on the installed Qt Multimedia backend.
 - **Subtitles:** optional local AI translation and Whisper transcription, live translated cues and readable timing-aware splitting.
 - **Cloud:** Google Drive and OneDrive sign-in, browsing and transfers, including context-menu uploads when connected. OAuth application credentials are configured by the user.
-- **Private vault:** encrypted local storage using AES-256-GCM with Argon2id key derivation, optional KWallet quick unlock and configurable auto-lock.
+- **Private vault:** encrypted local storage using AES-256-GCM with Argon2id key derivation, optional KWallet quick unlock, configurable auto-lock and failed-password protection with persistent retry delays and temporary lockouts.
 - **Appearance:** light/dark application themes, adjustable icons, wheel-scroll speed and persisted window/view preferences. The video player keeps its dark presentation.
+- **Video chapters:** choose embedded chapter titles and timestamps from the **Chapters** control beside Audio. Chapter metadata is read asynchronously with `ffprobe`; selecting a chapter seeks to its start while preserving the playback state.
 
 ## Distribution support
 
@@ -100,13 +101,13 @@ Install the development packages providing the following CMake targets/modules. 
 | Toolchain | CMake 3.21+, Ninja or Make, C++17 compiler |
 | Runtime | Qt SVG image plugin; Qt Wayland plugin for Wayland sessions; session D-Bus |
 
-For optional previews and archive operations, install the tools in the table below. No Docker installation is required to build or run g-File; the CI uses disposable Arch Linux containers.
+For optional previews and archive operations, install the tools in the table below. No Docker installation is required to build or run Lurviko; the CI uses disposable Arch Linux containers.
 
 ### 2. Compile
 
 ```bash
-git clone https://github.com/G-grbz/g-File.git
-cd g-File
+git clone https://github.com/G-grbz/Lurviko.git
+cd Lurviko
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 4
 ```
@@ -114,8 +115,8 @@ cmake --build build --parallel 4
 Use fewer build workers on memory-constrained machines. To try the application before installation:
 
 ```bash
-./build/g-file
-./build/g-file "$HOME/Downloads"
+./build/lurviko
+./build/lurviko "$HOME/Downloads"
 ```
 
 ### 3. Install for your user
@@ -136,23 +137,23 @@ sudo cmake --install build --prefix /usr/local
 ### 4. Set as your folder manager (optional)
 
 ```bash
-xdg-mime default g-file.desktop inode/directory
-xdg-mime default g-file.desktop x-scheme-handler/trash
+xdg-mime default lurviko.desktop inode/directory
+xdg-mime default lurviko.desktop x-scheme-handler/trash
 ```
 
-In Plasma, also select g-File under **System Settings → Default Applications → File Manager**. The installation includes the dock icon, desktop entry and FileManager1 D-Bus service. “Show in folder” can reveal/select a file when the calling app sends a `ShowItems` request; a request containing only a directory cannot identify an individual downloaded file.
+In Plasma, also select Lurviko under **System Settings → Default Applications → File Manager**. The installation includes the dock icon, desktop entry and FileManager1 D-Bus service. “Show in folder” can reveal/select a file when the calling app sends a `ShowItems` request; a request containing only a directory cannot identify an individual downloaded file.
 
 ### Launch profiles
 
 The default launcher inherits your desktop environment. Configure a different profile only if needed:
 
 ```bash
-cmake -S . -B build -DGFILE_LAUNCH_PROFILE=wayland
+cmake -S . -B build -DLURVIKO_LAUNCH_PROFILE=wayland
 cmake --build build --parallel 4
 cmake --install build --prefix "$HOME/.local"
 ```
 
-Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`, `nvidia`, `nvidia-x11`, `custom`. The `custom` profile also requires `GFILE_CUSTOM_EXEC`.
+Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`, `nvidia`, `nvidia-x11`, `custom`. The `custom` profile also requires `LURVIKO_CUSTOM_EXEC`.
 
 ## Optional integrations
 
@@ -171,7 +172,7 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 
 ### Cloud accounts
 
-Configure a Google desktop OAuth client or a Microsoft public-client application in the cloud settings, then connect your account. Environment defaults are also supported: `GFILE_GOOGLE_CLIENT_ID`, `GFILE_GOOGLE_CLIENT_SECRET`, `GFILE_ONEDRIVE_CLIENT_ID` and `GFILE_ONEDRIVE_TENANT`. Tokens/secrets are handled through KWallet. No shared OAuth or TMDB credentials are included in this repository.
+Configure a Google desktop OAuth client or a Microsoft public-client application in the cloud settings, then connect your account. Environment defaults are also supported: `LURVIKO_GOOGLE_CLIENT_ID`, `LURVIKO_GOOGLE_CLIENT_SECRET`, `LURVIKO_ONEDRIVE_CLIENT_ID` and `LURVIKO_ONEDRIVE_TENANT`. Tokens/secrets are handled through KWallet. No shared OAuth or TMDB credentials are included in this repository.
 
 ### Local AI subtitles
 
@@ -180,6 +181,10 @@ AI features are optional and do not affect basic file browsing. Python, the rele
 See [tools/subtitle-ai/README.md](tools/subtitle-ai/README.md), [runtime requirements](tools/subtitle-ai/requirements.txt) and [translation-only requirements](tools/subtitle-ai/requirements-translation.txt). Model licenses are separate from the application license. NVIDIA acceleration requires the compatible CUDA/cuDNN runtime; CPU execution is also supported.
 
 ## Keyboard shortcuts
+
+Open **Explore → Keyboard shortcuts** using the keyboard icon next to the information button. Search or filter the action list, select an action, click **Record shortcut**, press a combination, and **Save**. Each action accepts up to eight alternative combinations. Symlink/hardlink creation and link-target navigation start unassigned.
+
+The editor detects conflicts in overlapping contexts and offers an explicit reassignment option. Clear bindings to disable an action, restore an individual action's default, or restore all defaults. Changes apply immediately after saving and persist across restarts. File-browser, photo-viewer and video-player controls use their own contexts; fullscreen and quit are application-wide. The table below lists common defaults.
 
 | Shortcut | Action |
 | --- | --- |
@@ -215,8 +220,24 @@ The **Build and tests** workflow compiles and checks installation on Arch Linux,
 | `packaging/` | Desktop entry template and D-Bus activation service |
 | `tests/` | Python, QML and native regression harnesses |
 
-The application keeps persistent data under the canonical `g-File` user data directory (normally `~/.local/share/g-File`). Configuration/cache locations also follow their Qt/XDG settings. Local settings, indexes, downloaded models, build outputs and credentials are not part of the source repository.
+The application keeps persistent data under the canonical `Lurviko` user data directory (normally `~/.local/share/Lurviko`). Configuration/cache locations also follow their Qt/XDG settings. Local settings, indexes, downloaded models, build outputs and credentials are not part of the source repository.
+
+### Upgrading from g-File
+
+Close the old application before launching Lurviko. The first launch migrates the previous `g-File` / `g-file` configuration, data and cache directories to **Lurviko**, including Qt's nested application directories. Indexes, music history, playlists, playback positions, subtitle models and encrypted vault files are retained. Conflicting old files are preserved under `Lurviko/migration-backup/` instead of overwriting existing Lurviko data. KWallet entries move to the Lurviko folder when the wallet is opened; vault encryption remains compatible.
+
+The executable is now `lurviko` and the desktop entry is `lurviko.desktop`. A `g-file` command alias and hidden compatibility desktop entry preserve existing launchers and MIME associations. Newly pinned launchers should use Lurviko.
+
+### Release notifications
+
+Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asynchronously after startup and every six hours. A dot on Explore's information button and a release card beneath **Features** appear when a newer stable version is available. Clicking the card opens the official release page. This check announces releases; installation is manual. Offline checks never block startup or show error popups.
+
+### Publishing a source release
+
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.0.0`** (or `Lurviko-v1.0.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.0.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+
+The workflow publishes source code; it does not produce distribution packages. See [GitHub tag triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push) and [release creation](https://cli.github.com/manual/gh_release_create).
 
 ## License
 
-The original g-File application source is licensed under **GNU GPL v3 or any later version** (`GPL-3.0-or-later`); see [LICENSE](LICENSE). Bundled tools retain their own existing notices. Third-party artwork, trademarks, libraries and downloaded models are subject to their respective terms; see [THIRD_PARTY.md](THIRD_PARTY.md).
+The original Lurviko application source is licensed under **GNU GPL v3 or any later version** (`GPL-3.0-or-later`); see [LICENSE](LICENSE). Bundled tools retain their own existing notices. Third-party artwork, trademarks, libraries and downloaded models are subject to their respective terms; see [THIRD_PARTY.md](THIRD_PARTY.md).

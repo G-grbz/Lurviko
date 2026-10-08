@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
-import GFile.App
+import Lurviko.App
 
 Rectangle {
     id: card
@@ -84,7 +84,7 @@ Rectangle {
                 anchors.centerIn: parent
                 width: Math.round((card.compact ? 15 : 20) * Math.min(1.12, card.textScale))
                 height: width
-                source: "qrc:/qt/qml/GFile/App/assets/icons/viewer-play.svg"
+                source: "qrc:/qt/qml/Lurviko/App/assets/icons/viewer-play.svg"
             }
         }
     }

@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6E7FA5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="2.5" y="4" width="19" height="16" rx="3"/>
-  <path d="M12 4v16"/>
-  <path d="M6.5 8.5h2M6.5 12h2M6.5 15.5h2"/>
-  <path d="M15.2 8.5h3M15.2 12h3M15.2 15.5h3"/>
-</svg>
+<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M0 96C0 60.7 28.7 32 64 32l320 0c35.3 0 64 28.7 64 64l0 320c0 35.3-28.7 64-64 64L64 480c-35.3 0-64-28.7-64-64L0 96zm64 64l0 256 128 0 0-256-128 0zm320 0l-128 0 0 256 128 0 0-256z"/></svg>

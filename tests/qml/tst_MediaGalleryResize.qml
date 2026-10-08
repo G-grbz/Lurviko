@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtTest
-import GFile.App
+import Lurviko.App
 
 Item {
     width: 1020

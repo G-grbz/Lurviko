@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Lurviko
+Name[tr]=Lurviko
+GenericName=File Manager
+GenericName[tr]=Dosya Yöneticisi
+Comment=Modern file manager for Linux
+Comment[tr]=Yerel, ağ ve bulut dosyaları için modern dosya yöneticisi
+Exec=@LURVIKO_DESKTOP_EXEC@
+TryExec=lurviko
+Icon=lurviko
+Terminal=false
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;x-scheme-handler/trash;
+StartupNotify=true
+StartupWMClass=lurviko
+DBusActivatable=false
+InitialPreference=20
+Keywords=files;folders;storage;cloud;
+Keywords[tr]=dosyalar;klasörler;depolama;bulut;

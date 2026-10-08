@@ -1,4 +1,5 @@
 #include "videoplayerinputmanager.h"
+#include "keyboardshortcutmanager.h"
 
 #include <QCoreApplication>
 #include <QEvent>
@@ -65,6 +66,11 @@ bool VideoPlayerInputManager::hasVisibleViewer() const
     return false;
 }
 
+void VideoPlayerInputManager::setShortcutManager(QObject *manager)
+{
+    m_shortcuts = qobject_cast<KeyboardShortcutManager *>(manager);
+}
+
 bool VideoPlayerInputManager::eventFilter(QObject *watched, QEvent *event)
 {
     Q_UNUSED(watched)
@@ -74,6 +80,29 @@ bool VideoPlayerInputManager::eventFilter(QObject *watched, QEvent *event)
         return QObject::eventFilter(watched, event);
 
     auto *keyEvent = static_cast<QKeyEvent *>(event);
+    if (m_shortcuts) {
+        if (m_shortcuts->editorOpen()) return QObject::eventFilter(watched, event);
+        const QString actions[] = {"video_close", "video_play", "video_back", "video_forward",
+            "video_volume_up", "video_volume_down", "video_mute", "fullscreen"};
+        int matched = -1;
+        for (int i = 0; i < 8; ++i)
+            if (m_shortcuts->matches(actions[i], keyEvent->key(), keyEvent->modifiers())) { matched = i; break; }
+        if (matched < 0) return QObject::eventFilter(watched, event);
+        keyEvent->accept();
+        if (event->type() == QEvent::ShortcutOverride) return true;
+        if (keyEvent->isAutoRepeat() && (matched < 2 || matched > 5)) return true;
+        switch (matched) {
+        case 0: emit escapePressed(); break;
+        case 1: emit togglePlaybackPressed(); break;
+        case 2: emit seekBackwardPressed(); break;
+        case 3: emit seekForwardPressed(); break;
+        case 4: emit volumeUpPressed(); break;
+        case 5: emit volumeDownPressed(); break;
+        case 6: emit mutePressed(); break;
+        case 7: emit fullscreenPressed(); break;
+        }
+        return true;
+    }
     const Qt::KeyboardModifiers modifiers = keyEvent->modifiers();
     if (modifiers.testFlag(Qt::ControlModifier)
             || modifiers.testFlag(Qt::AltModifier)

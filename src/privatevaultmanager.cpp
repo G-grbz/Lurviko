@@ -15,6 +15,9 @@
 #include <QMimeDatabase>
 #include <QSet>
 #include <QSaveFile>
+#include <QSettings>
+#include "appmigration.h"
+#include <QLocale>
 #include <QStandardPaths>
 #include <QUrl>
 #include <KWallet>
@@ -36,6 +39,13 @@ constexpr char kThumbMagic[] = "GFTHMB01";
 constexpr qsizetype kThumbMagicSize = 8;
 constexpr qsizetype kBlobMagicSize = 8;
 constexpr qint64 kChunkSize = 1024 * 1024;
+
+QString securityMessage(const char *english, const char *turkish)
+{
+    const QString fallback = QLocale::system().language() == QLocale::Turkish ? QStringLiteral("tr") : QStringLiteral("en");
+    return QString::fromUtf8(QSettings().value(QStringLiteral("ui/language"), fallback).toString() == QStringLiteral("tr")
+                                ? turkish : english);
+}
 
 QByteArray b64(const QByteArray &value)
 {
@@ -63,6 +73,10 @@ PrivateVaultManager::PrivateVaultManager(QObject *parent)
     ensureStorageLayout();
     cleanupRuntimeFiles();
     loadSecurityPreferences();
+    m_authenticationTimer = new QTimer(this);
+    m_authenticationTimer->setInterval(1000);
+    connect(m_authenticationTimer, &QTimer::timeout, this, &PrivateVaultManager::refreshAuthenticationState);
+    loadAuthenticationState();
     m_autoLockTimer = new QTimer(this);
     m_autoLockTimer->setSingleShot(true);
     connect(m_autoLockTimer, &QTimer::timeout, this, [this]() {
@@ -143,7 +157,7 @@ QString PrivateVaultManager::runtimeRoot() const
     QString runtime = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if (runtime.isEmpty())
         runtime = QDir::tempPath();
-    return QDir(runtime).filePath(QStringLiteral("g-file-private"));
+    return QDir(runtime).filePath(QStringLiteral("lurviko-private"));
 }
 
 bool PrivateVaultManager::exists() const
@@ -460,12 +474,20 @@ void PrivateVaultManager::loadSecurityPreferences()
         m_kwalletEnabled = false;
         m_autoLockEnabled = false;
         m_autoLockMinutes = 15;
+        m_passwordProtectionEnabled = true;
+        m_maxPasswordAttempts = 5;
+        m_passwordLockoutSeconds = 300;
+        m_passwordRetrySeconds = 2;
         return;
     }
     m_kwalletEnabled = header.value(QStringLiteral("kwalletEnabled")).toBool(false);
     m_autoLockEnabled = header.value(QStringLiteral("autoLockEnabled")).toBool(false);
     const int minutes = header.value(QStringLiteral("autoLockMinutes")).toInt(15);
     m_autoLockMinutes = (minutes == 5 || minutes == 15 || minutes == 30 || minutes == 60) ? minutes : 15;
+    m_passwordProtectionEnabled = header.value(QStringLiteral("passwordProtectionEnabled")).toBool(true);
+    m_maxPasswordAttempts = std::clamp(header.value(QStringLiteral("maxPasswordAttempts")).toInt(5), 1, 100);
+    m_passwordLockoutSeconds = std::clamp(header.value(QStringLiteral("passwordLockoutSeconds")).toInt(300), 1, 86400);
+    m_passwordRetrySeconds = std::clamp(header.value(QStringLiteral("passwordRetrySeconds")).toInt(2), 0, 3600);
 }
 
 bool PrivateVaultManager::persistSecurityPreferences()
@@ -478,10 +500,162 @@ bool PrivateVaultManager::persistSecurityPreferences()
     header.insert(QStringLiteral("kwalletEnabled"), m_kwalletEnabled);
     header.insert(QStringLiteral("autoLockEnabled"), m_autoLockEnabled);
     header.insert(QStringLiteral("autoLockMinutes"), m_autoLockMinutes);
+    header.insert(QStringLiteral("passwordProtectionEnabled"), m_passwordProtectionEnabled);
+    header.insert(QStringLiteral("maxPasswordAttempts"), m_maxPasswordAttempts);
+    header.insert(QStringLiteral("passwordLockoutSeconds"), m_passwordLockoutSeconds);
+    header.insert(QStringLiteral("passwordRetrySeconds"), m_passwordRetrySeconds);
     if (!writeHeader(header))
         return false;
     if (m_unlocked)
         m_header = header;
+    return true;
+}
+
+int PrivateVaultManager::passwordWaitSeconds() const
+{
+    if (!m_passwordProtectionEnabled)
+        return 0;
+    const qint64 remaining = std::max(m_passwordLockoutUntil, m_passwordRetryUntil)
+                             - QDateTime::currentMSecsSinceEpoch();
+    return static_cast<int>(std::clamp<qint64>((remaining + 999) / 1000, 0, 86400));
+}
+
+bool PrivateVaultManager::passwordLockedOut() const
+{
+    return m_passwordProtectionEnabled && m_passwordLockoutUntil > QDateTime::currentMSecsSinceEpoch();
+}
+
+void PrivateVaultManager::loadAuthenticationState()
+{
+    QFile file(QDir(vaultRoot()).filePath(QStringLiteral("authentication.json")));
+    QJsonObject header;
+    if (file.open(QIODevice::ReadOnly) && readHeader(&header)) {
+        const QJsonObject state = QJsonDocument::fromJson(file.readAll()).object();
+        if (state.value(QStringLiteral("vaultId")) == header.value(QStringLiteral("vaultId"))) {
+            m_failedPasswordAttempts = std::clamp(state.value(QStringLiteral("failures")).toInt(), 0, 100);
+            m_passwordLockoutUntil = state.value(QStringLiteral("lockoutUntil")).toVariant().toLongLong();
+            m_passwordRetryUntil = state.value(QStringLiteral("retryUntil")).toVariant().toLongLong();
+        }
+    }
+    if (!m_passwordProtectionEnabled) {
+        m_failedPasswordAttempts = 0;
+        m_passwordLockoutUntil = 0;
+        m_passwordRetryUntil = 0;
+    }
+    refreshAuthenticationState();
+}
+
+bool PrivateVaultManager::persistAuthenticationState()
+{
+    QJsonObject header;
+    if (!readHeader(&header))
+        return false;
+    const QJsonObject state {
+        {QStringLiteral("vaultId"), header.value(QStringLiteral("vaultId"))},
+        {QStringLiteral("failures"), m_failedPasswordAttempts},
+        {QStringLiteral("lockoutUntil"), static_cast<double>(m_passwordLockoutUntil)},
+        {QStringLiteral("retryUntil"), static_cast<double>(m_passwordRetryUntil)}
+    };
+    QSaveFile file(QDir(vaultRoot()).filePath(QStringLiteral("authentication.json")));
+    if (!file.open(QIODevice::WriteOnly)
+            || !file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner))
+        return false;
+    const QByteArray bytes = QJsonDocument(state).toJson(QJsonDocument::Compact);
+    return file.write(bytes) == bytes.size() && file.commit();
+}
+
+void PrivateVaultManager::refreshAuthenticationState()
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    bool changed = false;
+    if (m_passwordLockoutUntil > 0 && now >= m_passwordLockoutUntil) {
+        m_failedPasswordAttempts = 0;
+        m_passwordLockoutUntil = 0;
+        m_passwordRetryUntil = 0;
+        setError({});
+        changed = true;
+    } else if (m_passwordRetryUntil > 0 && now >= m_passwordRetryUntil) {
+        m_passwordRetryUntil = 0;
+        changed = true;
+    }
+    if (changed && !persistAuthenticationState())
+        setError(securityMessage("Could not save password attempt information.", "Parola deneme bilgisi kaydedilemedi."));
+    if (passwordWaitSeconds() > 0)
+        m_authenticationTimer->start();
+    else
+        m_authenticationTimer->stop();
+    emit authenticationStateChanged();
+}
+
+bool PrivateVaultManager::allowPasswordAttempt()
+{
+    refreshAuthenticationState();
+    if (passwordWaitSeconds() == 0)
+        return true;
+    setError(passwordLockedOut()
+                 ? securityMessage("Too many incorrect passwords. Try again after the lockout expires.", "Çok fazla hatalı parola denemesi. Bekleme süresi dolunca tekrar deneyebilirsin.")
+                 : securityMessage("Wait for the retry delay before trying another password.", "Yeni parola denemesi için bekleme süresinin dolmasını bekle."));
+    return false;
+}
+
+void PrivateVaultManager::recordPasswordFailure()
+{
+    if (!m_passwordProtectionEnabled)
+        return;
+    ++m_failedPasswordAttempts;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_failedPasswordAttempts >= m_maxPasswordAttempts) {
+        m_passwordLockoutUntil = now + static_cast<qint64>(m_passwordLockoutSeconds) * 1000;
+        m_passwordRetryUntil = 0;
+        if (m_unlocked)
+            lock();
+    } else {
+        m_passwordRetryUntil = now + static_cast<qint64>(m_passwordRetrySeconds) * 1000;
+    }
+    if (!persistAuthenticationState())
+        setError(securityMessage("Could not save password attempt information.", "Parola deneme bilgisi kaydedilemedi."));
+    refreshAuthenticationState();
+}
+
+bool PrivateVaultManager::resetPasswordFailures()
+{
+    m_failedPasswordAttempts = 0;
+    m_passwordLockoutUntil = 0;
+    m_passwordRetryUntil = 0;
+    m_authenticationTimer->stop();
+    const bool saved = persistAuthenticationState();
+    emit authenticationStateChanged();
+    if (!saved)
+        setError(securityMessage("Could not reset password attempts.", "Parola deneme bilgisi sıfırlanamadı."));
+    return saved;
+}
+
+bool PrivateVaultManager::setPasswordProtection(bool enabled, int attempts, int lockoutSeconds, int retrySeconds)
+{
+    if (!m_unlocked || m_busy || attempts < 1 || attempts > 100
+            || lockoutSeconds < 1 || lockoutSeconds > 86400 || retrySeconds < 0 || retrySeconds > 3600)
+        return false;
+    const bool oldEnabled = m_passwordProtectionEnabled;
+    const int oldAttempts = m_maxPasswordAttempts;
+    const int oldLockout = m_passwordLockoutSeconds;
+    const int oldRetry = m_passwordRetrySeconds;
+    m_passwordProtectionEnabled = enabled;
+    m_maxPasswordAttempts = attempts;
+    m_passwordLockoutSeconds = lockoutSeconds;
+    m_passwordRetrySeconds = retrySeconds;
+    if (!persistSecurityPreferences()) {
+        m_passwordProtectionEnabled = oldEnabled;
+        m_maxPasswordAttempts = oldAttempts;
+        m_passwordLockoutSeconds = oldLockout;
+        m_passwordRetrySeconds = oldRetry;
+        setError(securityMessage("Could not save security settings.", "Güvenlik ayarı kaydedilemedi."));
+        return false;
+    }
+    emit securitySettingsChanged();
+    if (!enabled && !resetPasswordFailures())
+        return false;
+    clearStatus();
+    setStatus(securityMessage("Password attempt protection settings saved.", "Parola deneme koruması ayarları kaydedildi."));
     return true;
 }
 
@@ -505,8 +679,7 @@ QString PrivateVaultManager::walletEntryKey(const QJsonObject &header) const
 KWallet::Wallet *PrivateVaultManager::openVaultWallet()
 {
     if (m_wallet && m_wallet->isOpen()) {
-        const QString folder = QStringLiteral("g-File");
-        if ((m_wallet->hasFolder(folder) || m_wallet->createFolder(folder)) && m_wallet->setFolder(folder))
+        if (selectLurvikoWalletFolder(m_wallet))
             return m_wallet;
         delete m_wallet;
         m_wallet = nullptr;
@@ -519,8 +692,7 @@ KWallet::Wallet *PrivateVaultManager::openVaultWallet()
         m_wallet = nullptr;
         return nullptr;
     }
-    const QString folder = QStringLiteral("g-File");
-    if ((!m_wallet->hasFolder(folder) && !m_wallet->createFolder(folder)) || !m_wallet->setFolder(folder)) {
+    if (!selectLurvikoWalletFolder(m_wallet)) {
         delete m_wallet;
         m_wallet = nullptr;
         return nullptr;
@@ -612,15 +784,20 @@ bool PrivateVaultManager::changePassword(const QString &currentPassword, const Q
         setError(tr("Yeni parola en az 8 karakter olmalı."));
         return false;
     }
+    if (!allowPasswordAttempt())
+        return false;
     QByteArray verified;
     if (!unwrapMasterKey(m_header, currentPassword, &verified)
             || verified.size() != m_masterKey.size()
             || CRYPTO_memcmp(verified.constData(), m_masterKey.constData(), KeySize) != 0) {
         secureClear(verified);
         setError(tr("Mevcut parola yanlış."));
+        recordPasswordFailure();
         return false;
     }
     secureClear(verified);
+    if (!resetPasswordFailures())
+        return false;
 
     QByteArray salt(SaltSize, Qt::Uninitialized);
     if (RAND_bytes(reinterpret_cast<unsigned char *>(salt.data()), SaltSize) != 1) {
@@ -663,6 +840,8 @@ bool PrivateVaultManager::quickUnlock()
         setError(tr("Kasa bulunamadı."));
         return false;
     }
+    if (!allowPasswordAttempt())
+        return false;
     QJsonObject header;
     if (!readHeader(&header) || !header.value(QStringLiteral("kwalletEnabled")).toBool(false)) {
         setError(tr("Bu kasa için KWallet hızlı açma etkin değil."));
@@ -680,6 +859,10 @@ bool PrivateVaultManager::quickUnlock()
     if (!loadManifest(header, master, &manifest)) {
         secureClear(master);
         setError(tr("KWallet anahtarı bu kasayla eşleşmiyor."));
+        return false;
+    }
+    if (!resetPasswordFailures()) {
+        secureClear(master);
         return false;
     }
     lock();
@@ -776,7 +959,11 @@ bool PrivateVaultManager::createVault(const QString &password)
         { QStringLiteral("vaultId"), QUuid::createUuid().toString(QUuid::WithoutBraces) },
         { QStringLiteral("kwalletEnabled"), false },
         { QStringLiteral("autoLockEnabled"), false },
-        { QStringLiteral("autoLockMinutes"), 15 }
+        { QStringLiteral("autoLockMinutes"), 15 },
+        { QStringLiteral("passwordProtectionEnabled"), true },
+        { QStringLiteral("maxPasswordAttempts"), 5 },
+        { QStringLiteral("passwordLockoutSeconds"), 300 },
+        { QStringLiteral("passwordRetrySeconds"), 2 }
     };
     QByteArray passwordKey;
     if (!derivePasswordKey(password, salt, &passwordKey, &header)) {
@@ -811,6 +998,10 @@ bool PrivateVaultManager::createVault(const QString &password)
     m_kwalletEnabled = false;
     m_autoLockEnabled = false;
     m_autoLockMinutes = 15;
+    m_passwordProtectionEnabled = true;
+    m_maxPasswordAttempts = 5;
+    m_passwordLockoutSeconds = 300;
+    m_passwordRetrySeconds = 2;
     m_currentFolderId = QStringLiteral("root");
     const bool saved = saveManifest();
     setBusy(false);
@@ -818,6 +1009,10 @@ bool PrivateVaultManager::createVault(const QString &password)
         lock();
         QFile::remove(headerPath());
         setError(tr("Kasa bilgileri diske yazılamadı."));
+        return false;
+    }
+    if (!resetPasswordFailures()) {
+        lock();
         return false;
     }
     refreshVisibleItems();
@@ -837,15 +1032,29 @@ bool PrivateVaultManager::unlock(const QString &password)
         setError(tr("Kasa bulunamadı."));
         return false;
     }
+    if (m_busy || !allowPasswordAttempt())
+        return false;
     setBusy(true);
     QJsonObject header;
     QByteArray master;
     QJsonObject manifest;
-    if (!readHeader(&header) || !unwrapMasterKey(header, password, &master)
-            || !loadManifest(header, master, &manifest)) {
+    if (!readHeader(&header)) {
+        setBusy(false);
+        setError(securityMessage("Could not read vault information.", "Kasa bilgisi okunamadı."));
+        return false;
+    }
+    if (!unwrapMasterKey(header, password, &master)) {
         secureClear(master);
         setBusy(false);
-        setError(tr("Kasa açılamadı. Parola yanlış veya kasa verisi bozulmuş olabilir."));
+        setError(securityMessage("Could not unlock the vault. The password may be incorrect or the vault data damaged.", "Kasa açılamadı. Parola yanlış veya kasa verisi bozulmuş olabilir."));
+        recordPasswordFailure();
+        return false;
+    }
+    if (!loadManifest(header, master, &manifest) || !resetPasswordFailures()) {
+        secureClear(master);
+        setBusy(false);
+        if (m_lastError.isEmpty())
+            setError(securityMessage("Could not read vault data.", "Kasa verisi okunamadı."));
         return false;
     }
     if (!header.contains(QStringLiteral("vaultId"))) {
@@ -859,10 +1068,7 @@ bool PrivateVaultManager::unlock(const QString &password)
     m_header = header;
     m_manifest = manifest;
     m_unlocked = true;
-    m_kwalletEnabled = header.value(QStringLiteral("kwalletEnabled")).toBool(false);
-    m_autoLockEnabled = header.value(QStringLiteral("autoLockEnabled")).toBool(false);
-    const int configuredMinutes = header.value(QStringLiteral("autoLockMinutes")).toInt(15);
-    m_autoLockMinutes = (configuredMinutes == 5 || configuredMinutes == 15 || configuredMinutes == 30 || configuredMinutes == 60) ? configuredMinutes : 15;
+    loadSecurityPreferences();
     m_currentFolderId = QStringLiteral("root");
     cleanupOrphanBlobs();
     cleanupOrphanThumbnails();
@@ -881,7 +1087,7 @@ void PrivateVaultManager::lock()
 {
     if (m_autoLockTimer)
         m_autoLockTimer->stop();
-    // Give G-File-owned viewers/players a chance to stop and release their
+    // Give Lurviko-owned viewers/players a chance to stop and release their
     // runtime files before the plaintext runtime directory is wiped.
     if (m_unlocked)
         emit aboutToLock();

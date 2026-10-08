@@ -5,6 +5,7 @@ import ".."
 
 Rectangle {
     id: root
+    property string language: "en"
     property int categoryIndex: -1
     property string categoryKey: ""
     property string title: ""
@@ -20,6 +21,7 @@ Rectangle {
     property string secondaryText: ""
     property bool actionVisible: false
     property string actionText: ""
+    property string actionIcon: ""
     property string actionToolTip: ""
     signal openRequested(string key, string title, string iconName)
     signal editRequested(string key, string title, string iconName)
@@ -96,7 +98,7 @@ Rectangle {
             anchors.left: iconStage.right
             anchors.right: arrowText.left
             anchors.leftMargin: 12
-            anchors.rightMargin: 12
+            anchors.rightMargin: root.actionVisible ? 28 : 12
             anchors.verticalCenter: parent.verticalCenter
             spacing: 3
 
@@ -117,6 +119,7 @@ Rectangle {
 
         Text {
             id: arrowText
+            visible: !root.actionVisible
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: "›"
@@ -131,11 +134,10 @@ Rectangle {
         z: 8
         visible: root.actionVisible
         anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.rightMargin: 10
-        anchors.topMargin: 10
-        implicitWidth: 30
-        implicitHeight: 30
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.rightMargin: 14
+        implicitWidth: 32
+        implicitHeight: 32
         hoverEnabled: true
         onClicked: root.actionRequested()
         background: Rectangle {
@@ -144,12 +146,23 @@ Rectangle {
             border.width: 1
             border.color: cornerAction.hovered ? AppTheme.accentBorder : AppTheme.border
         }
-        contentItem: Text {
-            text: root.actionText
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            font.pixelSize: 14
-            color: AppTheme.text
+        contentItem: Item {
+            CrispIcon {
+                anchors.centerIn: parent
+                width: 17
+                height: 17
+                visible: root.actionIcon.length > 0
+                source: AppTheme.icon(root.actionIcon)
+            }
+            Text {
+                anchors.fill: parent
+                visible: root.actionIcon.length === 0
+                text: root.actionText
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: 14
+                color: AppTheme.text
+            }
         }
         GToolTip { text: root.actionToolTip }
     }
@@ -177,7 +190,7 @@ Rectangle {
         id: categoryMenu
         GMenuItem {
             visible: root.editable
-            text: qsTr("Düzenle")
+            text: root.language === "tr" ? "Düzenle" : "Edit"
             onTriggered: root.editRequested(root.categoryKey, root.title, root.iconName)
         }
     }

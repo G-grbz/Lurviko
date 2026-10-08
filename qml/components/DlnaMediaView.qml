@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 
 Item {
     id: root
@@ -294,7 +294,7 @@ Item {
     function artworkUrlFor(item) {
         if (!item)
             return ""
-        // Prefer G-File's cached TMDB artwork over low-resolution DLNA
+        // Prefer Lurviko's cached TMDB artwork over low-resolution DLNA
         // albumArtURI thumbnails. Native DLNA art remains the instant fallback.
         const metadata = tmdbManager.dlnaArtworkEnabled ? (artworkByObjectId[artworkKey(item)] || null) : null
         if (metadata) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JSON-lines bridge between g-File and the headless G-TMCE ASR engine.
+"""JSON-lines bridge between Lurviko and the headless G-TMCE ASR engine.
 
 The bridge deliberately keeps durable job state outside the video directory.
 A completed ASR source subtitle is reusable across translation attempts, and AI
@@ -76,12 +76,12 @@ def detect_channel_layout(input_path: Path, ffprobe: str | None, audio_track_ind
 
 
 def cache_root() -> Path:
-    configured = os.environ.get("GFILE_GTMCE_CACHE_DIR", "").strip()
+    configured = os.environ.get("LURVIKO_GTMCE_CACHE_DIR", "").strip()
     if configured:
         return Path(configured).expanduser()
     xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
     base = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
-    return base / "g-file" / "gtmce" / "jobs"
+    return base / "Lurviko" / "gtmce" / "jobs"
 
 
 def cache_key(input_path: Path, audio_track_index: int, language: str, quality_profile: str) -> str:

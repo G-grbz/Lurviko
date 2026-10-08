@@ -11,6 +11,7 @@
 #include <QOAuth2AuthorizationCodeFlow>
 #include <QOAuthHttpServerReplyHandler>
 #include <QSettings>
+#include "appmigration.h"
 #include <QSet>
 #include <QUrl>
 #include <QUrlQuery>
@@ -21,15 +22,15 @@ CloudAuthManager::CloudAuthManager(QObject *parent)
 {
     QSettings settings;
     m_googleClientId = settings.value(QStringLiteral("cloud/googleClientId"),
-                                      qEnvironmentVariable("GFILE_GOOGLE_CLIENT_ID", qEnvironmentVariable("AETHER_GOOGLE_CLIENT_ID"))).toString();
+                                      qEnvironmentVariable("LURVIKO_GOOGLE_CLIENT_ID", qEnvironmentVariable("AETHER_GOOGLE_CLIENT_ID"))).toString();
     // v0.4.x stored the Google client secret in QSettings. Read it once so we can
     // migrate it into KWallet, then remove the plaintext copy.
     m_googleClientSecret = settings.value(QStringLiteral("cloud/googleClientSecret"),
-                                          qEnvironmentVariable("GFILE_GOOGLE_CLIENT_SECRET")).toString();
+                                          qEnvironmentVariable("LURVIKO_GOOGLE_CLIENT_SECRET")).toString();
     m_oneDriveClientId = settings.value(QStringLiteral("cloud/oneDriveClientId"),
-                                        qEnvironmentVariable("GFILE_ONEDRIVE_CLIENT_ID", qEnvironmentVariable("AETHER_ONEDRIVE_CLIENT_ID"))).toString();
+                                        qEnvironmentVariable("LURVIKO_ONEDRIVE_CLIENT_ID", qEnvironmentVariable("AETHER_ONEDRIVE_CLIENT_ID"))).toString();
     m_oneDriveTenant = settings.value(QStringLiteral("cloud/oneDriveTenant"),
-                                      qEnvironmentVariable("GFILE_ONEDRIVE_TENANT", QStringLiteral("common"))).toString().trimmed();
+                                      qEnvironmentVariable("LURVIKO_ONEDRIVE_TENANT", QStringLiteral("common"))).toString().trimmed();
     if (m_oneDriveTenant.isEmpty())
         m_oneDriveTenant = QStringLiteral("common");
 
@@ -186,9 +187,7 @@ bool CloudAuthManager::ensureWallet()
             }
             return;
         }
-        const QString folder = QStringLiteral("g-File");
-        if ((!m_wallet->hasFolder(folder) && !m_wallet->createFolder(folder))
-                || !m_wallet->setFolder(folder)) {
+        if (!selectLurvikoWalletFolder(m_wallet)) {
             m_wallet->deleteLater();
             m_wallet = nullptr;
             return;
@@ -367,7 +366,7 @@ void CloudAuthManager::setupGoogle()
     // Use the literal IPv4 loopback host and root callback path for maximum compatibility.
     m_googleReply->setCallbackHost(QStringLiteral("127.0.0.1"));
     m_googleReply->setCallbackPath(QStringLiteral("/"));
-    m_googleReply->setCallbackText(QStringLiteral("g-File: Google Drive authorization completed. You can close this tab and return to g-File."));
+    m_googleReply->setCallbackText(QStringLiteral("Lurviko: Google Drive authorization completed. You can close this tab and return to Lurviko."));
 
     m_google->setAuthorizationUrl(QUrl(QStringLiteral("https://accounts.google.com/o/oauth2/v2/auth")));
     m_google->setTokenUrl(QUrl(QStringLiteral("https://oauth2.googleapis.com/token")));
@@ -487,7 +486,7 @@ void CloudAuthManager::setupOneDrive()
     // Entra ignores the ephemeral localhost port while matching the redirect URI.
     m_oneDriveReply->setCallbackHost(QStringLiteral("localhost"));
     m_oneDriveReply->setCallbackPath(QStringLiteral("/"));
-    m_oneDriveReply->setCallbackText(QStringLiteral("g-File: OneDrive authorization completed. You can close this tab and return to g-File."));
+    m_oneDriveReply->setCallbackText(QStringLiteral("Lurviko: OneDrive authorization completed. You can close this tab and return to Lurviko."));
 
     const QString tenant = m_oneDriveTenant.trimmed().isEmpty() ? QStringLiteral("common") : m_oneDriveTenant.trimmed();
     const QString authorityBase = QStringLiteral("https://login.microsoftonline.com/%1/oauth2/v2.0").arg(tenant);
@@ -596,7 +595,7 @@ void CloudAuthManager::connectGoogle()
     setGoogleLastError(QString());
     if (!m_googleReply->listen(QHostAddress::LocalHost, 0)) {
         setGoogleAuthState(QStringLiteral("error"));
-        emit authError(QStringLiteral("google"), QStringLiteral("g-File could not start the local OAuth callback listener on 127.0.0.1."));
+        emit authError(QStringLiteral("google"), QStringLiteral("Lurviko could not start the local OAuth callback listener on 127.0.0.1."));
         return;
     }
 
@@ -622,7 +621,7 @@ void CloudAuthManager::connectOneDrive()
     }
     if (!m_oneDriveReply->listen(QHostAddress::LocalHost, 0)) {
         setOneDriveAuthState(QStringLiteral("error"));
-        emit authError(QStringLiteral("onedrive"), QStringLiteral("g-File could not start the local OAuth callback listener on localhost."));
+        emit authError(QStringLiteral("onedrive"), QStringLiteral("Lurviko could not start the local OAuth callback listener on localhost."));
         return;
     }
 

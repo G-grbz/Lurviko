@@ -1,4 +1,5 @@
 #include "thumbnailprovider.h"
+#include "svgpreviewidentity.h"
 
 #include <QCryptographicHash>
 #include <QCache>
@@ -703,25 +704,13 @@ public:
             const QString suffix = info.suffix().toLower();
             const QStringList imageTypes = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "svg"};
             const QStringList videoTypes = {"mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"};
+            const QStringList audioTypes = {"mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "wma", "alac"};
             const QStringList textTypes = {"srt", "lrc", "lrclib", "vtt", "ass", "ssa", "txt", "md", "log", "nfo", "json", "xml", "yaml", "yml", "toml", "ini", "conf", "cfg", "desktop", "service", "csv", "tsv", "m3u", "m3u8", "pls"};
 
             const QString cacheBase = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/thumbnails";
             QDir().mkpath(cacheBase);
-            // v2 invalidates pre-0.5.42 cache entries. Older MP3 previews may
-            // contain the full embedded artwork resolution and are intentionally
-            // not reused after the bounded-cache optimization.
-            // Video v4 invalidates frame thumbnails so large Matroska files
-            // retry through the direct attachment extractor.
-            // Matroska cover art immediately switch to that artwork.
-            const QString cacheVersion = videoTypes.contains(suffix)
-                ? QStringLiteral("v4|")
-                : (suffix == QStringLiteral("appimage") ? QStringLiteral("appimage-v1|")
-                                                          : QStringLiteral("v2|"));
-            const QByteArray keyMaterial = (cacheVersion + path + QLatin1Char('|')
-                + QString::number(info.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|')
-                + QString::number(info.size())).toUtf8();
-            const QString hash = QString::fromLatin1(QCryptographicHash::hash(keyMaterial, QCryptographicHash::Sha256).toHex());
-            const QString cached = cacheBase + "/" + hash + ".png";
+            const QString cached = ThumbnailProvider::cachedFilePath(path);
+            const QString hash = QFileInfo(cached).completeBaseName();
             const QString missing = cacheBase + "/" + hash + ".miss";
             const QString memoryKey = hash + QLatin1Char('|')
                 + QString::number(target.width()) + QLatin1Char('x')
@@ -796,14 +785,15 @@ public:
                                 QStringLiteral("-scale-to"), QStringLiteral("512"),
                                 QStringLiteral("-png"), path, base});
                     waitForThumbnailProcess(proc, cancelled, 15000);
-                } else if (suffix == QStringLiteral("mp3")) {
+                } else if (audioTypes.contains(suffix)) {
                     previewAttempted = true;
-                    QImage cover = embeddedMp3Cover(path);
-                    // Embedded artwork is often 1500–3000 px. Re-encoding the
-                    // full source as PNG for every newly visible MP3 made fast
-                    // scrolling CPU-heavy. Files without artwork use the QML
-                    // icon fallback; KDE's icon loader must not run on this
-                    // background thumbnail thread.
+                    // MP3 APIC extraction remains the fastest path. Other common
+                    // audio containers expose artwork as an attached-picture stream,
+                    // which the generic FFmpeg cover extractor can read without
+                    // decoding the audio payload.
+                    QImage cover = suffix == QStringLiteral("mp3")
+                        ? embeddedMp3Cover(path)
+                        : embeddedVideoCover(path, cancelled);
                     if (!cover.isNull()) {
                         if (cover.width() > 384 || cover.height() > 384)
                             cover = cover.scaled(QSize(384, 384), Qt::KeepAspectRatio, Qt::SmoothTransformation);
@@ -880,6 +870,25 @@ private:
     QImage m_image;
 };
 
+QString ThumbnailProvider::cachedFilePath(const QString &path)
+{
+    const QFileInfo info(path);
+    const QString suffix = info.suffix().toLower();
+    const QStringList videoTypes = {"mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"};
+    const QStringList audioTypes = {"mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "wma", "alac"};
+    const QString version = videoTypes.contains(suffix) ? QStringLiteral("v4|")
+        : audioTypes.contains(suffix) ? QStringLiteral("audio-v1|")
+        : suffix == QStringLiteral("appimage") ? QStringLiteral("appimage-v1|")
+        : QStringLiteral("v2|");
+    const QByteArray key = (version + path + QLatin1Char('|')
+        + QString::number(info.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|')
+        + QString::number(info.size())
+        + (suffix == QStringLiteral("svg") ? QLatin1Char('|') + svgPreviewIdentity(path) : QString())).toUtf8();
+    const QString hash = QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha256).toHex());
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+        + QStringLiteral("/thumbnails/") + hash + QStringLiteral(".png");
+}
+
 QQuickImageResponse *ThumbnailProvider::requestImageResponse(const QString &id, const QSize &requestedSize)
 {
     // QML appends a view/model revision after '|'. It intentionally changes
@@ -897,4 +906,3 @@ QQuickImageResponse *ThumbnailProvider::requestImageResponse(const QString &id, 
     const QString path = separator >= 0 ? decodedId.left(separator) : decodedId;
     return new ThumbnailResponse(path, requestedSize);
 }
-

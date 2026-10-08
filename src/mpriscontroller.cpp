@@ -1,13 +1,13 @@
 #include "mpriscontroller.h"
+#include "thumbnailprovider.h"
 
 #include <QCryptographicHash>
 #include <QDBusAbstractAdaptor>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusObjectPath>
-#include <QDir>
+#include <QRegularExpression>
 #include <QFileInfo>
-#include <QStandardPaths>
 #include <QUrl>
 #include <QtGlobal>
 
@@ -15,7 +15,7 @@ namespace {
 constexpr auto kObjectPath = "/org/mpris/MediaPlayer2";
 constexpr auto kRootInterface = "org.mpris.MediaPlayer2";
 constexpr auto kPlayerInterface = "org.mpris.MediaPlayer2.Player";
-constexpr auto kServiceName = "org.mpris.MediaPlayer2.gfile";
+constexpr auto kServiceName = "org.mpris.MediaPlayer2.lurviko";
 
 QVariantMap changedMap(const char *name, const QVariant &value)
 {
@@ -45,12 +45,14 @@ public:
     bool canSetFullscreen() const { return false; }
     bool canRaise() const { return true; }
     bool hasTrackList() const { return false; }
-    QString identity() const { return QStringLiteral("g-File"); }
-    QString desktopEntry() const { return QStringLiteral("g-file"); }
+    QString identity() const { return QStringLiteral("Lurviko"); }
+    QString desktopEntry() const { return QStringLiteral("lurviko"); }
     QStringList supportedUriSchemes() const { return {QStringLiteral("file"), QStringLiteral("http"), QStringLiteral("https")}; }
     QStringList supportedMimeTypes() const {
         return {QStringLiteral("audio/mpeg"), QStringLiteral("audio/flac"), QStringLiteral("audio/ogg"),
-                QStringLiteral("audio/mp4"), QStringLiteral("audio/x-wav"), QStringLiteral("audio/aac")};
+                QStringLiteral("audio/mp4"), QStringLiteral("audio/x-wav"), QStringLiteral("audio/aac"),
+                QStringLiteral("video/mp4"), QStringLiteral("video/x-matroska"), QStringLiteral("video/webm"),
+                QStringLiteral("video/quicktime"), QStringLiteral("video/x-msvideo")};
     }
 public slots:
     void Raise() { emit m_controller->raiseRequested(); }
@@ -113,8 +115,10 @@ public slots:
     void Stop() { emit m_controller->stopRequested(); }
     void Play() { emit m_controller->playRequested(); }
     void Seek(qlonglong offset) { emit m_controller->seekRequested(offset / 1000LL); }
-    void SetPosition(const QDBusObjectPath &, qlonglong position) {
-        const qint64 ms = qMax<qint64>(0, position / 1000LL);
+    void SetPosition(const QDBusObjectPath &track, qlonglong position) {
+        if (!canSeek() || track.path() != m_controller->trackObjectPath()
+            || position < 0 || position / 1000LL > m_controller->duration()) return;
+        const qint64 ms = position / 1000LL;
         emit m_controller->setPositionRequested(ms);
         m_controller->emitSeeked(ms);
     }
@@ -135,24 +139,12 @@ MprisController::MprisController(QObject *parent)
     auto bus = QDBusConnection::sessionBus();
     bus.registerObject(QString::fromLatin1(kObjectPath), this, QDBusConnection::ExportAdaptors);
     if (!bus.registerService(QString::fromLatin1(kServiceName)))
-        qWarning("g-File MPRIS service could not be registered");
-
-    m_artworkRetry.setInterval(650);
-    m_artworkRetry.setSingleShot(false);
-    connect(&m_artworkRetry, &QTimer::timeout, this, [this]() {
-        const QString before = m_artUrl;
-        refreshArtwork();
-        if (before != m_artUrl) {
-            emit metadataChanged();
-            emitPlayerProperties(changedMap("Metadata", metadata()));
-        }
-        if (!m_artUrl.isEmpty() || ++m_artworkRetryCount >= 12)
-            m_artworkRetry.stop();
-    });
+        qWarning("Lurviko MPRIS service could not be registered");
 }
 
 MprisController::~MprisController()
 {
+    cancelArtworkRequest();
     auto bus = QDBusConnection::sessionBus();
     bus.unregisterObject(QString::fromLatin1(kObjectPath));
     bus.unregisterService(QString::fromLatin1(kServiceName));
@@ -183,6 +175,14 @@ void MprisController::setPlaybackStatus(const QString &value)
     emitPlayerProperties(changedMap("PlaybackStatus", m_playbackStatus));
 }
 
+void MprisController::setTrackMetadata(const QVariantMap &value)
+{
+    if (m_trackMetadata == value) return;
+    m_trackMetadata = value;
+    emit metadataChanged();
+    emitPlayerProperties(changedMap("Metadata", metadata()));
+}
+
 void MprisController::setTitle(const QString &value)
 {
     if (m_title == value) return;
@@ -194,12 +194,10 @@ void MprisController::setTitle(const QString &value)
 void MprisController::setTrackUrl(const QString &value)
 {
     if (m_trackUrl == value) return;
+    cancelArtworkRequest();
     m_trackUrl = value;
     m_artUrl.clear();
-    m_artworkRetryCount = 0;
     refreshArtwork();
-    if (m_artUrl.isEmpty() && !m_trackUrl.isEmpty())
-        m_artworkRetry.start();
     emit metadataChanged();
     emitPlayerProperties(changedMap("Metadata", metadata()));
 }
@@ -283,55 +281,93 @@ QVariantMap MprisController::metadata() const
     }
 
     result.insert(QStringLiteral("mpris:trackid"), QVariant::fromValue(QDBusObjectPath(trackObjectPath())));
-    QString cleanTitle = QFileInfo(m_title).completeBaseName();
-    if (cleanTitle.isEmpty()) cleanTitle = m_title;
-    const int separator = cleanTitle.indexOf(QStringLiteral(" - "));
-    if (separator > 0) {
-        const QString artist = cleanTitle.left(separator).trimmed();
-        const QString track = cleanTitle.mid(separator + 3).trimmed();
-        if (!artist.isEmpty()) result.insert(QStringLiteral("xesam:artist"), QStringList{artist});
-        result.insert(QStringLiteral("xesam:title"), track.isEmpty() ? cleanTitle : track);
-    } else {
-        result.insert(QStringLiteral("xesam:title"), cleanTitle);
+    QString title = m_trackMetadata.value(QStringLiteral("title")).toString().trimmed();
+    QString artist = m_trackMetadata.value(QStringLiteral("artist")).toString().trimmed();
+    if (title.isEmpty()) {
+        // Strip an extension only from a filename, never from a tagged title.
+        title = m_title.trimmed();
+        const QString fileName = QFileInfo(QUrl(m_trackUrl).path()).fileName();
+        if (title.isEmpty()) title = fileName;
+        if (title == fileName) title = QFileInfo(title).completeBaseName();
+        const int separator = title.indexOf(QStringLiteral(" - "));
+        if (separator > 0) {
+            if (artist.isEmpty()) artist = title.left(separator).trimmed();
+            title = title.mid(separator + 3).trimmed();
+        }
     }
-    result.insert(QStringLiteral("xesam:url"), m_trackUrl);
+    result.insert(QStringLiteral("xesam:title"), title);
+    if (!artist.isEmpty()) result.insert(QStringLiteral("xesam:artist"), QStringList{artist});
+    const QString album = m_trackMetadata.value(QStringLiteral("album")).toString().trimmed();
+    if (!album.isEmpty()) result.insert(QStringLiteral("xesam:album"), album);
+    const QVariant genreValue = m_trackMetadata.value(QStringLiteral("genre"));
+    QStringList genres;
+    if (genreValue.metaType().id() == QMetaType::QStringList) {
+        genres = genreValue.toStringList();
+    } else if (genreValue.metaType().id() == QMetaType::QVariantList) {
+        for (const QVariant &genre : genreValue.toList()) genres.append(genre.toString().trimmed());
+    } else {
+        genres.append(genreValue.toString().trimmed());
+    }
+    genres.removeAll(QString());
+    if (!genres.isEmpty()) result.insert(QStringLiteral("xesam:genre"), genres);
+    const QString year = m_trackMetadata.value(QStringLiteral("year")).toString();
+    const auto yearMatch = QRegularExpression(QStringLiteral(R"(\b(\d{4})\b)")).match(year);
+    if (yearMatch.hasMatch())
+        result.insert(QStringLiteral("xesam:contentCreated"), yearMatch.captured(1) + QStringLiteral("-01-01T00:00:00Z"));
+    result.insert(QStringLiteral("xesam:url"), QUrl(m_trackUrl).toString(QUrl::FullyEncoded));
     if (m_durationMs > 0) result.insert(QStringLiteral("mpris:length"), QVariant::fromValue<qlonglong>(m_durationMs * 1000LL));
     if (!m_artUrl.isEmpty()) result.insert(QStringLiteral("mpris:artUrl"), m_artUrl);
     return result;
 }
 
-QString MprisController::localArtworkCachePath() const
+void MprisController::cancelArtworkRequest()
 {
-    QUrl url(m_trackUrl);
-    const QString path = url.isLocalFile() ? url.toLocalFile() : QString();
-    if (path.isEmpty()) return {};
-    QFileInfo info(path);
-    if (!info.exists() || info.isDir()) return {};
-    const QString suffix = info.suffix().toLower();
-    if (suffix != QStringLiteral("mp3")) return {};
-
-    const QString cacheBase = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/thumbnails");
-    const QByteArray keyMaterial = (QStringLiteral("v2|") + path + QLatin1Char('|')
-        + QString::number(info.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|')
-        + QString::number(info.size())).toUtf8();
-    const QString hash = QString::fromLatin1(QCryptographicHash::hash(keyMaterial, QCryptographicHash::Sha256).toHex());
-    const QString candidate = QDir(cacheBase).filePath(hash + QStringLiteral(".png"));
-    return QFileInfo::exists(candidate) ? candidate : QString();
+    if (m_artworkResponse) {
+        m_artworkResponse->cancel();
+        m_artworkResponse->deleteLater();
+        m_artworkResponse = nullptr;
+    }
+    m_artworkRequestUrl.clear();
 }
 
 void MprisController::refreshArtwork()
 {
-    QString next;
     const QUrl hint(m_artworkHint);
-    if ((hint.scheme() == QStringLiteral("file") && QFileInfo::exists(hint.toLocalFile()))
+    if ((hint.isLocalFile() && QFileInfo::exists(hint.toLocalFile()))
         || hint.scheme() == QStringLiteral("http") || hint.scheme() == QStringLiteral("https")) {
-        next = hint.toString();
+        m_artUrl = hint.toString(QUrl::FullyEncoded);
+        cancelArtworkRequest();
+        return;
     }
-    if (next.isEmpty()) {
-        const QString cached = localArtworkCachePath();
-        if (!cached.isEmpty()) next = QUrl::fromLocalFile(cached).toString();
+    const QUrl track(m_trackUrl);
+    if (!track.isLocalFile()) { m_artUrl.clear(); return; }
+    const QString path = track.toLocalFile();
+    if (!QFileInfo(path).isFile()) { m_artUrl.clear(); return; }
+    const QString cached = ThumbnailProvider::cachedFilePath(path);
+    if (QFileInfo::exists(cached)) {
+        m_artUrl = QUrl::fromLocalFile(cached).toString(QUrl::FullyEncoded);
+        return;
     }
-    m_artUrl = next;
+    m_artUrl.clear();
+    // A playlist may not display a thumbnail delegate. Generate its cover once,
+    // asynchronously, using the same bounded worker pool and disk cache.
+    if (m_artworkRequestUrl == m_trackUrl) return;
+    cancelArtworkRequest();
+    m_artworkRequestUrl = m_trackUrl;
+    ThumbnailProvider provider;
+    auto *response = provider.requestImageResponse(
+        QString::fromLatin1(QUrl::toPercentEncoding(path)) + QStringLiteral("|mpris"), QSize(256, 256));
+    m_artworkResponse = response;
+    const QString requestedUrl = m_trackUrl;
+    connect(response, &QQuickImageResponse::finished, this, [this, response, requestedUrl, cached]() {
+        if (m_artworkResponse != response || m_trackUrl != requestedUrl) return;
+        m_artworkResponse = nullptr;
+        response->deleteLater();
+        if (!QFileInfo::exists(cached)) return;
+        m_artUrl = QUrl::fromLocalFile(cached).toString(QUrl::FullyEncoded);
+        emit metadataChanged();
+        emitPlayerProperties(changedMap("Metadata", metadata()));
+    });
 }
 
 void MprisController::emitRootProperties(const QVariantMap &changed)

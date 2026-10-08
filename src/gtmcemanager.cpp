@@ -17,8 +17,8 @@
 
 #include <algorithm>
 
-#ifndef GFILE_SOURCE_DIR
-#define GFILE_SOURCE_DIR ""
+#ifndef LURVIKO_SOURCE_DIR
+#define LURVIKO_SOURCE_DIR ""
 #endif
 
 GtmceManager::GtmceManager(QObject *parent)
@@ -78,12 +78,12 @@ QString GtmceManager::cacheJobDirectory(const QString &filePath,
     const QString key = QString::fromLatin1(
         QCryptographicHash::hash(material, QCryptographicHash::Sha256).toHex());
 
-    QString base = qEnvironmentVariable("GFILE_GTMCE_CACHE_DIR").trimmed();
+    QString base = qEnvironmentVariable("LURVIKO_GTMCE_CACHE_DIR").trimmed();
     if (base.isEmpty()) {
         const QString xdg = qEnvironmentVariable("XDG_CACHE_HOME").trimmed();
         base = xdg.isEmpty()
-                   ? QDir::home().absoluteFilePath(QStringLiteral(".cache/g-file/gtmce/jobs"))
-                   : QDir(xdg).absoluteFilePath(QStringLiteral("g-file/gtmce/jobs"));
+                   ? QDir::home().absoluteFilePath(QStringLiteral(".cache/Lurviko/gtmce/jobs"))
+                   : QDir(xdg).absoluteFilePath(QStringLiteral("Lurviko/gtmce/jobs"));
     }
     return QDir(base).absoluteFilePath(key);
 }
@@ -146,22 +146,20 @@ QVariantMap GtmceManager::cacheInfo(const QString &filePath,
 
 QString GtmceManager::workerPath() const
 {
-    const QString overridePath = qEnvironmentVariable("GFILE_GTMCE_WORKER").trimmed();
+    const QString overridePath = qEnvironmentVariable("LURVIKO_GTMCE_WORKER").trimmed();
     if (!overridePath.isEmpty() && QFileInfo::exists(overridePath))
         return QFileInfo(overridePath).absoluteFilePath();
 
     const QString appDir = QCoreApplication::applicationDirPath();
     const QStringList installedCandidates = {
-        QDir(appDir).absoluteFilePath(QStringLiteral("../share/g-File/gtmce/worker.py")),
-        QDir(appDir).absoluteFilePath(QStringLiteral("../share/g-file/gtmce/worker.py")),
-        QDir(appDir).absoluteFilePath(QStringLiteral("../share/GFile/gtmce/worker.py")),
+        QDir(appDir).absoluteFilePath(QStringLiteral("../share/Lurviko/gtmce/worker.py")),
     };
     for (const QString &candidate : installedCandidates) {
         if (QFileInfo::exists(candidate))
             return QFileInfo(candidate).absoluteFilePath();
     }
 
-    const QString sourceDir = QString::fromUtf8(GFILE_SOURCE_DIR);
+    const QString sourceDir = QString::fromUtf8(LURVIKO_SOURCE_DIR);
     if (!sourceDir.isEmpty()) {
         const QString candidate = QDir(sourceDir).absoluteFilePath(QStringLiteral("tools/gtmce/worker.py"));
         if (QFileInfo::exists(candidate))
@@ -172,7 +170,7 @@ QString GtmceManager::workerPath() const
 
 QString GtmceManager::pythonExecutable() const
 {
-    const QString overridePython = qEnvironmentVariable("GFILE_GTMCE_PYTHON").trimmed();
+    const QString overridePython = qEnvironmentVariable("LURVIKO_GTMCE_PYTHON").trimmed();
     if (!overridePython.isEmpty())
         return overridePython;
 
@@ -202,7 +200,7 @@ bool GtmceManager::startTranscription(const QString &filePath,
 
     const QString worker = workerPath();
     if (worker.isEmpty()) {
-        finishWithError(tr("G-TMCE motoru bulunamadı. G-File'ın gtmce worker dosyaları kurulmamış."));
+        finishWithError(tr("G-TMCE motoru bulunamadı. Lurviko'ın gtmce worker dosyaları kurulmamış."));
         return false;
     }
 
@@ -217,7 +215,7 @@ bool GtmceManager::startTranscription(const QString &filePath,
 
     // Reuse G-TMCE's app-local Python/CUDA runtime when the normal Linux
     // installation is present. The bundled engine itself remains inside
-    // G-File; only third-party wheels/libraries are shared.
+    // Lurviko; only third-party wheels/libraries are shared.
     const QString vendorDir = qEnvironmentVariable("GTMCE_VENDOR_DIR",
                                                     QStringLiteral("/opt/G-TMCE/vendor"));
     if (QFileInfo(vendorDir).isDir()) {

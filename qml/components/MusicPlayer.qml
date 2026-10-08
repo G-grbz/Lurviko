@@ -3,13 +3,15 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import QtCore
-import GFile.App
+import Lurviko.App
+import Lurviko.Backend
 
 Rectangle {
     id: root
     required property var lang
     property var queue: []
     property var sourceLibrary: []
+    property var contentIndexSource: null
     property int currentIndex: -1
     property bool opened: false
     property bool queueOpen: false
@@ -21,10 +23,22 @@ Rectangle {
     property int playbackOrderPosition: -1
     property real rememberedVolume: 0.82
     property var playlists: []
+    property alias libraryManager: musicLibrary
     // When true the same global player is visually docked into the Music
     // category content area. Playback state remains global; only the chrome
     // changes so the bar feels like part of the page rather than a floating card.
     property bool embeddedMode: false
+    property bool showRemainingTime: false
+    property bool currentFavorite: false
+
+    // Rich music metadata + lyrics. Sidecar lyrics have priority over embedded tags.
+    property var trackMeta: ({})
+    property var lyricsLines: []
+    property string lyricsText: ""
+    property bool lyricsSynced: false
+    property string lyricsSource: ""
+    property int activeLyricIndex: -1
+    property string activeLyricText: ""
 
     property alias backgroundPlayback: playerPrefs.backgroundPlayback
     property alias queueLimit: playerPrefs.queueSize
@@ -33,7 +47,7 @@ Rectangle {
 
     radius: embeddedMode ? 14 : 16
     color: AppTheme.surface
-    border.width: embeddedMode ? 0 : 1
+    border.width: 1
     border.color: AppTheme.border
     visible: opened && panelVisible
     implicitHeight: queueOpen ? 360 : 126
@@ -54,6 +68,38 @@ Rectangle {
     readonly property real volume: root.rememberedVolume
     readonly property bool muted: audioOutput.muted
     readonly property string playbackStatus: root.playing ? "Playing" : (root.paused ? "Paused" : "Stopped")
+    readonly property string displayTitle: {
+        const artist = String(trackMeta.artist || "").trim()
+        const title = String(trackMeta.title || "").trim()
+        if (artist.length && title.length)
+            return artist + " - " + title
+        return title.length ? title : currentTitle
+    }
+    readonly property string detailText: {
+        const parts = []
+        const album = String(trackMeta.album || "").trim()
+        const year = String(trackMeta.year || "").trim()
+        const genre = String(trackMeta.genre || "").trim()
+        if (album.length) parts.push(album)
+        if (year.length) parts.push(year)
+        if (genre.length) parts.push(genre)
+        return parts.join(" · ")
+    }
+
+    MusicMetadataManager {
+        id: musicMetadata
+        onMetadataReady: function(url, result) {
+            if (url !== root.currentUrl || !root.opened) return
+            root.trackMeta = {title: result.title, artist: result.artist, album: result.album,
+                              year: result.year, genre: result.genre}
+            root.lyricsLines = result.lyricsLines || []
+            root.lyricsText = String(result.lyricsText || "")
+            root.lyricsSynced = !!result.lyricsSynced
+            root.lyricsSource = String(result.lyricsSource || "")
+            root.updateActiveLyric(player.position)
+        }
+    }
+    MusicLibraryManager { id: musicLibrary }
 
     Settings {
         id: playerPrefs
@@ -63,7 +109,7 @@ Rectangle {
         property string playlistsJson: "[]"
     }
 
-    function icon(name) { return "qrc:/qt/qml/GFile/App/assets/icons/" + name }
+    function icon(name) { return AppTheme.icon(name) }
 
     function formatTime(ms) {
         const total = Math.max(0, Math.floor(Number(ms || 0) / 1000))
@@ -72,11 +118,28 @@ Rectangle {
         return minutes + ":" + (seconds < 10 ? "0" : "") + seconds
     }
 
+    function durationText() {
+        if (showRemainingTime && player.duration > 0)
+            return "-" + formatTime(Math.max(0, player.duration - player.position))
+        return formatTime(player.duration)
+    }
+
+    function refreshCurrentFavorite() {
+        currentFavorite = currentUrl.length > 0 && musicLibrary.isFavorite(currentUrl)
+    }
+
+    function toggleCurrentFavorite() {
+        if (!currentUrl.length)
+            return
+        musicLibrary.toggleFavorite(currentUrl)
+        refreshCurrentFavorite()
+    }
+
     function normalizedItem(item) {
         if (!item)
             return ({})
         return {
-            itemUrl: String(item.itemUrl || ""),
+            itemUrl: String(item.itemUrl || item.url || ""),
             name: String(item.name || ""),
             thumbnailSource: String(item.thumbnailSource || "")
         }
@@ -139,8 +202,25 @@ Rectangle {
         loadCurrent(autoplay === undefined ? true : !!autoplay)
     }
 
+    function collectionForNewQueue() {
+        const tracks = musicLibrary.tracks || []
+        const indexed = contentIndexSource ? contentIndexSource.filesForCategory("music") : []
+        if (!indexed.length)
+            return normalizedLibrary(tracks.length ? tracks : sourceLibrary)
+        // The content index supplies the whole collection regardless of the
+        // album, artist, playlist or search that started playback. Reuse its
+        // loaded artwork where available.
+        const artworkByUrl = ({})
+        for (let i = 0; i < tracks.length; ++i)
+            artworkByUrl[String(tracks[i].itemUrl || "")] = String(tracks[i].thumbnailSource || "")
+        const result = normalizedLibrary(indexed)
+        for (let i = 0; i < result.length; ++i)
+            result[i].thumbnailSource = artworkByUrl[result[i].itemUrl] || result[i].thumbnailSource
+        return result
+    }
+
     function freshQueue(autoplay) {
-        const lib = normalizedLibrary(sourceLibrary)
+        const lib = collectionForNewQueue()
         if (!lib.length)
             return
 
@@ -220,11 +300,66 @@ Rectangle {
         buildQueue(url, true)
     }
 
+    function resetTrackMetadata() {
+        trackMeta = ({})
+        lyricsLines = []
+        lyricsText = ""
+        lyricsSynced = false
+        lyricsSource = ""
+        activeLyricIndex = -1
+        activeLyricText = ""
+    }
+
+    function loadTrackMetadata() {
+        resetTrackMetadata()
+        if (!currentUrl.length)
+            return
+        musicMetadata.request(currentUrl)
+    }
+
+    function updateActiveLyric(positionMs) {
+        if (!lyricsSynced || !lyricsLines.length) {
+            activeLyricIndex = -1
+            activeLyricText = ""
+            return
+        }
+        const pos = Number(positionMs || 0)
+        let low = 0
+        let high = lyricsLines.length - 1
+        let found = -1
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2)
+            const t = Number(lyricsLines[mid].time || 0)
+            if (t <= pos) {
+                found = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        if (found !== activeLyricIndex) {
+            activeLyricIndex = found
+            activeLyricText = found >= 0 ? String(lyricsLines[found].text || "") : ""
+            if (lyricsPopup.visible && found >= 0)
+                lyricList.positionViewAtIndex(found, ListView.Center)
+        }
+    }
+
+    function waveformHeight(index) {
+        // Stable pseudo-waveform: deterministic per bar, visually similar to an audio waveform
+        // without decoding the media twice.
+        const a = Math.abs(Math.sin((index + 3) * 1.73))
+        const b = Math.abs(Math.sin((index + 11) * 0.47))
+        return 5 + Math.round((a * 0.62 + b * 0.38) * 20)
+    }
+
     function loadCurrent(autoplay) {
         if (!currentItem)
             return
         player.stop()
         player.source = String(currentItem.itemUrl || "")
+        loadTrackMetadata()
+        musicLibrary.recordPlayed(root.currentUrl)
         if (autoplay)
             player.play()
     }
@@ -337,6 +472,7 @@ Rectangle {
     function minimize() {
         panelVisible = false
         queueOpen = false
+        lyricsPopup.close()
     }
 
     function restorePanel() {
@@ -361,6 +497,9 @@ Rectangle {
         queueOpen = false
         playbackOrder = []
         playbackOrderPosition = -1
+        resetTrackMetadata()
+        musicMetadata.clear()
+        lyricsPopup.close()
         requestClose()
     }
 
@@ -420,7 +559,17 @@ Rectangle {
         persistPlaylists(list)
     }
 
-    Component.onCompleted: reloadPlaylists()
+    onCurrentUrlChanged: refreshCurrentFavorite()
+
+    Connections {
+        target: musicLibrary
+        function onTracksChanged() { root.refreshCurrentFavorite() }
+    }
+
+    Component.onCompleted: {
+        reloadPlaylists()
+        refreshCurrentFavorite()
+    }
 
     AudioOutput {
         id: audioOutput
@@ -430,6 +579,7 @@ Rectangle {
     MediaPlayer {
         id: player
         audioOutput: audioOutput
+        onPositionChanged: root.updateActiveLyric(position)
         onMediaStatusChanged: {
             if (mediaStatus === MediaPlayer.EndOfMedia) {
                 if (root.repeatMode === 2)
@@ -447,8 +597,9 @@ Rectangle {
         anchors.leftMargin: root.embeddedMode ? 14 : 0
         anchors.rightMargin: root.embeddedMode ? 14 : 0
         anchors.top: parent.top
-        height: 1
-        color: AppTheme.border
+        height: 2
+        color: AppTheme.accent
+        opacity: 1.0
         z: 2
     }
 
@@ -494,21 +645,61 @@ Rectangle {
                 spacing: 6
 
                 RowLayout {
+                    id: nowPlayingRow
                     Layout.fillWidth: true
                     spacing: 10
+
                     Text {
-                        Layout.fillWidth: true
-                        text: root.currentTitle || (root.lang.language === "tr" ? "Müzik oynatıcı" : "Music player")
+                        Layout.minimumWidth: Math.min(150, implicitWidth)
+                        Layout.preferredWidth: implicitWidth
+                        Layout.maximumWidth: root.activeLyricText.length > 0
+                                             ? Math.max(210, nowPlayingRow.width * 0.40)
+                                             : Math.max(320, nowPlayingRow.width * 0.62)
+                        text: root.displayTitle || (root.lang.language === "tr" ? "Müzik oynatıcı" : "Music player")
                         color: AppTheme.text
                         font.pixelSize: 12
                         font.weight: Font.DemiBold
-                        elide: Text.ElideMiddle
+                        elide: Text.ElideRight
                     }
                     Text {
+                        visible: root.detailText.length > 0
+                        Layout.preferredWidth: implicitWidth
+                        Layout.maximumWidth: root.activeLyricText.length > 0
+                                             ? Math.max(130, nowPlayingRow.width * 0.24)
+                                             : Math.max(180, nowPlayingRow.width * 0.30)
+                        text: root.detailText
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: root.activeLyricText.length > 0
+                        text: "~"
+                        color: AppTheme.textFaint
+                        font.pixelSize: 10
+                    }
+                    Text {
+                        Layout.fillWidth: root.activeLyricText.length > 0
+                        Layout.minimumWidth: root.activeLyricText.length > 0 ? 90 : 0
+                        visible: root.activeLyricText.length > 0
+                        text: root.activeLyricText
+                        color: AppTheme.accent
+                        font.pixelSize: 10
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
+                    }
+                    Item {
+                        Layout.fillWidth: root.activeLyricText.length === 0
+                        Layout.minimumWidth: 0
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        Layout.minimumWidth: implicitWidth
                         text: root.queue.length > 0 && root.currentIndex >= 0
                               ? (root.currentIndex + 1) + " / " + root.queue.length : ""
                         color: AppTheme.textMuted
                         font.pixelSize: 9
+                        horizontalAlignment: Text.AlignRight
                     }
                 }
 
@@ -516,47 +707,70 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 8
                     Text {
+                        Layout.minimumWidth: 52
+                        Layout.preferredWidth: 52
+                        Layout.maximumWidth: 52
                         text: root.formatTime(player.position)
                         color: AppTheme.textMuted
                         font.pixelSize: 9
+                        horizontalAlignment: Text.AlignLeft
                     }
-                    GSlider {
-                        id: seekSlider
+                    Item {
+                        id: waveform
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 20
-                        from: 0
-                        to: Math.max(1, player.duration)
-                        value: player.position
-                        onMoved: player.position = value
-                        background: Rectangle {
-                            x: seekSlider.leftPadding
-                            y: seekSlider.topPadding + seekSlider.availableHeight / 2 - height / 2
-                            width: seekSlider.availableWidth
-                            height: 4
-                            radius: 2
-                            color: AppTheme.surfaceHover
-                            Rectangle {
-                                width: seekSlider.visualPosition * parent.width
-                                height: parent.height
-                                radius: parent.radius
-                                color: AppTheme.accent
+                        Layout.preferredHeight: 28
+                        property real barWidth: 1.55
+                        property real barSpacing: 2.35
+                        property int barCount: Math.max(34, Math.min(360, Math.floor((width + barSpacing) / (barWidth + barSpacing))))
+                        property real progress: player.duration > 0 ? Math.max(0, Math.min(1, player.position / player.duration)) : 0
+
+                        Row {
+                            id: waveBars
+                            anchors.centerIn: parent
+                            spacing: waveform.barSpacing
+                            Repeater {
+                                model: waveform.barCount
+                                Rectangle {
+                                    required property int index
+                                    width: waveform.barWidth
+                                    height: root.waveformHeight(index)
+                                    radius: width / 2
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    color: ((index + 1) / waveform.barCount) <= waveform.progress
+                                           ? AppTheme.accent : AppTheme.textFaint
+                                    opacity: ((index + 1) / waveform.barCount) <= waveform.progress ? 1.0 : 0.42
+                                    Behavior on color { ColorAnimation { duration: 90 } }
+                                }
                             }
                         }
-                        handle: Rectangle {
-                            x: seekSlider.leftPadding + seekSlider.visualPosition * (seekSlider.availableWidth - width)
-                            y: seekSlider.topPadding + seekSlider.availableHeight / 2 - height / 2
-                            implicitWidth: 12
-                            implicitHeight: 12
-                            radius: 6
-                            color: seekSlider.pressed ? AppTheme.accent : AppTheme.surface
-                            border.width: 1
-                            border.color: AppTheme.accentBorder
+                        MouseArea {
+                            anchors.fill: waveBars
+                            cursorShape: Qt.PointingHandCursor
+                            onPressed: function(mouse) {
+                                if (player.duration > 0 && width > 0)
+                                    root.seekTo((mouse.x / width) * player.duration)
+                            }
+                            onPositionChanged: function(mouse) {
+                                if (pressed && player.duration > 0 && width > 0)
+                                    root.seekTo((mouse.x / width) * player.duration)
+                            }
                         }
                     }
                     Text {
-                        text: root.formatTime(player.duration)
-                        color: AppTheme.textMuted
+                        id: durationLabel
+                        Layout.minimumWidth: 52
+                        Layout.preferredWidth: 52
+                        Layout.maximumWidth: 52
+                        text: root.durationText()
+                        color: durationHover.hovered ? AppTheme.accent : AppTheme.textMuted
                         font.pixelSize: 9
+                        horizontalAlignment: Text.AlignRight
+                        HoverHandler { id: durationHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: root.showRemainingTime = !root.showRemainingTime }
+                        ToolTip.visible: durationHover.hovered
+                        ToolTip.text: root.showRemainingTime
+                                      ? (root.lang.language === "tr" ? "Toplam süreyi göster" : "Show total duration")
+                                      : (root.lang.language === "tr" ? "Kalan süreyi göster" : "Show remaining time")
                     }
                 }
 
@@ -568,7 +782,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -582,7 +796,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -596,7 +810,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -607,15 +821,33 @@ Rectangle {
                         ToolTip.visible: hovered
                         ToolTip.text: root.lang.language === "tr" ? "Sonraki" : "Next"
                     }
+                    GToolButton {
+                        implicitWidth: 34; implicitHeight: 32
+                        checked: root.currentFavorite
+                        icon.source: root.icon(root.currentFavorite ? "music-heart-filled.svg" : "music-heart.svg")
+                        icon.color: root.currentFavorite ? AppTheme.accent : AppTheme.text
+                        onClicked: root.toggleCurrentFavorite()
+                        background: Rectangle {
+                            radius: 9
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
+                            border.width: parent.checked ? 1 : 0
+                            border.color: parent.checked ? AppTheme.accentBorder : "transparent"
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: root.currentFavorite
+                                      ? (root.lang.language === "tr" ? "Favorilerden çıkar" : "Remove from favorites")
+                                      : (root.lang.language === "tr" ? "Favorilere ekle" : "Add to favorites")
+                    }
 
                     GToolButton {
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("music-shuffle.svg")
                         checked: root.shuffleMode
+                        icon.color: checked ? AppTheme.accent : AppTheme.text
                         onClicked: root.toggleShuffle()
                         background: Rectangle {
                             radius: 8
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         }
                         ToolTip.visible: hovered
@@ -627,10 +859,11 @@ Rectangle {
                         implicitWidth: 38; implicitHeight: 32
                         icon.source: root.icon(root.repeatMode === 2 ? "music-repeat-one.svg" : "music-repeat.svg")
                         checked: root.repeatMode !== 0
+                        icon.color: checked ? AppTheme.accent : AppTheme.text
                         onClicked: root.cycleRepeatMode()
                         background: Rectangle {
                             radius: 8
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         }
                         ToolTip.visible: hovered
@@ -643,7 +876,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -657,7 +890,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -671,7 +904,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -683,12 +916,40 @@ Rectangle {
                         ToolTip.text: root.lang.language === "tr" ? "Çalma listeleri" : "Playlists"
                     }
 
+                    GButton {
+                        id: lyricsButton
+                        visible: true
+                        enabled: root.lyricsText.length > 0 || root.lyricsLines.length > 0
+                        implicitWidth: 42
+                        implicitHeight: 30
+                        checked: lyricsPopup.visible
+                        onClicked: lyricsPopup.visible ? lyricsPopup.close() : lyricsPopup.open()
+                        background: Rectangle {
+                            radius: 8
+                            color: lyricsButton.checked ? AppTheme.accentSoft : (lyricsButton.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
+                            border.width: lyricsButton.checked ? 1 : 0
+                            border.color: lyricsButton.checked ? AppTheme.accentBorder : "transparent"
+                        }
+                        contentItem: Text {
+                            text: "LRC"
+                            color: lyricsButton.checked ? AppTheme.accent : AppTheme.textMuted
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: enabled
+                                      ? (root.lang.language === "tr" ? "Şarkı sözlerini göster" : "Show lyrics")
+                                      : (root.lang.language === "tr" ? "Şarkı sözü bulunamadı" : "No lyrics found")
+                    }
+
                     Item { Layout.fillWidth: true }
 
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -739,7 +1000,7 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -753,13 +1014,13 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
                         }
                         implicitWidth: 34; implicitHeight: 32
-                        icon.source: root.icon("viewer-close.svg")
+                        icon.source: root.icon("close-ui.svg")
                         onClicked: root.closePlayer()
                         ToolTip.visible: hovered
                         ToolTip.text: root.lang.language === "tr" ? "Oynatıcıyı kapat" : "Close player"
@@ -837,13 +1098,13 @@ Rectangle {
                     GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
                         }
                         implicitWidth: 30; implicitHeight: 28
-                        icon.source: root.icon("viewer-close.svg")
+                        icon.source: root.icon("close-ui.svg")
                         onClicked: root.queueOpen = false
                     }
                 }
@@ -863,7 +1124,7 @@ Rectangle {
                         width: queueList.width
                         height: 34
                         radius: 7
-                        color: index === root.currentIndex ? AppTheme.accentSoft : (trackMouse.containsMouse ? AppTheme.surfaceHover : "transparent")
+                        color: index === root.currentIndex ? AppTheme.accentSoft : (trackMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                         border.color: index === root.currentIndex ? AppTheme.accentBorder : "transparent"
                         RowLayout {
                             anchors.fill: parent
@@ -941,7 +1202,7 @@ Rectangle {
                             width: playlistView.width
                             height: 38
                             radius: 7
-                            color: playlistMouse.containsMouse ? AppTheme.surfaceHover : "transparent"
+                            color: playlistMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent
                             RowLayout {
                                 anchors.fill: parent
                                 anchors.leftMargin: 10
@@ -963,7 +1224,7 @@ Rectangle {
                                 GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -975,7 +1236,7 @@ Rectangle {
                                 GToolButton {
                         background: Rectangle {
                             radius: 9
-                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : "transparent")
+                            color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                             Behavior on color { ColorAnimation { duration: 110 } }
@@ -1000,6 +1261,103 @@ Rectangle {
                             font.pixelSize: 10
                         }
                     }
+                }
+            }
+        }
+    }
+
+    GPopupDismissHandler { popup: lyricsPopup; opener: lyricsButton }
+
+    Popup {
+        id: lyricsPopup
+        parent: Overlay.overlay
+        modal: false
+        focus: true
+        width: Math.min(520, Math.max(380, root.width * 0.46))
+        height: 330
+        x: Math.max(18, parent ? parent.width - width - 28 : 18)
+        y: Math.max(18, parent ? parent.height - height - root.implicitHeight - 24 : 18)
+        padding: 0
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle {
+            radius: 16
+            color: AppTheme.surface
+            border.width: 1
+            border.color: AppTheme.border
+        }
+        onOpened: {
+            if (root.activeLyricIndex >= 0 && root.lyricsSynced)
+                lyricList.positionViewAtIndex(root.activeLyricIndex, ListView.Center)
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 14
+            spacing: 8
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: root.lang.language === "tr" ? "Şarkı Sözleri" : "Lyrics"
+                    color: AppTheme.text
+                    font.pixelSize: 14
+                    font.weight: Font.Bold
+                }
+                Text {
+                    text: root.lyricsSource === "lrc" ? ".lrc"
+                          : root.lyricsSource === "lyrics" ? ".lyrics"
+                          : (root.lyricsSource === "embedded" ? (root.lang.language === "tr" ? "Gömülü" : "Embedded") : "")
+                    color: AppTheme.textFaint
+                    font.pixelSize: 9
+                }
+                GToolButton {
+                    implicitWidth: 28; implicitHeight: 28
+                    icon.source: root.icon("close-ui.svg")
+                    onClicked: lyricsPopup.close()
+                }
+            }
+
+            ListView {
+                id: lyricList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: root.lyricsSynced
+                clip: true
+                spacing: 5
+                model: lyricsPopup.visible && root.lyricsSynced ? root.lyricsLines : []
+                reuseItems: true
+                cacheBuffer: 0
+                delegate: Text {
+                    required property var modelData
+                    required property int index
+                    width: lyricList.width
+                    text: String(modelData.text || "")
+                    textFormat: Text.PlainText
+                    color: index === root.activeLyricIndex ? AppTheme.accent : AppTheme.textMuted
+                    font.pixelSize: index === root.activeLyricIndex ? 13 : 11
+                    font.weight: index === root.activeLyricIndex ? Font.DemiBold : Font.Normal
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    opacity: index === root.activeLyricIndex ? 1.0 : 0.76
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                }
+            }
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: !root.lyricsSynced
+                clip: true
+                TextArea {
+                    readOnly: true
+                    text: lyricsPopup.visible && !root.lyricsSynced ? root.lyricsText : ""
+                    textFormat: TextEdit.PlainText
+                    color: AppTheme.text
+                    font.pixelSize: 11
+                    wrapMode: TextEdit.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    background: null
+                    selectByMouse: true
                 }
             }
         }

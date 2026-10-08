@@ -1,5 +1,5 @@
 import QtQuick
-import GFile.Backend
+import Lurviko.Backend
 
 PopupDismissFilter {
     required property var popup

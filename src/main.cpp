@@ -5,6 +5,8 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QIcon>
+#include <QLockFile>
+#include <QMessageBox>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QProcess>
@@ -34,6 +36,9 @@
 #include <unistd.h>
 
 #include "storagemodel.h"
+#include "appmigration.h"
+#include "updatechecker.h"
+#include "videochapterreader.h"
 #include "directorymodel.h"
 #include "fileoperations.h"
 #include "trashmonitor.h"
@@ -41,8 +46,10 @@
 #include "quickaccessmodel.h"
 #include "contentindexmodel.h"
 #include "languagemanager.h"
+#include "keyboardshortcutmanager.h"
 #include "cloudauthmanager.h"
 #include "thumbnailprovider.h"
+#include "bundlediconprovider.h"
 #include "admineditmanager.h"
 #include "openwithmodel.h"
 #include "servicemenumodel.h"
@@ -55,6 +62,8 @@
 #include "dlnamediamanager.h"
 #include "frameratematchclient.h"
 #include "mpriscontroller.h"
+#include "musicmetadatamanager.h"
+#include "musiclibrarymanager.h"
 #include "playbackresumemanager.h"
 #include "videoplayerinputmanager.h"
 #include "subtitleaimanager.h"
@@ -94,6 +103,7 @@ static QString launchTarget(const QString &argument)
             continue;
         }
         if (!rawLine.startsWith("URL=") && !rawLine.startsWith("URL[$e]=")
+                && !rawLine.startsWith("X-Lurviko-Target=")
                 && !rawLine.startsWith("X-GFile-Target="))
             continue;
 
@@ -109,7 +119,8 @@ static QString launchTarget(const QString &argument)
 
     const QStringList commandParts = QProcess::splitCommand(execCommand);
     if (commandParts.size() > 1
-            && QFileInfo(commandParts.constFirst()).fileName() == QStringLiteral("g-file")) {
+            && (QFileInfo(commandParts.constFirst()).fileName() == QStringLiteral("lurviko")
+                || QFileInfo(commandParts.constFirst()).fileName() == QStringLiteral("g-file"))) {
         for (int i = 1; i < commandParts.size(); ++i) {
             if (commandParts.at(i).startsWith(QLatin1Char('%')))
                 continue;
@@ -141,7 +152,7 @@ static QUrl normalizeExternalUrl(const QUrl &input)
 
 static QString singleInstanceServerName()
 {
-    return QStringLiteral("g-file-%1").arg(static_cast<qulonglong>(geteuid()));
+    return QStringLiteral("lurviko-%1").arg(static_cast<qulonglong>(geteuid()));
 }
 
 static QStringList commandLineTargets(const QStringList &arguments)
@@ -158,14 +169,15 @@ static QStringList commandLineTargets(const QStringList &arguments)
     return targets;
 }
 
-static bool isGFilePreferredFileManager()
+static bool isLurvikoPreferredFileManager()
 {
     const KService::Ptr preferred = KApplicationTrader::preferredService(QStringLiteral("inode/directory"));
     if (!preferred)
         return false;
 
     const QString storageId = preferred->storageId();
-    return storageId == QStringLiteral("g-file.desktop")
+    return storageId == QStringLiteral("lurviko.desktop")
+        || storageId == QStringLiteral("g-file.desktop")
         || storageId == QStringLiteral("aether-files.desktop");
 }
 
@@ -315,53 +327,87 @@ int main(int argc, char *argv[])
     QFont interfaceFont = app.font();
     interfaceFont.setHintingPreference(QFont::PreferVerticalHinting);
     app.setFont(interfaceFont);
-    QCoreApplication::setOrganizationName("g-File");
-    QCoreApplication::setOrganizationDomain("g-file.local");
-    QCoreApplication::setApplicationName("g-File");
-    QCoreApplication::setApplicationVersion("0.5.52");
-    QGuiApplication::setApplicationDisplayName(QStringLiteral("g-File"));
-    QApplication::setDesktopFileName(QStringLiteral("g-file"));
-    const QIcon bundledIcon(QStringLiteral(":/qt/qml/GFile/App/assets/icons/logo.png"));
-    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("g-file"), bundledIcon));
+    QCoreApplication::setOrganizationName("Lurviko");
+    QCoreApplication::setOrganizationDomain("lurviko.local");
+    QCoreApplication::setApplicationName("Lurviko");
+    QCoreApplication::setApplicationVersion(LURVIKO_VERSION);
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("Lurviko"));
+    QApplication::setDesktopFileName(QStringLiteral("lurviko"));
+    const QIcon bundledIcon(QStringLiteral(":/qt/qml/Lurviko/App/assets/icons/logo.png"));
+    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("lurviko"), bundledIcon));
+
+    const QString configRoot = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    const bool migrationOnly = app.arguments().contains(QStringLiteral("--migrate-only"));
+    // An old build must be closed before moving the files it can still write.
+    QLocalSocket legacyInstance;
+    legacyInstance.connectToServer(QStringLiteral("g-file-%1").arg(static_cast<qulonglong>(geteuid())));
+    if (legacyInstance.waitForConnected(30)) {
+        const QString message = QStringLiteral("Please close g-File before starting Lurviko so your settings can be migrated safely.");
+        if (migrationOnly) qCritical().noquote() << message;
+        else QMessageBox::warning(nullptr, QStringLiteral("Lurviko"), message);
+        return 1;
+    }
+    QDir().mkpath(configRoot);
+    QLockFile migrationLock(QDir(configRoot).filePath(QStringLiteral("lurviko-migration.lock")));
+    if (!migrationLock.tryLock(10000)) {
+        QMessageBox::warning(nullptr, QStringLiteral("Lurviko"), QStringLiteral("Another Lurviko process is migrating your settings. Please try again shortly."));
+        return 1;
+    }
+    QString migrationError;
+    if (!migrateLegacyUserData(configRoot,
+            QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation),
+            QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation), &migrationError)) {
+        if (migrationOnly) qCritical().noquote() << migrationError;
+        else QMessageBox::warning(nullptr, QStringLiteral("Lurviko"), migrationError);
+        return 1;
+    }
+    migrationLock.unlock();
+    if (migrationOnly) return 0;
 
     // Native glyph rasterization is noticeably sharper for the small UI labels
-    // used by g-File on fractional-scale Plasma desktops.
+    // used by Lurviko on fractional-scale Plasma desktops.
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
     QQuickStyle::setStyle("Basic");
-    // g-File is a normal desktop application: closing its last main window
+    // Lurviko is a normal desktop application: closing its last main window
     // must terminate the process rather than leaving the single-instance
     // socket/DBus service alive in the background.
     app.setQuitOnLastWindowClosed(true);
 
-    qmlRegisterType<StorageModel>("GFile.Backend", 1, 0, "StorageModel");
-    qmlRegisterType<DirectoryModel>("GFile.Backend", 1, 0, "DirectoryModel");
-    qmlRegisterType<FileOperations>("GFile.Backend", 1, 0, "FileOperations");
-    qmlRegisterType<TrashMonitor>("GFile.Backend", 1, 0, "TrashMonitor");
-    qmlRegisterType<FavoritesModel>("GFile.Backend", 1, 0, "FavoritesModel");
-    qmlRegisterType<QuickAccessModel>("GFile.Backend", 1, 0, "QuickAccessModel");
-    qmlRegisterType<ContentIndexModel>("GFile.Backend", 1, 0, "ContentIndexModel");
-    qmlRegisterType<LanguageManager>("GFile.Backend", 1, 0, "LanguageManager");
-    qmlRegisterType<CloudAuthManager>("GFile.Backend", 1, 0, "CloudAuthManager");
-    qmlRegisterType<AdminEditManager>("GFile.Backend", 1, 0, "AdminEditManager");
-    qmlRegisterType<OpenWithModel>("GFile.Backend", 1, 0, "OpenWithModel");
-    qmlRegisterType<ServiceMenuModel>("GFile.Backend", 1, 0, "ServiceMenuModel");
-    qmlRegisterType<GoogleDriveManager>("GFile.Backend", 1, 0, "GoogleDriveManager");
-    qmlRegisterType<OneDriveManager>("GFile.Backend", 1, 0, "OneDriveManager");
-    qmlRegisterType<IconPickerManager>("GFile.Backend", 1, 0, "IconPickerManager");
-    qmlRegisterType<FilePropertiesManager>("GFile.Backend", 1, 0, "FilePropertiesManager");
-    qmlRegisterType<TmdbMetadataManager>("GFile.Backend", 1, 0, "TmdbMetadataManager");
-    qmlRegisterType<DlnaMediaManager>("GFile.Backend", 1, 0, "DlnaMediaManager");
-    qmlRegisterType<FrameRateMatchClient>("GFile.Backend", 1, 0, "FrameRateMatchClient");
-    qmlRegisterType<MprisController>("GFile.Backend", 1, 0, "MprisController");
-    qmlRegisterType<SubtitleAiManager>("GFile.Backend", 1, 0, "SubtitleAiManager");
-    qmlRegisterType<SubtitleStyleManager>("GFile.Backend", 1, 0, "SubtitleStyleManager");
-    qmlRegisterType<PrivateVaultManager>("GFile.Backend", 1, 0, "PrivateVaultManager");
-    qmlRegisterType<PopupDismissFilter>("GFile.Backend", 1, 0, "PopupDismissFilter");
+    qmlRegisterType<StorageModel>("Lurviko.Backend", 1, 0, "StorageModel");
+    qmlRegisterType<UpdateChecker>("Lurviko.Backend", 1, 0, "UpdateChecker");
+    qmlRegisterType<VideoChapterReader>("Lurviko.Backend", 1, 0, "VideoChapterReader");
+    qmlRegisterType<DirectoryModel>("Lurviko.Backend", 1, 0, "DirectoryModel");
+    qmlRegisterType<FileOperations>("Lurviko.Backend", 1, 0, "FileOperations");
+    qmlRegisterType<TrashMonitor>("Lurviko.Backend", 1, 0, "TrashMonitor");
+    qmlRegisterType<FavoritesModel>("Lurviko.Backend", 1, 0, "FavoritesModel");
+    qmlRegisterType<QuickAccessModel>("Lurviko.Backend", 1, 0, "QuickAccessModel");
+    qmlRegisterType<ContentIndexModel>("Lurviko.Backend", 1, 0, "ContentIndexModel");
+    qmlRegisterType<LanguageManager>("Lurviko.Backend", 1, 0, "LanguageManager");
+    qmlRegisterType<CloudAuthManager>("Lurviko.Backend", 1, 0, "CloudAuthManager");
+    qmlRegisterType<AdminEditManager>("Lurviko.Backend", 1, 0, "AdminEditManager");
+    qmlRegisterType<OpenWithModel>("Lurviko.Backend", 1, 0, "OpenWithModel");
+    qmlRegisterType<ServiceMenuModel>("Lurviko.Backend", 1, 0, "ServiceMenuModel");
+    qmlRegisterType<GoogleDriveManager>("Lurviko.Backend", 1, 0, "GoogleDriveManager");
+    qmlRegisterType<OneDriveManager>("Lurviko.Backend", 1, 0, "OneDriveManager");
+    qmlRegisterType<IconPickerManager>("Lurviko.Backend", 1, 0, "IconPickerManager");
+    qmlRegisterType<FilePropertiesManager>("Lurviko.Backend", 1, 0, "FilePropertiesManager");
+    qmlRegisterType<TmdbMetadataManager>("Lurviko.Backend", 1, 0, "TmdbMetadataManager");
+    qmlRegisterType<DlnaMediaManager>("Lurviko.Backend", 1, 0, "DlnaMediaManager");
+    qmlRegisterType<FrameRateMatchClient>("Lurviko.Backend", 1, 0, "FrameRateMatchClient");
+    qmlRegisterType<MprisController>("Lurviko.Backend", 1, 0, "MprisController");
+    qmlRegisterType<MusicMetadataManager>("Lurviko.Backend", 1, 0, "MusicMetadataManager");
+    qmlRegisterType<MusicLibraryManager>("Lurviko.Backend", 1, 0, "MusicLibraryManager");
+    qmlRegisterType<SubtitleAiManager>("Lurviko.Backend", 1, 0, "SubtitleAiManager");
+    qmlRegisterType<SubtitleStyleManager>("Lurviko.Backend", 1, 0, "SubtitleStyleManager");
+    qmlRegisterType<PrivateVaultManager>("Lurviko.Backend", 1, 0, "PrivateVaultManager");
+    qmlRegisterType<PopupDismissFilter>("Lurviko.Backend", 1, 0, "PopupDismissFilter");
+    qmlRegisterSingletonType<KeyboardShortcutManager>("Lurviko.Backend", 1, 0, "KeyboardShortcuts",
+        [](QQmlEngine *, QJSEngine *) -> QObject * { return new KeyboardShortcutManager; });
 
     PlaybackResumeManager playbackResumeManager;
-    qmlRegisterSingletonInstance("GFile.Backend", 1, 0, "PlaybackResumeManager", &playbackResumeManager);
+    qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PlaybackResumeManager", &playbackResumeManager);
     VideoPlayerInputManager videoPlayerInputManager;
-    qmlRegisterSingletonInstance("GFile.Backend", 1, 0, "VideoPlayerInputManager", &videoPlayerInputManager);
+    qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "VideoPlayerInputManager", &videoPlayerInputManager);
 
     const QStringList launchLocations = commandLineTargets(app.arguments());
     QString initialLaunchLocation = launchLocations.value(0);
@@ -377,7 +423,7 @@ int main(int argc, char *argv[])
     }
     const bool activatedForFileManager = app.arguments().contains(QStringLiteral("--filemanager1"));
 
-    // One g-File process per user. Plasma/file-association launches are
+    // One Lurviko process per user. Plasma/file-association launches are
     // forwarded to the existing window instead of creating a second window.
     if (forwardToRunningInstance(launchLocations))
         return 0;
@@ -385,13 +431,13 @@ int main(int argc, char *argv[])
     QLocalServer singleInstanceServer;
     singleInstanceServer.setSocketOptions(QLocalServer::UserAccessOption);
     if (!singleInstanceServer.listen(singleInstanceServerName())) {
-        // Cover the small race where another g-File started between our first
+        // Cover the small race where another Lurviko started between our first
         // connect attempt and listen(). If it is a stale socket, remove it.
         if (forwardToRunningInstance(launchLocations))
             return 0;
         QLocalServer::removeServer(singleInstanceServerName());
         if (!singleInstanceServer.listen(singleInstanceServerName()))
-            qWarning() << "Could not create g-File single-instance socket:"
+            qWarning() << "Could not create Lurviko single-instance socket:"
                        << singleInstanceServer.errorString();
     }
 
@@ -411,7 +457,7 @@ int main(int argc, char *argv[])
                               : QColor(QStringLiteral("#F8F9FC")));
         painter.drawRoundedRect(QRectF(1, 1, 418, 174), 22, 22);
 
-        const QPixmap logo(QStringLiteral(":/qt/qml/GFile/App/assets/icons/logo.png"));
+        const QPixmap logo(QStringLiteral(":/qt/qml/Lurviko/App/assets/icons/logo.png"));
         if (!logo.isNull()) {
             const QPixmap scaled = logo.scaled(82, 82, Qt::KeepAspectRatio,
                                                Qt::SmoothTransformation);
@@ -425,7 +471,7 @@ int main(int argc, char *argv[])
         titleFont.setWeight(QFont::DemiBold);
         painter.setFont(titleFont);
         painter.drawText(QRect(132, 49, 250, 42), Qt::AlignLeft | Qt::AlignVCenter,
-                         QStringLiteral("g-File"));
+                         QStringLiteral("Lurviko"));
         painter.setPen(dark ? QColor(QStringLiteral("#AEB8CE"))
                             : QColor(QStringLiteral("#667189")));
         QFont detailFont = app.font();
@@ -443,6 +489,7 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("gfilethumb"), new ThumbnailProvider);
     engine.addImageProvider(QStringLiteral("systemicon"), new SystemIconProvider);
+    engine.addImageProvider(QStringLiteral("bundledicon"), new BundledIconProvider);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, [] { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);
@@ -451,7 +498,7 @@ int main(int argc, char *argv[])
         {QStringLiteral("launchLocation"), initialLaunchLocation},
         {QStringLiteral("fileManagerActivation"), activatedForFileManager}
     });
-    engine.loadFromModule("GFile.App", "Main");
+    engine.loadFromModule("Lurviko.App", "Main");
 
     QObject *rootObject = engine.rootObjects().isEmpty() ? nullptr : engine.rootObjects().constFirst();
     QWindow *window = qobject_cast<QWindow *>(rootObject);
@@ -570,7 +617,7 @@ int main(int argc, char *argv[])
 
     QDBusConnection sessionBus = QDBusConnection::sessionBus();
     const QString fileManagerService = QStringLiteral("org.freedesktop.FileManager1");
-    const bool preferredFileManager = isGFilePreferredFileManager();
+    const bool preferredFileManager = isLurvikoPreferredFileManager();
     if (sessionBus.isConnected() && (activatedForFileManager || preferredFileManager)) {
         const bool objectRegistered = sessionBus.registerObject(
             QStringLiteral("/org/freedesktop/FileManager1"), &fileManager1,
@@ -587,7 +634,7 @@ int main(int argc, char *argv[])
                                               QDBusConnectionInterface::AllowReplacement);
             if (!reply.isValid() || reply.value() != QDBusConnectionInterface::ServiceRegistered) {
                 // If an existing daemon refuses replacement, queue behind it so
-                // g-File acquires FileManager1 as soon as that stale owner exits.
+                // Lurviko acquires FileManager1 as soon as that stale owner exits.
                 if (preferredFileManager) {
                     reply = busInterface->registerService(fileManagerService,
                                                           QDBusConnectionInterface::QueueService,

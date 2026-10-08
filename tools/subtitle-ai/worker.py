@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JSON-lines worker for G-File's built-in subtitle AI pipeline.
+"""JSON-lines worker for Lurviko's built-in subtitle AI pipeline.
 
 Two source modes are supported:
   * transcribe: audio -> Whisper -> optional local AI translation
@@ -34,16 +34,16 @@ def emit(event: str, **payload: Any) -> None:
 
 
 def user_data_vendor() -> Path:
-    override = os.environ.get("GFILE_SUBTITLE_AI_VENDOR_DIR", "").strip()
+    override = os.environ.get("LURVIKO_SUBTITLE_AI_VENDOR_DIR", "").strip()
     if override:
         return Path(override).expanduser()
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return base / "g-File" / "subtitle-ai" / "vendor"
+        return base / "Lurviko" / "subtitle-ai" / "vendor"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "g-File" / "subtitle-ai" / "vendor"
+        return Path.home() / "Library" / "Application Support" / "Lurviko" / "subtitle-ai" / "vendor"
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / "g-File" / "subtitle-ai" / "vendor"
+    return base / "Lurviko" / "subtitle-ai" / "vendor"
 
 
 def configure_import_paths() -> Path:
@@ -51,7 +51,7 @@ def configure_import_paths() -> Path:
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))
     candidates = [here / "vendor", user_data_vendor()]
-    configured = os.environ.get("GFILE_SUBTITLE_AI_VENDOR_DIR", "").strip()
+    configured = os.environ.get("LURVIKO_SUBTITLE_AI_VENDOR_DIR", "").strip()
     if configured:
         candidates.insert(0, Path(configured).expanduser())
     for vendor in candidates:
@@ -80,7 +80,7 @@ def _private_cuda_lib_dirs(vendor: Path) -> list[Path]:
 
 
 def _preload_private_cuda_runtime(vendor: Path) -> bool:
-    """Load G-File's private CUDA libraries into this already-running worker.
+    """Load Lurviko's private CUDA libraries into this already-running worker.
 
     LD_LIBRARY_PATH is captured by the dynamic loader when the worker starts.
     On the very first run the CUDA wheels can be installed *after* process
@@ -120,7 +120,7 @@ def _preload_private_cuda_runtime(vendor: Path) -> bool:
             if soname == "libcublas.so.12":
                 loaded_cublas = True
         except OSError as exc:
-            emit("log", message=f"G-File Subtitle AI: özel CUDA kitaplığı yüklenemedi ({soname}): {exc}")
+            emit("log", message=f"Lurviko Subtitle AI: özel CUDA kitaplığı yüklenemedi ({soname}): {exc}")
     return loaded_cublas
 
 
@@ -130,11 +130,11 @@ def _ensure_private_cuda_runtime(vendor: Path) -> bool:
 
     cublas = vendor / "nvidia" / "cublas" / "lib" / "libcublas.so.12"
     cudnn = vendor / "nvidia" / "cudnn" / "lib" / "libcudnn.so.9"
-    auto_install = os.environ.get("GFILE_SUBTITLE_AI_AUTO_INSTALL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    auto_install = os.environ.get("LURVIKO_SUBTITLE_AI_AUTO_INSTALL", "1").strip().lower() not in {"0", "false", "no", "off"}
     if (not cublas.is_file() or not cudnn.is_file()) and auto_install:
         vendor.mkdir(parents=True, exist_ok=True)
-        emit("progress", value=0, message="G-File Subtitle AI GPU çalışma ortamı hazırlanıyor…")
-        emit("log", message="G-File Subtitle AI: NVIDIA için özel CUDA çalışma zamanı hazırlanıyor…")
+        emit("progress", value=0, message="Lurviko Subtitle AI GPU çalışma ortamı hazırlanıyor…")
+        emit("log", message="Lurviko Subtitle AI: NVIDIA için özel CUDA çalışma zamanı hazırlanıyor…")
         completed = subprocess.run(
             [sys.executable, "-m", "pip", "install", "--isolated", "--disable-pip-version-check",
              "--no-warn-conflicts", "--upgrade", "--ignore-installed", "--target", str(vendor),
@@ -142,14 +142,14 @@ def _ensure_private_cuda_runtime(vendor: Path) -> bool:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False,
         )
         if completed.returncode != 0:
-            emit("log", message="G-File Subtitle AI: özel CUDA runtime kurulamadı; CPU/int8 kullanılacak.")
+            emit("log", message="Lurviko Subtitle AI: özel CUDA runtime kurulamadı; CPU/int8 kullanılacak.")
 
     return _preload_private_cuda_runtime(vendor)
 
 
 def bootstrap_runtime(vendor: Path, *, translation_only: bool = False) -> None:
     packages_ready = runtime_ready(translation_only=translation_only)
-    auto_install = os.environ.get("GFILE_SUBTITLE_AI_AUTO_INSTALL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    auto_install = os.environ.get("LURVIKO_SUBTITLE_AI_AUTO_INSTALL", "1").strip().lower() not in {"0", "false", "no", "off"}
 
     if not packages_ready and auto_install:
         requirements = Path(__file__).resolve().parent / (
@@ -157,8 +157,8 @@ def bootstrap_runtime(vendor: Path, *, translation_only: bool = False) -> None:
         )
         if requirements.is_file():
             vendor.mkdir(parents=True, exist_ok=True)
-            emit("progress", value=0, message="G-File Subtitle AI çalışma ortamı hazırlanıyor…")
-            emit("log", message=f"G-File Subtitle AI: Python paketleri {vendor} dizinine kuruluyor.")
+            emit("progress", value=0, message="Lurviko Subtitle AI çalışma ortamı hazırlanıyor…")
+            emit("log", message=f"Lurviko Subtitle AI: Python paketleri {vendor} dizinine kuruluyor.")
             cmd = [
                 sys.executable, "-m", "pip", "install", "--isolated", "--disable-pip-version-check",
                 "--no-warn-conflicts", "--upgrade", "--ignore-installed", "--target", str(vendor),
@@ -176,24 +176,24 @@ def bootstrap_runtime(vendor: Path, *, translation_only: bool = False) -> None:
     # If private CUDA cannot be prepared, translation/ASR will fall back to CPU.
     gpu_ready = _ensure_private_cuda_runtime(vendor)
     if gpu_ready:
-        os.environ["GFILE_SUBTITLE_AI_PRIVATE_CUDA_READY"] = "1"
-        emit("log", message="G-File Subtitle AI: özel CUDA çalışma zamanı hazır.")
+        os.environ["LURVIKO_SUBTITLE_AI_PRIVATE_CUDA_READY"] = "1"
+        emit("log", message="Lurviko Subtitle AI: özel CUDA çalışma zamanı hazır.")
     else:
-        os.environ["GFILE_SUBTITLE_AI_PRIVATE_CUDA_READY"] = "0"
-        emit("log", message="G-File Subtitle AI: CUDA runtime kullanılamıyor; CPU fallback etkin.")
+        os.environ["LURVIKO_SUBTITLE_AI_PRIVATE_CUDA_READY"] = "0"
+        emit("log", message="Lurviko Subtitle AI: CUDA runtime kullanılamıyor; CPU fallback etkin.")
 
     if not runtime_ready(translation_only=translation_only):
         raise RuntimeError("Gerekli Python paketleri yüklenemedi.")
-    emit("log", message="G-File Subtitle AI: çalışma ortamı hazır.")
+    emit("log", message="Lurviko Subtitle AI: çalışma ortamı hazır.")
 
 
 def cache_root() -> Path:
-    configured = os.environ.get("GFILE_SUBTITLE_AI_CACHE_DIR", "").strip()
+    configured = os.environ.get("LURVIKO_SUBTITLE_AI_CACHE_DIR", "").strip()
     if configured:
         return Path(configured).expanduser()
     xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
     base = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
-    return base / "g-file" / "subtitle-ai" / "jobs"
+    return base / "Lurviko" / "subtitle-ai" / "jobs"
 
 
 def asr_cache_key(input_path: Path, audio_track_index: int, language: str, quality_profile: str) -> str:
@@ -356,7 +356,7 @@ def main() -> int:
 
     def request_cancel(_signum: int, _frame: Any) -> None:
         cancel_event.set()
-        emit("log", message="G-File Subtitle AI: iptal isteği alındı; tamamlanan önbellek korunuyor…")
+        emit("log", message="Lurviko Subtitle AI: iptal isteği alındı; tamamlanan önbellek korunuyor…")
 
     signal.signal(signal.SIGTERM, request_cancel)
     signal.signal(signal.SIGINT, request_cancel)
@@ -369,7 +369,7 @@ def main() -> int:
             read_srt, transcribe_audio_to_srt, translate_cues_with_ai, write_srt,
         )
     except Exception as exc:
-        emit("error", message=f"G-File Subtitle AI çalışma ortamı yüklenemedi: {exc}")
+        emit("error", message=f"Lurviko Subtitle AI çalışma ortamı yüklenemedi: {exc}")
         return 3
 
     input_path = Path(args.input).expanduser().resolve()
@@ -470,7 +470,7 @@ def main() -> int:
     try:
         ffmpeg = ffmpeg_path()
         probe = ffprobe_path(auto_install=False)
-        emit("ready", message="G-File Subtitle AI hazır.")
+        emit("ready", message="Lurviko Subtitle AI hazır.")
         source_ready = bool(state.get("source_ready")) and source_path.is_file() and source_path.stat().st_size > 0
         translation_requested = bool(target_language)
 
@@ -492,12 +492,12 @@ def main() -> int:
                 emit("cache_status", source_ready=True, detected_language=detected_language)
             else:
                 detected_language = str(state.get("detected_language") or requested_language or "und")
-                emit("log", message="G-File Subtitle AI: seçili altyazı önbellekten kullanılıyor; Whisper çalıştırılmadı.")
+                emit("log", message="Lurviko Subtitle AI: seçili altyazı önbellekten kullanılıyor; Whisper çalıştırılmadı.")
             source_cues = read_srt(source_path)
         else:
             layout = detect_channel_layout(input_path, probe, audio_track_index)
             if layout:
-                emit("log", message=f"G-File Subtitle AI: ses kanal düzeni {layout}")
+                emit("log", message=f"Lurviko Subtitle AI: ses kanal düzeni {layout}")
 
             def source_live(cues: list[Any], stage: str = "source") -> None:
                 if translation_requested or stage != "source":
@@ -532,7 +532,7 @@ def main() -> int:
                 state["source_ready"] = True
                 state["detected_language"] = detected_language
                 atomic_json(state_path, state)
-                emit("log", message=f"G-File Subtitle AI: {detected_language} kaynak altyazı hazır; Whisper atlandı.")
+                emit("log", message=f"Lurviko Subtitle AI: {detected_language} kaynak altyazı hazır; Whisper atlandı.")
                 publish_progress(100, "Kaynak altyazı hazır; Whisper atlandı.")
 
             source_cues = read_srt(source_path)
@@ -604,7 +604,7 @@ def main() -> int:
             emit("cache_status", source_ready=True, detected_language=source_language, translation_ready=False,
                  target_language=target_language, translation_completed_units=completed_units,
                  translation_total_units=checkpoint_total, translation_progress=percent)
-            emit("log", message=f"G-File Subtitle AI: {target_language} çevirisi {completed_units}/{checkpoint_total} önbellekten geri yüklendi.")
+            emit("log", message=f"Lurviko Subtitle AI: {target_language} çevirisi {completed_units}/{checkpoint_total} önbellekten geri yüklendi.")
 
         phase = "translation"
         resume_percent = int(completed_units * 100 / max(1, checkpoint_total)) if checkpoint_total > 0 else 0
@@ -668,7 +668,7 @@ def main() -> int:
         emit("error", message=str(exc))
         return 2
     except Exception as exc:
-        emit("error", message=f"G-File Subtitle AI işlemi başarısız: {exc}")
+        emit("error", message=f"Lurviko Subtitle AI işlemi başarısız: {exc}")
         return 2
 
 

@@ -60,7 +60,7 @@ def _asr_hotwords(_language: str) -> str | None:
     The environment override remains available for advanced, source-specific
     terminology without imposing a global bias on normal users.
     """
-    extra = os.environ.get("GFILE_SUBTITLE_AI_ASR_HOTWORDS", "").strip()
+    extra = os.environ.get("LURVIKO_SUBTITLE_AI_ASR_HOTWORDS", "").strip()
     return extra or None
 
 
@@ -105,9 +105,9 @@ def _prepare_asr_audio_input(
     mix_filter = _dialogue_mix_filter(layout)
     if mix_filter is None:
         if layout:
-            logger(f"G-File Subtitle AI ASR audio: layout={layout}; using standard decoder downmix")
+            logger(f"Lurviko Subtitle AI ASR audio: layout={layout}; using standard decoder downmix")
         else:
-            logger("G-File Subtitle AI ASR audio: layout unknown; using standard decoder downmix")
+            logger("Lurviko Subtitle AI ASR audio: layout unknown; using standard decoder downmix")
         return audio_path, None
 
     fd, temp_name = tempfile.mkstemp(prefix="gfile_subtitle_ai-asr-dialogue-", suffix=".wav")
@@ -136,7 +136,7 @@ def _prepare_asr_audio_input(
             str(temp_path),
         ]
         logger(
-            f"G-File Subtitle AI ASR audio: layout={layout}; preparing dialogue-focused mono "
+            f"Lurviko Subtitle AI ASR audio: layout={layout}; preparing dialogue-focused mono "
             "(FC 80% + FL 10% + FR 10%)"
         )
         process = subprocess.Popen(
@@ -162,19 +162,19 @@ def _prepare_asr_audio_input(
             detail = (stderr or "").strip()
             if detail:
                 detail = detail.splitlines()[-1][:240]
-                logger(f"G-File Subtitle AI ASR audio: dialogue downmix failed; using original audio ({detail})")
+                logger(f"Lurviko Subtitle AI ASR audio: dialogue downmix failed; using original audio ({detail})")
             else:
-                logger("G-File Subtitle AI ASR audio: dialogue downmix failed; using original audio")
+                logger("Lurviko Subtitle AI ASR audio: dialogue downmix failed; using original audio")
             temp_path.unlink(missing_ok=True)
             return audio_path, None
-        logger("G-File Subtitle AI ASR audio: dialogue-focused mono ready")
+        logger("Lurviko Subtitle AI ASR audio: dialogue-focused mono ready")
         return temp_path, temp_path
     except OperationCancelled:
         temp_path.unlink(missing_ok=True)
         raise
     except Exception as exc:
         temp_path.unlink(missing_ok=True)
-        logger(f"G-File Subtitle AI ASR audio: dialogue downmix unavailable; using original audio ({exc})")
+        logger(f"Lurviko Subtitle AI ASR audio: dialogue downmix unavailable; using original audio ({exc})")
         return audio_path, None
 
 
@@ -241,7 +241,7 @@ def _prepare_local_context_audio_input(
             "pcm_s16le",
             str(temp_path),
         ]
-        logger("G-File Subtitle AI ASR: preparing 16 kHz mono working audio for local-context blocks...")
+        logger("Lurviko Subtitle AI ASR: preparing 16 kHz mono working audio for local-context blocks...")
         process = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
@@ -266,7 +266,7 @@ def _prepare_local_context_audio_input(
             if detail:
                 detail = detail.splitlines()[-1][:240]
             raise RuntimeError(detail or "could not prepare PCM working audio")
-        logger("G-File Subtitle AI ASR: local-context working audio ready")
+        logger("Lurviko Subtitle AI ASR: local-context working audio ready")
         return temp_path, temp_path
     except OperationCancelled:
         temp_path.unlink(missing_ok=True)
@@ -443,7 +443,7 @@ def _vad_aligned_context_boundaries(
 
     if logger is not None and boundaries:
         logger(
-            "G-File Subtitle AI ASR: VAD-aligned "
+            "Lurviko Subtitle AI ASR: VAD-aligned "
             f"{shifted}/{len(boundaries)} context boundary(s) to nearby silence "
             f"(max shift {max_shift:.1f}s)"
         )
@@ -533,7 +533,7 @@ def _deduplicate_boundary_cues(
             result[duplicate_index] = cue
         removed += 1
     if logger is not None and removed:
-        logger(f"G-File Subtitle AI ASR: removed {removed} duplicate cue(s) near context boundaries")
+        logger(f"Lurviko Subtitle AI ASR: removed {removed} duplicate cue(s) near context boundaries")
     return sorted(result, key=lambda cue: (cue.start, cue.end))
 
 
@@ -572,7 +572,7 @@ TRANSLATION_MODEL_FILES = (
 )
 
 # Stable target-language menu. MADLAD supports substantially more languages,
-# but this curated set covers the languages G-File Subtitle AI is most likely to encounter
+# but this curated set covers the languages Lurviko Subtitle AI is most likely to encounter
 # while keeping the picker useful instead of overwhelming. Adding another
 # MADLAD <2xx> language later only requires extending this table.
 TRANSLATION_TARGET_LANGUAGES: tuple[tuple[str, str], ...] = (
@@ -727,7 +727,7 @@ def normalise_asr_language(language: str) -> str:
 def generated_subtitle_path(audio_path: Path, language: str) -> Path:
     """Return a non-destructive subtitle name next to the audio track.
 
-    G-File Subtitle AI understands language tokens in filenames.  Keeping ``.<lang>.`` in
+    Lurviko Subtitle AI understands language tokens in filenames.  Keeping ``.<lang>.`` in
     the generated name lets normal track discovery classify the subtitle
     without modifying the template configuration.
     """
@@ -1037,7 +1037,7 @@ def _translate_structured_cue_lines(
             else:
                 if logger is not None:
                     logger(
-                        "G-File Subtitle AI AI Translation: protected subtitle line "
+                        "Lurviko Subtitle AI AI Translation: protected subtitle line "
                         f"fallback at {srt_timestamp(cue.start)} "
                         f"({rescue_reason or reason or 'empty'})"
                     )
@@ -1166,7 +1166,7 @@ def _filter_hallucinated_cues(
     if logger is not None and counts:
         total = sum(counts.values())
         detail = ", ".join(f"{reason}={count}" for reason, count in sorted(counts.items()))
-        logger(f"G-File Subtitle AI ASR: hallucination cleanup ({stage}) removed {total} cue(s): {detail}")
+        logger(f"Lurviko Subtitle AI ASR: hallucination cleanup ({stage}) removed {total} cue(s): {detail}")
     return kept
 
 
@@ -1247,7 +1247,7 @@ def _filter_repetition_loops(
             f"'{phrase[:36]}' x{count}" for _s, _e, phrase, count in bad_windows[:3]
         )
         logger(
-            f"G-File Subtitle AI ASR: repetition-loop cleanup ({stage}) removed {removed} cue(s) "
+            f"Lurviko Subtitle AI ASR: repetition-loop cleanup ({stage}) removed {removed} cue(s) "
             f"across {len(merged)} region(s) ({examples})"
         )
     return kept
@@ -1430,19 +1430,19 @@ def write_srt(path: Path, cues: Iterable[SubtitleCue]) -> Path:
 
 
 def asr_model_cache_dir() -> Path:
-    override = os.environ.get("GFILE_SUBTITLE_AI_ASR_MODEL_DIR", "").strip()
+    override = os.environ.get("LURVIKO_SUBTITLE_AI_ASR_MODEL_DIR", "").strip()
     if override:
         return Path(override).expanduser()
     if os.name == "nt":
         root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        return root / "g-file" / "subtitle-ai" / "models"
+        return root / "Lurviko" / "subtitle-ai" / "models"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "g-file" / "subtitle-ai" / "models"
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "g-file" / "subtitle-ai" / "models"
+        return Path.home() / "Library" / "Caches" / "Lurviko" / "subtitle-ai" / "models"
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "Lurviko" / "subtitle-ai" / "models"
 
 
 def asr_runtime_state_path() -> Path:
-    override = os.environ.get("GFILE_SUBTITLE_AI_ASR_RUNTIME_STATE", "").strip()
+    override = os.environ.get("LURVIKO_SUBTITLE_AI_ASR_RUNTIME_STATE", "").strip()
     if override:
         return Path(override).expanduser()
     return app_config_dir() / "asr-runtime.json"
@@ -1508,6 +1508,16 @@ def _saved_model_snapshot(model_name: str) -> Path | None:
     if not isinstance(raw, str) or not raw.strip():
         return None
     path = Path(raw).expanduser()
+    # Retain downloaded snapshots when upgrading from the previous app name.
+    if not path.is_dir():
+        cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        for legacy in ("g-file", "g-File", "GFile"):
+            try:
+                relative = path.relative_to(cache / legacy)
+            except ValueError:
+                continue
+            path = cache / "Lurviko" / relative
+            break
     return path if path.is_dir() else None
 
 
@@ -1545,8 +1555,8 @@ def _best_cuda_compute_type() -> str | None:
 
 
 def _runtime_device(logger: Callable[[str], None] | None = None) -> tuple[str, str, bool]:
-    requested = os.environ.get("GFILE_SUBTITLE_AI_ASR_DEVICE", "auto").strip().lower() or "auto"
-    requested_compute = os.environ.get("GFILE_SUBTITLE_AI_ASR_COMPUTE_TYPE", "").strip().lower()
+    requested = os.environ.get("LURVIKO_SUBTITLE_AI_ASR_DEVICE", "auto").strip().lower() or "auto"
+    requested_compute = os.environ.get("LURVIKO_SUBTITLE_AI_ASR_COMPUTE_TYPE", "").strip().lower()
 
     # Explicit environment overrides always win and are not replaced by the
     # persisted auto-detected runtime.
@@ -1563,7 +1573,7 @@ def _runtime_device(logger: Callable[[str], None] | None = None) -> tuple[str, s
     saved = _saved_runtime()
     if saved is not None:
         if logger is not None:
-            logger(f"G-File Subtitle AI ASR: using saved runtime {saved[0]}/{saved[1]}")
+            logger(f"Lurviko Subtitle AI ASR: using saved runtime {saved[0]}/{saved[1]}")
         return saved[0], saved[1], True
 
     cuda_compute = _best_cuda_compute_type()
@@ -1711,7 +1721,7 @@ def _asr_resource_log_lines(
     if memory is not None:
         process_part = f"process={_format_bytes(rss)} | " if rss is not None else ""
         lines.append(
-            "G-File Subtitle AI ASR resources: RAM "
+            "Lurviko Subtitle AI ASR resources: RAM "
             f"{process_part}system={_format_bytes(memory['used'])}/{_format_bytes(memory['total'])} "
             f"| available={_format_bytes(memory['available'])} "
             f"| swap={_format_bytes(memory['swap_used'])}/{_format_bytes(memory['swap_total'])}"
@@ -1719,17 +1729,17 @@ def _asr_resource_log_lines(
         available = memory["available"]
         if available < int(1.5 * 1024**3):
             lines.append(
-                "G-File Subtitle AI ASR WARNING: available RAM is critical "
+                "Lurviko Subtitle AI ASR WARNING: available RAM is critical "
                 f"({_format_bytes(available)}); Linux may invoke the OOM killer."
             )
         elif available < 3 * 1024**3:
             lines.append(
-                "G-File Subtitle AI ASR WARNING: available RAM is low "
+                "Lurviko Subtitle AI ASR WARNING: available RAM is low "
                 f"({_format_bytes(available)}); monitor memory pressure."
             )
         if large_profile and memory["swap_total"] == 0:
             lines.append(
-                "G-File Subtitle AI ASR WARNING: swap is disabled; large-v3/large-v3+ has less "
+                "Lurviko Subtitle AI ASR WARNING: swap is disabled; large-v3/large-v3+ has less "
                 "protection against sudden RAM spikes."
             )
 
@@ -1742,7 +1752,7 @@ def _asr_resource_log_lines(
                 else ""
             )
             lines.append(
-                "G-File Subtitle AI ASR GPU: "
+                "Lurviko Subtitle AI ASR GPU: "
                 f"{gpu['name']} | CUDA/{compute_type} | "
                 f"VRAM={_format_bytes(gpu['used'])}/{_format_bytes(gpu['total'])}"
                 f"{process_gpu} | util={gpu['util']:.0f}%"
@@ -1750,15 +1760,15 @@ def _asr_resource_log_lines(
             free_vram = max(0, int(gpu["total"]) - int(gpu["used"]))
             if gpu["total"] and free_vram < max(512 * 1024**2, int(gpu["total"] * 0.08)):
                 lines.append(
-                    "G-File Subtitle AI ASR WARNING: GPU memory headroom is low "
+                    "Lurviko Subtitle AI ASR WARNING: GPU memory headroom is low "
                     f"({_format_bytes(free_vram)} free); CUDA OOM is possible."
                 )
         else:
             lines.append(
-                f"G-File Subtitle AI ASR GPU: CUDA/{compute_type} active; nvidia-smi telemetry unavailable."
+                f"Lurviko Subtitle AI ASR GPU: CUDA/{compute_type} active; nvidia-smi telemetry unavailable."
             )
     else:
-        lines.append(f"G-File Subtitle AI ASR device: CPU/{compute_type}")
+        lines.append(f"Lurviko Subtitle AI ASR device: CPU/{compute_type}")
     return lines
 
 
@@ -1787,7 +1797,7 @@ def _prepare_local_model(
 
     saved_snapshot = _saved_model_snapshot(model_name)
     if saved_snapshot is not None:
-        logger(f"G-File Subtitle AI ASR: using saved model snapshot: {saved_snapshot}")
+        logger(f"Lurviko Subtitle AI ASR: using saved model snapshot: {saved_snapshot}")
         return saved_snapshot
 
     try:
@@ -1798,7 +1808,7 @@ def _prepare_local_model(
     cache_dir = asr_model_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Reuse the exact Hugging Face cache layout created by earlier G-File Subtitle AI
+    # Reuse the exact Hugging Face cache layout created by earlier Lurviko Subtitle AI
     # versions. This is important when a first turbo download was already
     # partially or fully completed before upgrading the app.
     try:
@@ -1811,7 +1821,7 @@ def _prepare_local_model(
         )
         if cached.is_dir():
             _remember_model_snapshot(model_name, cached)
-            logger(f"G-File Subtitle AI ASR: model cache ready: {cached}")
+            logger(f"Lurviko Subtitle AI ASR: model cache ready: {cached}")
             return cached
     except Exception:
         pass
@@ -1820,11 +1830,11 @@ def _prepare_local_model(
     initial_size = _directory_size(cache_dir)
     if expected:
         logger(
-            "G-File Subtitle AI ASR: model is not fully cached; downloading/resuming "
+            "Lurviko Subtitle AI ASR: model is not fully cached; downloading/resuming "
             f"~{_format_bytes(expected)} into {cache_dir}"
         )
     else:
-        logger(f"G-File Subtitle AI ASR: model is not fully cached; downloading/resuming into {cache_dir}")
+        logger(f"Lurviko Subtitle AI ASR: model is not fully cached; downloading/resuming into {cache_dir}")
 
     stop = threading.Event()
 
@@ -1841,12 +1851,12 @@ def _prepare_local_model(
             growth = max(0, size - initial_size)
             if growth > 0:
                 logger(
-                    "G-File Subtitle AI ASR model download: "
+                    "Lurviko Subtitle AI ASR model download: "
                     f"+{_format_bytes(growth)} this run; cache={_format_bytes(size)}"
                 )
             else:
                 logger(
-                    "G-File Subtitle AI ASR: model download is active; "
+                    "Lurviko Subtitle AI ASR: model download is active; "
                     f"cache={_format_bytes(size)} (waiting for network/cache write)"
                 )
             last_size = size
@@ -1857,7 +1867,7 @@ def _prepare_local_model(
     try:
         # faster-whisper intentionally disables Hugging Face's tqdm display.
         # We keep its native cache path (so existing/partial downloads resume)
-        # and report cache activity through the G-File Subtitle AI log instead.
+        # and report cache activity through the Lurviko Subtitle AI log instead.
         downloaded = download_model(model_name, cache_dir=str(cache_dir))
     finally:
         stop.set()
@@ -1867,7 +1877,7 @@ def _prepare_local_model(
         raise OperationCancelled()
     model_path = Path(downloaded)
     _remember_model_snapshot(model_name, model_path)
-    logger(f"G-File Subtitle AI ASR: model download/cache ready: {model_path}")
+    logger(f"Lurviko Subtitle AI ASR: model download/cache ready: {model_path}")
     return model_path
 
 def _load_whisper_model(
@@ -1884,18 +1894,18 @@ def _load_whisper_model(
         raise UserVisibleError(ui_text("error_asr_dependency_missing")) from exc
 
     model_path = _prepare_local_model(model_name, logger, cancel_event)
-    logger(f"G-File Subtitle AI ASR: loading model on {device}/{compute_type}...")
+    logger(f"Lurviko Subtitle AI ASR: loading model on {device}/{compute_type}...")
     model = WhisperModel(
         str(model_path),
         device=device,
         compute_type=compute_type,
     )
-    logger("G-File Subtitle AI ASR: model loaded; transcription starting...")
+    logger("Lurviko Subtitle AI ASR: model loaded; transcription starting...")
     return model
 
 
 def translation_model_cache_dir() -> Path:
-    override = os.environ.get("GFILE_SUBTITLE_AI_TRANSLATION_MODEL_DIR", "").strip()
+    override = os.environ.get("LURVIKO_SUBTITLE_AI_TRANSLATION_MODEL_DIR", "").strip()
     if override:
         return Path(override).expanduser()
     return asr_model_cache_dir() / "translation"
@@ -1937,13 +1947,13 @@ def _prepare_translation_model(
             )
         )
         if cached.is_dir():
-            logger(f"G-File Subtitle AI AI Translation: model cache ready: {cached}")
+            logger(f"Lurviko Subtitle AI AI Translation: model cache ready: {cached}")
             return cached
     except Exception:
         pass
 
     logger(
-        "G-File Subtitle AI AI Translation: model is not cached; downloading/resuming "
+        "Lurviko Subtitle AI AI Translation: model is not cached; downloading/resuming "
         f"~{_format_bytes(TRANSLATION_MODEL_DOWNLOAD_BYTES)} into {cache_dir}"
     )
 
@@ -1962,7 +1972,7 @@ def _prepare_translation_model(
             growth = max(0, size - initial_size)
             if growth > 0:
                 logger(
-                    "G-File Subtitle AI AI Translation model download: "
+                    "Lurviko Subtitle AI AI Translation model download: "
                     f"+{_format_bytes(growth)} this run; cache={_format_bytes(size)}"
                 )
             last_size = size
@@ -1985,7 +1995,7 @@ def _prepare_translation_model(
     if cancel_event is not None and cancel_event.is_set():
         raise OperationCancelled()
     model_path = Path(downloaded)
-    logger(f"G-File Subtitle AI AI Translation: model download/cache ready: {model_path}")
+    logger(f"Lurviko Subtitle AI AI Translation: model download/cache ready: {model_path}")
     return model_path
 
 
@@ -2015,17 +2025,17 @@ def _load_translation_runtime(
 
     tokenizer = sentencepiece.SentencePieceProcessor(model_file=str(sentencepiece_model))
 
-    requested_device = os.environ.get("GFILE_SUBTITLE_AI_TRANSLATION_DEVICE", "auto").strip().lower() or "auto"
-    private_cuda_ready = os.environ.get("GFILE_SUBTITLE_AI_PRIVATE_CUDA_READY", "0") == "1"
+    requested_device = os.environ.get("LURVIKO_SUBTITLE_AI_TRANSLATION_DEVICE", "auto").strip().lower() or "auto"
+    private_cuda_ready = os.environ.get("LURVIKO_SUBTITLE_AI_PRIVATE_CUDA_READY", "0") == "1"
     cuda_compute = _best_cuda_compute_type() if private_cuda_ready and requested_device != "cpu" else None
     device = "cuda" if cuda_compute and requested_device in {"auto", "cuda"} else "cpu"
     if requested_device == "cuda" and not private_cuda_ready:
-        logger("G-File Subtitle AI AI Translation: CUDA istendi ancak özel CUDA runtime hazır değil; CPU/int8 kullanılacak.")
+        logger("Lurviko Subtitle AI AI Translation: CUDA istendi ancak özel CUDA runtime hazır değil; CPU/int8 kullanılacak.")
     # The downloaded model is already INT8. Let CTranslate2 use its native
     # representation instead of requesting a conflicting runtime conversion.
     compute_type = "default" if device == "cuda" else "int8"
     try:
-        logger(f"G-File Subtitle AI AI Translation: loading multilingual model on {device}/{compute_type}...")
+        logger(f"Lurviko Subtitle AI AI Translation: loading multilingual model on {device}/{compute_type}...")
         translator = ctranslate2.Translator(
             str(model_path),
             device=device,
@@ -2034,7 +2044,7 @@ def _load_translation_runtime(
     except Exception as exc:
         if device != "cuda":
             raise UserVisibleError(ui_text("error_translation_failed", error=exc)) from exc
-        logger(f"G-File Subtitle AI AI Translation: CUDA load failed; retrying on CPU/int8 ({exc})")
+        logger(f"Lurviko Subtitle AI AI Translation: CUDA load failed; retrying on CPU/int8 ({exc})")
         try:
             translator = ctranslate2.Translator(
                 str(model_path),
@@ -2083,7 +2093,7 @@ def _translation_decode_profile(device: str, logger: Callable[[str], None]) -> t
         return 16, 4
     info = _cuda_memory_info_mib()
     if info is None:
-        logger("G-File Subtitle AI AI Translation: GPU bellek telemetrisi yok; güvenli batch=2 / beam=2 kullanılacak.")
+        logger("Lurviko Subtitle AI AI Translation: GPU bellek telemetrisi yok; güvenli batch=2 / beam=2 kullanılacak.")
         return 2, 2
     free_mib, total_mib = info
     if free_mib < 900:
@@ -2097,7 +2107,7 @@ def _translation_decode_profile(device: str, logger: Callable[[str], None]) -> t
     else:
         batch_size, beam_size = 6, 3
     logger(
-        "G-File Subtitle AI AI Translation: GPU decode profili "
+        "Lurviko Subtitle AI AI Translation: GPU decode profili "
         f"{batch_size} batch / beam {beam_size} (model yüklendikten sonra {free_mib}/{total_mib} MiB boş)."
     )
     return batch_size, beam_size
@@ -2890,7 +2900,7 @@ def translate_cues_with_ai(
     logger = log or (lambda _message: None)
     model_name = (
         model_name
-        or os.environ.get("GFILE_SUBTITLE_AI_TRANSLATION_MODEL", DEFAULT_TRANSLATION_MODEL)
+        or os.environ.get("LURVIKO_SUBTITLE_AI_TRANSLATION_MODEL", DEFAULT_TRANSLATION_MODEL)
     ).strip() or DEFAULT_TRANSLATION_MODEL
 
     raw_units = _translation_units(cues)
@@ -2904,7 +2914,7 @@ def translate_cues_with_ai(
             )
         ):
             logger(
-                "G-File Subtitle AI AI Translation: dropping incomplete tiny ASR fragment at "
+                "Lurviko Subtitle AI AI Translation: dropping incomplete tiny ASR fragment at "
                 f"{srt_timestamp(unit.start)}: {unit.text!r}"
             )
             continue
@@ -2922,13 +2932,13 @@ def translate_cues_with_ai(
     resume_unit_offset = max(0, min(int(resume_unit_offset or 0), total))
     target_name = translation_language_name(target_language)
     logger(
-        f"G-File Subtitle AI AI Translation: translating {total} unit(s) "
+        f"Lurviko Subtitle AI AI Translation: translating {total} unit(s) "
         f"from {source_language} to {target_name} ({target_language})..."
     )
 
     if resume_unit_offset:
         logger(
-            "G-File Subtitle AI AI Translation: resuming at unit "
+            "Lurviko Subtitle AI AI Translation: resuming at unit "
             f"{resume_unit_offset + 1}/{total}; {len(translated)} cached cue(s) restored"
         )
 
@@ -2964,18 +2974,18 @@ def translate_cues_with_ai(
                         batch_size = max(1, batch_size // 2)
                         main_beam_size = min(main_beam_size, 2)
                         logger(
-                            "G-File Subtitle AI AI Translation: CUDA çalışma alanı belleği yetmedi; "
+                            "Lurviko Subtitle AI AI Translation: CUDA çalışma alanı belleği yetmedi; "
                             f"batch {old_batch} -> {batch_size}, beam={main_beam_size} ile aynı noktadan tekrar deneniyor."
                         )
                         continue
                     if main_beam_size > 1:
                         main_beam_size = 1
                         logger(
-                            "G-File Subtitle AI AI Translation: CUDA tekli batch için beam=1 ile aynı noktadan tekrar deneniyor."
+                            "Lurviko Subtitle AI AI Translation: CUDA tekli batch için beam=1 ile aynı noktadan tekrar deneniyor."
                         )
                         continue
                     logger(
-                        "G-File Subtitle AI AI Translation: model GPU'ya sığıyor ancak decoder için ek VRAM kalmadı; "
+                        "Lurviko Subtitle AI AI Translation: model GPU'ya sığıyor ancak decoder için ek VRAM kalmadı; "
                         "tamamlanan çeviriler korunarak CPU/int8 ile aynı noktadan devam ediliyor."
                     )
                     try:
@@ -3000,7 +3010,7 @@ def translate_cues_with_ai(
                 reason = _translation_invalid_reason(unit.text, text)
                 if reason is not None:
                     logger(
-                        "G-File Subtitle AI AI Translation: suspicious decoder output at "
+                        "Lurviko Subtitle AI AI Translation: suspicious decoder output at "
                         f"{srt_timestamp(unit.start)} ({reason}); retrying safely"
                     )
                     retry = _safe_retry_translation(
@@ -3019,7 +3029,7 @@ def translate_cues_with_ai(
                         rescue_reason = _translation_invalid_reason(unit.text, rescue)
                         if rescue and rescue_reason is None:
                             logger(
-                                "G-File Subtitle AI AI Translation: recovered stubborn output with "
+                                "Lurviko Subtitle AI AI Translation: recovered stubborn output with "
                                 f"source reshaping at {srt_timestamp(unit.start)}"
                             )
                             text = rescue
@@ -3032,7 +3042,7 @@ def translate_cues_with_ai(
                             )
                             if context_rescue and context_reason is None:
                                 logger(
-                                    "G-File Subtitle AI AI Translation: recovered stubborn output with "
+                                    "Lurviko Subtitle AI AI Translation: recovered stubborn output with "
                                     f"neighbour context at {srt_timestamp(unit.start)}"
                                 )
                                 text = context_rescue
@@ -3042,7 +3052,7 @@ def translate_cues_with_ai(
                                 # Source echoes, however, have exhausted three
                                 # translation strategies before reaching here.
                                 logger(
-                                    "G-File Subtitle AI AI Translation: all local rescue paths failed at "
+                                    "Lurviko Subtitle AI AI Translation: all local rescue paths failed at "
                                     f"{srt_timestamp(unit.start)} "
                                     f"({context_reason or rescue_reason or retry_reason or 'empty'}); "
                                     "preserving source as last-resort safety fallback"
@@ -3050,7 +3060,7 @@ def translate_cues_with_ai(
                                 text = _clean_text(unit.text)
                 if not text:
                     logger(
-                        "G-File Subtitle AI AI Translation: empty model output after rescue; preserving source unit at "
+                        "Lurviko Subtitle AI AI Translation: empty model output after rescue; preserving source unit at "
                         f"{srt_timestamp(unit.start)}"
                     )
                     text = _clean_text(unit.text)
@@ -3070,7 +3080,7 @@ def translate_cues_with_ai(
                     pieces = _split_translation_across_source_cues(unit.cues, text)
                 if len(unit.cues) > 1 and len(pieces) < len(unit.cues):
                     logger(
-                        "G-File Subtitle AI AI Translation: contextual output is too compressed to "
+                        "Lurviko Subtitle AI AI Translation: contextual output is too compressed to "
                         f"redistribute at {srt_timestamp(unit.start)}; translating source cues individually"
                     )
                     pieces = []
@@ -3104,7 +3114,7 @@ def translate_cues_with_ai(
                 if unit_callback is not None:
                     unit_callback(unit_index + 1, total, list(pieces))
             logger(
-                "G-File Subtitle AI AI Translation: "
+                "Lurviko Subtitle AI AI Translation: "
                 f"{min(offset + len(batch), total)}/{total} unit(s) complete"
             )
             offset += len(batch)
@@ -3224,7 +3234,7 @@ def transcribe_audio_to_srt(
         raise ValueError(f"Unknown ASR quality profile: {quality_profile}")
     if model_name is None and profile is not None:
         model_name = str(profile["model"])
-    model_name = (model_name or os.environ.get("GFILE_SUBTITLE_AI_ASR_MODEL", DEFAULT_ASR_MODEL)).strip() or DEFAULT_ASR_MODEL
+    model_name = (model_name or os.environ.get("LURVIKO_SUBTITLE_AI_ASR_MODEL", DEFAULT_ASR_MODEL)).strip() or DEFAULT_ASR_MODEL
     beam_size = int(profile.get("beam_size", 5)) if profile is not None else 5
     patience = float(profile.get("patience", 1.0)) if profile is not None else 1.0
     repetition_penalty = float(profile.get("repetition_penalty", 1.06)) if profile is not None else 1.06
@@ -3272,10 +3282,10 @@ def transcribe_audio_to_srt(
                     emitted_static_resource_warnings.add(resource_line)
                 logger(resource_line)
 
-        logger(f"G-File Subtitle AI ASR: model={model_name}{profile_log}, language={language or 'auto'}, device={device}, compute={compute_type}")
+        logger(f"Lurviko Subtitle AI ASR: model={model_name}{profile_log}, language={language or 'auto'}, device={device}, compute={compute_type}")
         if hotwords:
-            logger("G-File Subtitle AI ASR: applying custom recognition hotwords")
-        logger("G-File Subtitle AI ASR: preparing model...")
+            logger("Lurviko Subtitle AI ASR: applying custom recognition hotwords")
+        logger("Lurviko Subtitle AI ASR: preparing model...")
         model = _load_whisper_model(
             model_name,
             device,
@@ -3285,7 +3295,7 @@ def transcribe_audio_to_srt(
         )
         if remember_runtime:
             _remember_runtime(device, compute_type)
-            logger(f"G-File Subtitle AI ASR: saved working runtime {device}/{compute_type}")
+            logger(f"Lurviko Subtitle AI ASR: saved working runtime {device}/{compute_type}")
         if cancelled():
             raise OperationCancelled()
         log_resources()
@@ -3309,7 +3319,7 @@ def transcribe_audio_to_srt(
                 context_boundaries,
             )
             logger(
-                "G-File Subtitle AI ASR: local context enabled: "
+                "Lurviko Subtitle AI ASR: local context enabled: "
                 f"~{LOCAL_CONTEXT_BLOCK_SECONDS:.0f}s blocks aligned to VAD silence, "
                 f"{LOCAL_CONTEXT_OVERLAP_SECONDS:.0f}s safety overlap; prompt resets between blocks"
             )
@@ -3357,7 +3367,7 @@ def transcribe_audio_to_srt(
                         try:
                             active_language = normalise_asr_language(detected)
                             detected_language[0] = active_language
-                            logger(f"G-File Subtitle AI ASR: detected language={active_language}")
+                            logger(f"Lurviko Subtitle AI ASR: detected language={active_language}")
                         except UserVisibleError:
                             active_language = None
                 local_segments: list[Any] = []
@@ -3403,7 +3413,7 @@ def transcribe_audio_to_srt(
                         collected_cues.append(shifted)
                         block_cues.append(shifted)
                 logger(
-                    f"G-File Subtitle AI ASR: local-context block {block_index}/{total_blocks} "
+                    f"Lurviko Subtitle AI ASR: local-context block {block_index}/{total_blocks} "
                     f"complete ({block_start:.0f}-{block_end:.0f}s)"
                 )
 
@@ -3413,7 +3423,7 @@ def transcribe_audio_to_srt(
             # to the programme duration; this is diagnostic only.
             displayed_vad_duration = min(duration, duration_after_vad)
             logger(
-                "G-File Subtitle AI ASR: VAD kept "
+                "Lurviko Subtitle AI ASR: VAD kept "
                 f"{displayed_vad_duration:.1f}s / {duration:.1f}s of audio across local-context blocks"
             )
             log_resources()
@@ -3439,7 +3449,7 @@ def transcribe_audio_to_srt(
 
         log_resources()
         logger(
-            f"G-File Subtitle AI ASR: checking {len(gaps)} suspicious subtitle gap(s) with sensitive speech detection..."
+            f"Lurviko Subtitle AI ASR: checking {len(gaps)} suspicious subtitle gap(s) with sensitive speech detection..."
         )
         try:
             from faster_whisper.audio import decode_audio  # type: ignore
@@ -3460,7 +3470,7 @@ def transcribe_audio_to_srt(
             )
             windows = _group_speech_windows(speech_chunks, sampling_rate, gaps)
             if not windows:
-                logger("G-File Subtitle AI ASR: gap rescue found no additional speech-like regions.")
+                logger("Lurviko Subtitle AI ASR: gap rescue found no additional speech-like regions.")
                 return primary
 
             rescued: list[SubtitleCue] = []
@@ -3518,14 +3528,14 @@ def transcribe_audio_to_srt(
             merged = _filter_hallucinated_cues(merged, logger=logger, stage="merged")
             merged = _filter_repetition_loops(merged, logger=logger, stage="merged")
             added = max(0, len(merged) - len(primary))
-            logger(f"G-File Subtitle AI ASR: gap rescue added {added} subtitle cue(s) after cleanup.")
+            logger(f"Lurviko Subtitle AI ASR: gap rescue added {added} subtitle cue(s) after cleanup.")
             return merged
         except OperationCancelled:
             raise
         except Exception as rescue_exc:
             # Gap recovery is a quality enhancement. Never throw away the
             # successful primary transcription if the optional pass fails.
-            logger(f"G-File Subtitle AI ASR: gap rescue skipped ({rescue_exc})")
+            logger(f"Lurviko Subtitle AI ASR: gap rescue skipped ({rescue_exc})")
             return primary
 
     try:
@@ -3539,7 +3549,7 @@ def transcribe_audio_to_srt(
                 raise UserVisibleError(ui_text("error_asr_failed", error=exc)) from exc
             if used_saved_runtime:
                 logger(
-                    "G-File Subtitle AI ASR: saved CUDA runtime failed; rediscovering runtime "
+                    "Lurviko Subtitle AI ASR: saved CUDA runtime failed; rediscovering runtime "
                     f"({exc})"
                 )
                 # Remove only the stale runtime choice; keep known model snapshots.
@@ -3562,15 +3572,15 @@ def transcribe_audio_to_srt(
                                 ui_text("error_asr_failed", error=rediscovery_exc)
                             ) from rediscovery_exc
                         logger(
-                            "G-File Subtitle AI ASR: rediscovered CUDA runtime failed, "
+                            "Lurviko Subtitle AI ASR: rediscovered CUDA runtime failed, "
                             f"retrying on CPU/int8 ({rediscovery_exc})"
                         )
                         cues = run("cpu", "int8", remember_runtime=False)
                 else:
-                    logger(f"G-File Subtitle AI ASR: CUDA failed, retrying on CPU/int8 ({exc})")
+                    logger(f"Lurviko Subtitle AI ASR: CUDA failed, retrying on CPU/int8 ({exc})")
                     cues = run("cpu", "int8", remember_runtime=False)
             else:
-                logger(f"G-File Subtitle AI ASR: CUDA failed, retrying on CPU/int8 ({exc})")
+                logger(f"Lurviko Subtitle AI ASR: CUDA failed, retrying on CPU/int8 ({exc})")
                 try:
                     cues = run("cpu", "int8", remember_runtime=False)
                 except OperationCancelled:
@@ -3589,7 +3599,7 @@ def transcribe_audio_to_srt(
         if translation_target is not None and translation_target == source_language:
             if auto_detect_language:
                 logger(
-                    f"G-File Subtitle AI AI Translation: detected source is already {source_language}; "
+                    f"Lurviko Subtitle AI AI Translation: detected source is already {source_language}; "
                     "translation skipped"
                 )
             else:

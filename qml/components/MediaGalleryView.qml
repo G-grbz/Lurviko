@@ -4,8 +4,8 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtCore
 import QtQml.Models
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 
 Item {
     id: root
@@ -818,7 +818,7 @@ Item {
                 GButton {
                     text: ""
                     display: AbstractButton.IconOnly
-                    icon.source: AppTheme.icon("chevron-left.svg")
+                    icon.source: AppTheme.icon("nav-back.svg")
                     icon.width: 16; icon.height: 16
                     visible: albumStrip.contentWidth > albumStrip.width
                     enabled: albumStrip.contentX > 0
@@ -828,7 +828,7 @@ Item {
                 GButton {
                     text: ""
                     display: AbstractButton.IconOnly
-                    icon.source: AppTheme.icon("chevron-right.svg")
+                    icon.source: AppTheme.icon("nav-forward.svg")
                     icon.width: 16; icon.height: 16
                     visible: albumStrip.contentWidth > albumStrip.width
                     enabled: albumStrip.contentX < albumStrip.contentWidth - albumStrip.width

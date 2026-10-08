@@ -1,15 +1,15 @@
-# Contributing to g-File
+# Contributing to Lurviko
 
-Thank you for helping improve g-File. Please keep changes focused and describe the problem they solve.
+Thank you for helping improve Lurviko. Please keep changes focused and describe the problem they solve.
 
 ## Development
 
-Start with the dependencies and build instructions in [README.md](README.md). UI conventions and shared controls are documented in [docs/GFILE_UI.md](docs/GFILE_UI.md).
+Start with the dependencies and build instructions in [README.md](README.md). UI conventions and shared controls are documented in [docs/LURVIKO_UI.md](docs/LURVIKO_UI.md).
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel 4
-./build/g-file
+./build/lurviko
 ```
 
 Run the automated headless checks before submitting a change:

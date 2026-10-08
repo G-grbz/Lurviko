@@ -19,8 +19,8 @@
 
 #include <algorithm>
 
-#ifndef GFILE_SOURCE_DIR
-#define GFILE_SOURCE_DIR ""
+#ifndef LURVIKO_SOURCE_DIR
+#define LURVIKO_SOURCE_DIR ""
 #endif
 
 SubtitleAiManager::SubtitleAiManager(QObject *parent)
@@ -55,13 +55,13 @@ QString SubtitleAiManager::normalizeLocalPath(const QString &filePath) const
 
 QString SubtitleAiManager::cacheRoot() const
 {
-    QString base = qEnvironmentVariable("GFILE_SUBTITLE_AI_CACHE_DIR").trimmed();
+    QString base = qEnvironmentVariable("LURVIKO_SUBTITLE_AI_CACHE_DIR").trimmed();
     if (!base.isEmpty())
         return base;
     const QString xdg = qEnvironmentVariable("XDG_CACHE_HOME").trimmed();
     return xdg.isEmpty()
-               ? QDir::home().absoluteFilePath(QStringLiteral(".cache/g-file/subtitle-ai/jobs"))
-               : QDir(xdg).absoluteFilePath(QStringLiteral("g-file/subtitle-ai/jobs"));
+               ? QDir::home().absoluteFilePath(QStringLiteral(".cache/Lurviko/subtitle-ai/jobs"))
+               : QDir(xdg).absoluteFilePath(QStringLiteral("Lurviko/subtitle-ai/jobs"));
 }
 
 QString SubtitleAiManager::cacheJobDirectory(const QString &filePath,
@@ -301,20 +301,18 @@ QVariantList SubtitleAiManager::subtitleSources(const QString &filePath) const
 
 QString SubtitleAiManager::workerPath() const
 {
-    const QString overridePath = qEnvironmentVariable("GFILE_SUBTITLE_AI_WORKER").trimmed();
+    const QString overridePath = qEnvironmentVariable("LURVIKO_SUBTITLE_AI_WORKER").trimmed();
     if (!overridePath.isEmpty() && QFileInfo::exists(overridePath))
         return QFileInfo(overridePath).absoluteFilePath();
     const QString appDir = QCoreApplication::applicationDirPath();
     const QStringList installedCandidates{
-        QDir(appDir).absoluteFilePath(QStringLiteral("../share/g-File/subtitle-ai/worker.py")),
-        QDir(appDir).absoluteFilePath(QStringLiteral("../share/g-file/subtitle-ai/worker.py")),
-        QDir(appDir).absoluteFilePath(QStringLiteral("../share/GFile/subtitle-ai/worker.py"))
+        QDir(appDir).absoluteFilePath(QStringLiteral("../share/Lurviko/subtitle-ai/worker.py")),
     };
     for (const QString &candidate : installedCandidates) {
         if (QFileInfo::exists(candidate))
             return QFileInfo(candidate).absoluteFilePath();
     }
-    const QString sourceDir = QString::fromUtf8(GFILE_SOURCE_DIR);
+    const QString sourceDir = QString::fromUtf8(LURVIKO_SOURCE_DIR);
     if (!sourceDir.isEmpty()) {
         const QString candidate = QDir(sourceDir).absoluteFilePath(QStringLiteral("tools/subtitle-ai/worker.py"));
         if (QFileInfo::exists(candidate))
@@ -325,7 +323,7 @@ QString SubtitleAiManager::workerPath() const
 
 QString SubtitleAiManager::pythonExecutable() const
 {
-    const QString overridePython = qEnvironmentVariable("GFILE_SUBTITLE_AI_PYTHON").trimmed();
+    const QString overridePython = qEnvironmentVariable("LURVIKO_SUBTITLE_AI_PYTHON").trimmed();
     if (!overridePython.isEmpty())
         return overridePython;
     const QString python3 = QStandardPaths::findExecutable(QStringLiteral("python3"));
@@ -336,24 +334,24 @@ bool SubtitleAiManager::startWorker(const QStringList &arguments, const QString 
 {
     const QString worker = workerPath();
     if (worker.isEmpty()) {
-        finishWithError(tr("G-File Subtitle AI motoru bulunamadı. Kurulumdaki subtitle-ai dosyalarını kontrol edin."));
+        finishWithError(tr("Lurviko Subtitle AI motoru bulunamadı. Kurulumdaki subtitle-ai dosyalarını kontrol edin."));
         return false;
     }
     const QString python = pythonExecutable();
     if (python.isEmpty()) {
-        finishWithError(tr("Python 3 bulunamadı. G-File Subtitle AI Python 3 gerektiriyor."));
+        finishWithError(tr("Python 3 bulunamadı. Lurviko Subtitle AI Python 3 gerektiriyor."));
         return false;
     }
 
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
 
-    QString vendorDir = qEnvironmentVariable("GFILE_SUBTITLE_AI_VENDOR_DIR").trimmed();
+    QString vendorDir = qEnvironmentVariable("LURVIKO_SUBTITLE_AI_VENDOR_DIR").trimmed();
     if (vendorDir.isEmpty()) {
         const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME").trimmed();
         vendorDir = xdgData.isEmpty()
-                        ? QDir::home().absoluteFilePath(QStringLiteral(".local/share/g-File/subtitle-ai/vendor"))
-                        : QDir(xdgData).absoluteFilePath(QStringLiteral("g-File/subtitle-ai/vendor"));
+                        ? QDir::home().absoluteFilePath(QStringLiteral(".local/share/Lurviko/subtitle-ai/vendor"))
+                        : QDir(xdgData).absoluteFilePath(QStringLiteral("Lurviko/subtitle-ai/vendor"));
     }
     if (QFileInfo(vendorDir).isDir()) {
         QString pythonPath = environment.value(QStringLiteral("PYTHONPATH"));
@@ -387,7 +385,7 @@ bool SubtitleAiManager::startWorker(const QStringList &arguments, const QString 
     if (!m_process.waitForStarted(1500)) {
         const QString detail = m_process.errorString();
         setBusy(false);
-        finishWithError(tr("G-File Subtitle AI worker başlatılamadı: %1").arg(detail));
+        finishWithError(tr("Lurviko Subtitle AI worker başlatılamadı: %1").arg(detail));
         return false;
     }
     return true;
@@ -631,7 +629,7 @@ bool SubtitleAiManager::selectEmbeddedSubtitle(const QString &mediaPath, int sub
     if (data.trimmed().isEmpty())
         return false;
 
-    QTemporaryFile temporary(QDir(QDir::tempPath()).absoluteFilePath(QStringLiteral("g-file-subtitle-XXXXXX.srt")));
+    QTemporaryFile temporary(QDir(QDir::tempPath()).absoluteFilePath(QStringLiteral("lurviko-subtitle-XXXXXX.srt")));
     temporary.setAutoRemove(true);
     if (!temporary.open())
         return false;
@@ -832,8 +830,8 @@ void SubtitleAiManager::processFinished(int exitCode, QProcess::ExitStatus exitS
     if (detail.length() > 1200) detail = detail.right(1200);
     if (detail.isEmpty())
         detail = exitStatus == QProcess::CrashExit
-                     ? tr("G-File Subtitle AI worker beklenmedik biçimde kapandı.")
-                     : tr("G-File Subtitle AI worker %1 koduyla sonlandı.").arg(exitCode);
+                     ? tr("Lurviko Subtitle AI worker beklenmedik biçimde kapandı.")
+                     : tr("Lurviko Subtitle AI worker %1 koduyla sonlandı.").arg(exitCode);
     finishWithError(detail);
 }
 

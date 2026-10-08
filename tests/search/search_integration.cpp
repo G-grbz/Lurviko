@@ -50,11 +50,11 @@ static bool until(std::function<bool()> check, int timeout = 30000) {
 }
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
-  app.setOrganizationName("g-File-QA");
+  app.setOrganizationName("Lurviko-QA");
   app.setApplicationName("Search");
   QQuickStyle::setStyle("Basic");
   const QString base =
-      QString::fromLocal8Bit(qgetenv("GFILE_SEARCH_TEST_ROOT")) + "/fixture";
+      QString::fromLocal8Bit(qgetenv("LURVIKO_SEARCH_TEST_ROOT")) + "/fixture";
   const int expected = 20000;
   for (int d = 0; d < 100; d++) {
     const QString folder = base + QString("/folder-%1").arg(d);
@@ -70,38 +70,39 @@ int main(int argc, char **argv) {
     }
   }
   std::fprintf(stderr, "FIXTURE_READY\n");
-  qmlRegisterType<StorageModel>("GFile.Backend", 1, 0, "StorageModel");
-  qmlRegisterType<DirectoryModel>("GFile.Backend", 1, 0, "DirectoryModel");
-  qmlRegisterType<FileOperations>("GFile.Backend", 1, 0, "FileOperations");
-  qmlRegisterType<FavoritesModel>("GFile.Backend", 1, 0, "FavoritesModel");
-  qmlRegisterType<QuickAccessModel>("GFile.Backend", 1, 0, "QuickAccessModel");
-  qmlRegisterType<ContentIndexModel>("GFile.Backend", 1, 0,
+  qmlRegisterType<StorageModel>("Lurviko.Backend", 1, 0, "StorageModel");
+  qmlRegisterType<DirectoryModel>("Lurviko.Backend", 1, 0, "DirectoryModel");
+  qmlRegisterType<FileOperations>("Lurviko.Backend", 1, 0, "FileOperations");
+  qmlRegisterType<FavoritesModel>("Lurviko.Backend", 1, 0, "FavoritesModel");
+  qmlRegisterType<QuickAccessModel>("Lurviko.Backend", 1, 0, "QuickAccessModel");
+  qmlRegisterType<ContentIndexModel>("Lurviko.Backend", 1, 0,
                                      "ContentIndexModel");
-  qmlRegisterType<LanguageManager>("GFile.Backend", 1, 0, "LanguageManager");
-  qmlRegisterType<CloudAuthManager>("GFile.Backend", 1, 0, "CloudAuthManager");
-  qmlRegisterType<AdminEditManager>("GFile.Backend", 1, 0, "AdminEditManager");
-  qmlRegisterType<OpenWithModel>("GFile.Backend", 1, 0, "OpenWithModel");
-  qmlRegisterType<ServiceMenuModel>("GFile.Backend", 1, 0, "ServiceMenuModel");
-  qmlRegisterType<GoogleDriveManager>("GFile.Backend", 1, 0,
+  qmlRegisterType<LanguageManager>("Lurviko.Backend", 1, 0, "LanguageManager");
+  qmlRegisterType<CloudAuthManager>("Lurviko.Backend", 1, 0, "CloudAuthManager");
+  qmlRegisterType<AdminEditManager>("Lurviko.Backend", 1, 0, "AdminEditManager");
+  qmlRegisterType<OpenWithModel>("Lurviko.Backend", 1, 0, "OpenWithModel");
+  qmlRegisterType<ServiceMenuModel>("Lurviko.Backend", 1, 0, "ServiceMenuModel");
+  qmlRegisterType<GoogleDriveManager>("Lurviko.Backend", 1, 0,
                                       "GoogleDriveManager");
-  qmlRegisterType<OneDriveManager>("GFile.Backend", 1, 0, "OneDriveManager");
-  qmlRegisterType<IconPickerManager>("GFile.Backend", 1, 0,
+  qmlRegisterType<OneDriveManager>("Lurviko.Backend", 1, 0, "OneDriveManager");
+  qmlRegisterType<IconPickerManager>("Lurviko.Backend", 1, 0,
                                      "IconPickerManager");
-  qmlRegisterType<FilePropertiesManager>("GFile.Backend", 1, 0,
+  qmlRegisterType<FilePropertiesManager>("Lurviko.Backend", 1, 0,
                                          "FilePropertiesManager");
 
   QQmlApplicationEngine engine;
   engine.addImageProvider("gfilethumb", new ThumbnailProvider);
   engine.addImageProvider("systemicon", new SystemIconProvider);
+  engine.addImageProvider("bundledicon", new BundledIconProvider);
   engine.rootContext()->setContextProperty("testBase", base);
   std::fprintf(stderr, "QML_LOAD_START\n");
   engine.loadData(R"qml(
 import QtQuick
 import QtQuick.Controls
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 ApplicationWindow {
- width:1400;height:900;visible:true;title:"g-File büyük arama testi"
+ width:1400;height:900;visible:true;title:"Lurviko büyük arama testi"
  LanguageManager {id: language}
  FavoritesModel {id: favorites}
  AdminEditManager {id: admin}

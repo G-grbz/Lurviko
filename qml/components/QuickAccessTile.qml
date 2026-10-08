@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import GFile.App
+import Lurviko.App
 
 Rectangle {
     id: tile
+    property string language: "en"
     property int shortcutIndex: -1
     property bool fixedShortcut: false
     property string iconSource: AppTheme.icon("folder.svg")
@@ -124,7 +125,7 @@ Rectangle {
 
             Text {
                 anchors.centerIn: parent
-                text: qsTr("son")
+                text: tile.language === "tr" ? "son" : "recent"
                 color: recentBadgeMouse.containsMouse ? "white" : AppTheme.accent
                 font.pixelSize: 9
                 font.bold: true
@@ -197,7 +198,7 @@ Rectangle {
 
         GMenuItem {
             enabled: false
-            text: qsTr("Son 10 Konum")
+            text: tile.language === "tr" ? "Son 10 Konum" : "Last 10 locations"
         }
 
         Instantiator {
@@ -230,12 +231,12 @@ Rectangle {
     GMenu {
         id: menu
         GMenuItem {
-            text: qsTr("Düzenle")
+            text: tile.language === "tr" ? "Düzenle" : "Edit"
             onTriggered: tile.editRequested(tile.shortcutIndex, tile.title, tile.path)
         }
         GMenuItem {
             visible: !tile.fixedShortcut
-            text: qsTr("Kaldır")
+            text: tile.language === "tr" ? "Kaldır" : "Remove"
             onTriggered: tile.removeRequested(tile.shortcutIndex)
         }
     }

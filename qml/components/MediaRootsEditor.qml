@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import GFile.App
+import Lurviko.App
 
 ColumnLayout {
     id: root

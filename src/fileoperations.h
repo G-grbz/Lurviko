@@ -119,6 +119,7 @@ signals:
     void operationFinished(bool success, const QString &message, bool refreshNeeded,
                            bool externallyPresented = false);
     void transferItemsFinished(const QString &destinationLocation, const QStringList &resultUrls);
+    void itemsRenamed(const QStringList &sourceUrls, const QStringList &resultUrls);
     void archiveOverwriteConfirmationRequired(const QString &sourceUrl,
                                               const QString &destinationLocation,
                                               bool createSubfolder,

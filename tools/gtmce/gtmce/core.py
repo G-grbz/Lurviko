@@ -3536,7 +3536,7 @@ def installed_third_party_tool_path(tool_name: str) -> str | None:
     tool_path = THIRD_PARTY_BIN_DIR / THIRD_PARTY_EXECUTABLE_NAMES.get(tool_name, tool_name)
     if tool_path.exists():
         return str(tool_path)
-    # G-File already depends on a normal desktop multimedia stack.  Prefer an
+    # Lurviko already depends on a normal desktop multimedia stack.  Prefer an
     # existing host executable before G-TMCE's standalone auto-downloader so
     # opening the subtitle tool never triggers a network install merely
     # because G-TMCE's private 3rdParty directory is empty.

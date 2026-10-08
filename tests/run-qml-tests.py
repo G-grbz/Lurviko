@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run gallery tests against the application's real QML and native types.
 
-Requires a Ninja build in build/. GFILE_TEST_BUILD_DIR selects another tree.
+Requires a Ninja build in build/. LURVIKO_TEST_BUILD_DIR selects another tree.
 """
 import os
 import json
@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 repo = Path(__file__).resolve().parents[1]
-build = Path(os.environ.get("GFILE_TEST_BUILD_DIR", str(repo / "build"))).resolve()
+build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", str(repo / "build"))).resolve()
 if not (build / "build.ninja").is_file():
     raise SystemExit("Build the application with Ninja first (see README.md).")
 with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
     # Quick Test creates an engine per test file; each needs its own singleton.
     registration = registration[:registration.index("    PlaybackResumeManager playbackResumeManager;")]
     for name in ("PlaybackResumeManager", "VideoPlayerInputManager"):
-        registration += (f'    qmlRegisterSingletonType<{name}>("GFile.Backend", 1, 0, "{name}", '
+        registration += (f'    qmlRegisterSingletonType<{name}>("Lurviko.Backend", 1, 0, "{name}", '
             f'[](QQmlEngine *, QJSEngine *) -> QObject * {{ return new {name}; }});\n')
     source = '''#include <QApplication>
 #include <QQmlEngine>
@@ -34,30 +34,33 @@ class Setup : public QObject {
     Q_OBJECT
 public slots:
     void applicationAvailable() {
-        qApp->setOrganizationName("GFile-QA");
+        qApp->setOrganizationName("Lurviko-QA");
         qApp->setApplicationName("Gallery");
         QQuickStyle::setStyle("Basic");
 ''' + registration + '''
+    }
+    void qmlEngineAvailable(QQmlEngine *engine) {
+        engine->addImageProvider("bundledicon", new BundledIconProvider);
     }
 };
 QUICK_TEST_MAIN_WITH_SETUP(gfile_gallery, Setup)
 #include "main.moc"
 '''
     (root / "main.cpp").write_text(source)
-    autogen = json.loads((build / "CMakeFiles/g-file_autogen.dir/AutogenInfo.json").read_text())
+    autogen = json.loads((build / "CMakeFiles/lurviko_autogen.dir/AutogenInfo.json").read_text())
     subprocess.run([autogen["QT_MOC_EXECUTABLE"], str(root / "main.cpp"),
                     "-o", str(root / "main.moc")], check=True)
     commands = subprocess.check_output(
-        ["ninja", "-C", str(build), "-t", "commands", "g-file"], text=True).splitlines()
+        ["ninja", "-C", str(build), "-t", "commands", "lurviko"], text=True).splitlines()
     args = next(shlex.split(line) for line in commands
                 if " -c " in line and line.endswith("/src/main.cpp"))
     args = args[:args.index("-MD")] + ["-I" + str(repo / "src"), "-I" + str(root),
         "-o", str(root / "main.o"), "-c", str(root / "main.cpp")]
     subprocess.run(args, cwd=build, check=True)
-    link = shlex.split(next(line for line in commands if " -o g-file " in line))
+    link = shlex.split(next(line for line in commands if " -o lurviko " in line))
     link = [arg for arg in link if arg not in (":", "&&")
             and not arg.startswith("-Wl,--dependency-file=")]
-    link = [str(root / "main.o") if arg == "CMakeFiles/g-file.dir/src/main.cpp.o" else arg
+    link = [str(root / "main.o") if arg == "CMakeFiles/lurviko.dir/src/main.cpp.o" else arg
             for arg in link]
     link[link.index("-o") + 1] = str(root / "qml-tests")
     link.extend(["-lQt6QuickTest", "-lQt6Test"])

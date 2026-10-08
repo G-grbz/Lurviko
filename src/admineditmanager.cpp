@@ -13,7 +13,7 @@
 
 AdminEditManager::AdminEditManager(QObject *parent)
     : QObject(parent)
-    , m_tempDir(QDir::tempPath() + QStringLiteral("/g-file-admin-XXXXXX"))
+    , m_tempDir(QDir::tempPath() + QStringLiteral("/lurviko-admin-XXXXXX"))
 {
     if (m_tempDir.isValid()) {
         QFile::setPermissions(m_tempDir.path(),

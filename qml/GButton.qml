@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import GFile.App
+import Lurviko.App
 
 Button {
     id: control
@@ -10,7 +10,7 @@ Button {
     property bool danger: false
     property bool quiet: false
 
-    // A large number of G-File toolbar actions intentionally have no text and
+    // A large number of Lurviko toolbar actions intentionally have no text and
     // provide their icon either via icon.source or a custom contentItem. Treat
     // those as icon-only even when the call site did not explicitly set
     // display: AbstractButton.IconOnly. Otherwise the normal 16 px horizontal
@@ -59,7 +59,9 @@ Button {
             if (control.flat || control.quiet || control.iconOnlyLayout) {
                 if (control.down || control.checked) return control.colorTheme.accentSoft
                 if (control.hovered) return control.colorTheme.surfaceHover
-                return "transparent"
+                return Qt.rgba(control.colorTheme.surfaceHover.r,
+                               control.colorTheme.surfaceHover.g,
+                               control.colorTheme.surfaceHover.b, 0)
             }
             if (!control.enabled) return control.colorTheme.surfaceRaised
             if (control.primary) return control.down ? control.colorTheme.accentHover : control.colorTheme.accent

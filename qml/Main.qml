@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtCore
-import GFile.Backend
+import Lurviko.Backend
 import "components"
 import "pages"
 
@@ -13,7 +13,9 @@ ApplicationWindow {
     minimumWidth: 1160
     minimumHeight: 740
     visible: true
-    title: "g-File"
+    title: "Lurviko"
+    UpdateChecker { id: appUpdates }
+    Timer { interval: 2500; running: true; onTriggered: appUpdates.checkForUpdates() }
     color: AppTheme.background
     palette.window: AppTheme.background
     palette.windowText: AppTheme.text
@@ -99,7 +101,8 @@ ApplicationWindow {
     property var appCloudIntegrationPreferences: cloudIntegrationPreferences
 
     Shortcut {
-        sequence: StandardKey.Quit
+        sequences: KeyboardShortcuts.bindings["quit"]
+        enabled: !KeyboardShortcuts.editorOpen
         context: Qt.ApplicationShortcut
         onActivated: Qt.quit()
     }
@@ -131,20 +134,20 @@ ApplicationWindow {
     }
 
     Shortcut {
-        sequence: "F11"
+        sequences: KeyboardShortcuts.bindings["fullscreen"]
         context: Qt.ApplicationShortcut
-        enabled: !root.mediaViewerConsumesF11 && !root.activeVideoViewer
+        enabled: !KeyboardShortcuts.editorOpen && !root.mediaViewerConsumesF11 && !root.activeVideoViewer
         onActivated: root.toggleFullScreen()
     }
 
-    Shortcut { sequence: "Escape"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null && !root.activeVideoViewer.hostFullScreen; onActivated: root.videoPlayerAction("escape") }
-    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("toggle") }
-    Shortcut { sequence: "Left"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("left") }
-    Shortcut { sequence: "Right"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("right") }
-    Shortcut { sequence: "Up"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("up") }
-    Shortcut { sequence: "Down"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("down") }
-    Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("mute") }
-    Shortcut { sequence: "F11"; context: Qt.ApplicationShortcut; enabled: root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("fullscreen") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_close"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null && !root.activeVideoViewer.hostFullScreen; onActivated: root.videoPlayerAction("escape") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_play"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("toggle") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_back"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("left") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_forward"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("right") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_volume_up"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("up") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_volume_down"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("down") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["video_mute"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("mute") }
+    Shortcut { sequences: KeyboardShortcuts.bindings["fullscreen"]; context: Qt.ApplicationShortcut; enabled: !KeyboardShortcuts.editorOpen && root.activeVideoViewer !== null; onActivated: root.videoPlayerAction("fullscreen") }
     property var appCloudAuth: cloudAuth
     property var appGoogleDrive: googleDrive
     property var appOneDrive: oneDrive
@@ -154,7 +157,7 @@ ApplicationWindow {
         target: privateVault
         function onAboutToLock() {
             // The vault page may no longer be on the StackView when the user
-            // locks from Discover. Stop any G-File-owned media that is still
+            // locks from Discover. Stop any Lurviko-owned media that is still
             // reading a decrypted runtime file before PrivateVaultManager
             // removes that runtime directory.
             if (root.activeVideoViewer && root.activeVideoViewer.currentItem) {
@@ -223,7 +226,7 @@ ApplicationWindow {
         }
 
         // Do not keep a hidden single-instance process alive after the main
-        // window is closed.  A future `g-file` launch must create a fresh
+        // window is closed.  A future `lurviko` launch must create a fresh
         // process and therefore start from the normal Discover page.
         close.accepted = true
         Qt.callLater(function() { Qt.quit() })
@@ -469,6 +472,7 @@ ApplicationWindow {
 
     MusicPlayer {
         id: globalMusicPlayer
+        contentIndexSource: root.appContentIndex
         z: 12000
         embeddedMode: root.activeMusicDockHost !== null && root.activeMusicDockHost.embeddedPlayer
         x: {
@@ -496,33 +500,14 @@ ApplicationWindow {
         lang: root.appLang
     }
 
-    MprisController {
+    MediaSession {
         id: mprisController
-        active: globalMusicPlayer.opened && globalMusicPlayer.currentUrl.length > 0
-        playbackStatus: globalMusicPlayer.playbackStatus
-        title: globalMusicPlayer.currentTitle
-        trackUrl: globalMusicPlayer.currentUrl
-        artworkHint: globalMusicPlayer.currentArtwork
-        duration: globalMusicPlayer.duration
-        position: globalMusicPlayer.position
-        volume: globalMusicPlayer.volume
-        shuffle: globalMusicPlayer.shuffleMode
-        repeatMode: globalMusicPlayer.repeatMode
+        musicPlayer: globalMusicPlayer
+        videoPlayer: root.activeVideoViewer
     }
 
     Connections {
         target: mprisController
-        function onPlayRequested() { globalMusicPlayer.play() }
-        function onPauseRequested() { globalMusicPlayer.pause() }
-        function onPlayPauseRequested() { globalMusicPlayer.toggle() }
-        function onStopRequested() { globalMusicPlayer.stopPlayback() }
-        function onNextRequested() { globalMusicPlayer.next() }
-        function onPreviousRequested() { globalMusicPlayer.previous() }
-        function onSeekRequested(offsetMs) { globalMusicPlayer.seekBy(offsetMs) }
-        function onSetPositionRequested(positionMs) { globalMusicPlayer.seekTo(positionMs) }
-        function onVolumeRequested(value) { globalMusicPlayer.setVolume(value) }
-        function onShuffleRequested(enabled) { globalMusicPlayer.setShuffleEnabled(enabled) }
-        function onRepeatModeRequested(mode) { globalMusicPlayer.setRepeatMode(mode) }
         function onRaiseRequested() {
             root.show()
             root.raise()
@@ -640,6 +625,7 @@ ApplicationWindow {
     Component {
         id: homeComponent
         HomePage {
+            updateChecker: appUpdates
             storageModel: root.appStorage
             favoritesModel: root.appFavorites
             quickAccessModel: root.appQuickAccess

@@ -224,7 +224,7 @@ bool entryMatchesMountedState(const QString &rootPathValue, const QString &devic
 StorageModel::StorageModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     const QStringList saved = settings.value(QStringLiteral("navigation/favoriteDisks")).toStringList();
     for (const QString &path : saved) {
         const QString clean = QDir::cleanPath(path);
@@ -791,7 +791,7 @@ bool StorageModel::updateDiskAppearance(const QString &stableId, const QString &
         titles.insert(it.key(), it.value());
     for (auto it = m_customDiskIcons.constBegin(); it != m_customDiskIcons.constEnd(); ++it)
         icons.insert(it.key(), it.value());
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     settings.setValue(QStringLiteral("navigation/diskCustomTitles"), titles);
     settings.setValue(QStringLiteral("navigation/diskCustomIcons"), icons);
     emit dataChanged(index(row), index(row), {NameRole, IconRole});
@@ -812,7 +812,7 @@ void StorageModel::saveDiskOrder()
             nextOrder.push_back(stableId);
     }
     m_diskOrder = nextOrder;
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     settings.setValue(QStringLiteral("navigation/diskOrder"), m_diskOrder);
 }
 
@@ -878,7 +878,7 @@ void StorageModel::setFavorite(const QString &rootPath, bool favorite)
     else
         m_favoritePaths.remove(clean);
 
-    QSettings settings(QStringLiteral("g-File"), QStringLiteral("g-File"));
+    QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     QStringList saved = m_favoritePaths.values();
     std::sort(saved.begin(), saved.end(), [](const QString &a, const QString &b) {
         return a.toLower() < b.toLower();

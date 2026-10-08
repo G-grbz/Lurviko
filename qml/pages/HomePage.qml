@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtCore
-import GFile.App
-import GFile.Backend
+import Lurviko.App
+import Lurviko.Backend
 import "../components"
 
 Item {
@@ -16,6 +16,7 @@ Item {
     required property var cloudAuth
     required property var cloudIntegrationPreferences
     required property var privateVault
+    property var updateChecker: null
 
     signal browseRequested(string location)
     signal browseNewTabRequested(string location)
@@ -37,7 +38,7 @@ Item {
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: 430
-        height: 265
+        height: Math.min(350, page.height - 30)
         modal: true
         focus: true
         background: GModalSurface { }
@@ -64,6 +65,7 @@ Item {
                 color: AppTheme.text
                 onAccepted: privateUnlockConfirm.clicked()
             }
+            VaultAttemptStatus { Layout.fillWidth: true; vault: page.privateVault; lang: page.lang }
             Text {
                 visible: page.privateVault.lastError.length > 0
                 Layout.fillWidth: true
@@ -78,6 +80,7 @@ Item {
                 GModalButton {
                     visible: page.privateVault.kwalletEnabled
                     text: lang.language === "tr" ? "KWallet ile Aç" : "Open with KWallet"
+                    enabled: !page.privateVault.busy && page.privateVault.passwordWaitSeconds === 0
                     onClicked: {
                         if (page.privateVault.quickUnlock())
                             privateUnlockPopup.close()
@@ -90,6 +93,7 @@ Item {
                     text: lang.language === "tr" ? "Kilidi Aç" : "Unlock"
                     primary: true
                     enabled: privateUnlockPassword.text.length > 0 && !page.privateVault.busy
+                             && page.privateVault.passwordWaitSeconds === 0
                     onClicked: {
                         if (page.privateVault.unlock(privateUnlockPassword.text))
                             privateUnlockPopup.close()
@@ -263,6 +267,7 @@ Item {
     property string oauthProvider: ""
     property string oauthErrorText: ""
     property bool infoPanelOpen: false
+    KeyboardShortcutsDialog { id: keyboardShortcutsDialog; lang: page.lang }
     onWidthChanged: { if (width < 1240 && infoPanelOpen) infoPanelOpen = false }
     property int editingShortcutIndex: -1
     property bool editingShortcutFixed: false
@@ -600,20 +605,32 @@ Item {
                     Item {
                         id: infoToggleButton
                         readonly property bool hovered: infoToggleMouse.containsMouse
-                        Layout.preferredWidth: 42
-                        Layout.preferredHeight: 42
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: 34
 
                         Rectangle {
                             anchors.fill: parent
-                            radius: 14
+                            radius: 11
                             color: page.infoPanelOpen ? AppTheme.accent : (infoToggleButton.hovered ? AppTheme.accentSoft : AppTheme.surfaceRaised)
                             border.color: page.infoPanelOpen ? AppTheme.accent : AppTheme.border
                         }
                         CrispIcon {
                             anchors.centerIn: parent
-                            source: AppTheme.icon("info.svg")
-                            width: 20
-                            height: 20
+                            source: AppTheme.icon("info.svg", page.infoPanelOpen ? "#ffffff" : AppTheme.text)
+                            width: 16
+                            height: 16
+                        }
+                        Rectangle {
+                            objectName: "updateNotificationDot"
+                            visible: page.updateChecker !== null && page.updateChecker.updateAvailable
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.rightMargin: -2
+                            anchors.topMargin: -2
+                            width: 10; height: 10; radius: 5
+                            color: AppTheme.accent
+                            border.width: 2
+                            border.color: AppTheme.background
                         }
                         MouseArea {
                             id: infoToggleMouse
@@ -625,6 +642,15 @@ Item {
                         GToolTip {
                             text: lang.language === "tr" ? "Bilgi paneli" : "Information panel"
                         }
+                    }
+                    GButton {
+                        objectName: "keyboardShortcutsButton"
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: 34
+                        icon.source: AppTheme.icon("keyboard.svg")
+                        icon.width: 16; icon.height: 16
+                        onClicked: keyboardShortcutsDialog.open()
+                        GToolTip { text: lang.language === "tr" ? "Klavye kısayolları" : "Keyboard shortcuts" }
                     }
                 }
 
@@ -727,6 +753,7 @@ Item {
                                 width: categoryVisible ? categoryFlow.tileWidth : 0
                                 height: categoryVisible ? categoryTile.implicitHeight : 0
                                 ContentCategoryTile {
+                                    language: page.lang.language
                                     id: categoryTile
                                     anchors.fill: parent
                                     categoryIndex: parent.index
@@ -744,8 +771,8 @@ Item {
                                     systemIconPixels: page.systemHomeIconSize
                                     editable: parent.categoryKey !== "private"
                                     actionVisible: parent.categoryKey === "private" && page.privateVault.exists
-                                    actionText: parent.categoryKey === "private"
-                                                ? (page.privateVault.unlocked ? "🔒" : "🔓") : ""
+                                    actionIcon: parent.categoryKey === "private"
+                                                ? (page.privateVault.unlocked ? "unlock.svg" : "lock.svg") : ""
                                     actionToolTip: parent.categoryKey !== "private" ? ""
                                                    : (page.privateVault.unlocked
                                                       ? (lang.language === "tr" ? "Kasayı şimdi kilitle" : "Lock vault now")
@@ -816,6 +843,7 @@ Item {
                     rowSpacing: 12
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showGoogle
                         cloudKey: "google"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("google")) / cloudGrid.columns)
@@ -847,6 +875,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showOneDrive
                         cloudKey: "onedrive"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("onedrive")) / cloudGrid.columns)
@@ -877,6 +906,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showDropbox
                         cloudKey: "dropbox"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("dropbox")) / cloudGrid.columns)
@@ -896,6 +926,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showNextcloud
                         cloudKey: "nextcloud"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("nextcloud")) / cloudGrid.columns)
@@ -915,6 +946,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showOwnCloud
                         cloudKey: "owncloud"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("owncloud")) / cloudGrid.columns)
@@ -934,6 +966,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showMega
                         cloudKey: "mega"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("mega")) / cloudGrid.columns)
@@ -953,6 +986,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showPCloud
                         cloudKey: "pcloud"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("pcloud")) / cloudGrid.columns)
@@ -972,6 +1006,7 @@ Item {
                     }
 
                     CloudCard {
+                        language: page.lang.language
                         visible: cloudIntegrationPreferences.showWebDav
                         cloudKey: "webdav"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("webdav")) / cloudGrid.columns)
@@ -1092,6 +1127,7 @@ Item {
                         Repeater {
                             model: page.quickAccessModel
                             delegate: QuickAccessTile {
+                                language: page.lang.language
                                 required property int index
                                 required property string shortcutTitle
                                 required property string shortcutLocation
@@ -1165,6 +1201,7 @@ Item {
                     Repeater {
                         model: page.storageModel
                         delegate: DiskCard {
+                            language: page.lang.language
                             diskIndex: index
                             Layout.fillWidth: true
                             Layout.preferredHeight: responsiveHeight
@@ -1317,8 +1354,8 @@ Item {
                         Layout.preferredHeight: 40
                     }
                     ColumnLayout {
-                        Text { text: "g-File"; color: AppTheme.text; font.pixelSize: 16; font.bold: true }
-                        Text { text: "v0.5.10"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                        Text { text: "Lurviko"; color: AppTheme.text; font.pixelSize: 16; font.bold: true }
+                        Text { text: "v" + (page.updateChecker ? page.updateChecker.currentVersion : Qt.application.version); color: AppTheme.textMuted; font.pixelSize: 10 }
                     }
                 }
 
@@ -1373,6 +1410,42 @@ Item {
                             Text { id: tagText; anchors.centerIn: parent; text: modelData; color: AppTheme.textMuted; font.pixelSize: 9 }
                         }
                     }
+                }
+
+                Rectangle {
+                    objectName: "updateReleaseCard"
+                    visible: page.updateChecker !== null && page.updateChecker.updateAvailable
+                    Layout.fillWidth: true
+                    implicitHeight: updateDescription.implicitHeight + 28
+                    radius: 12
+                    color: updateCardMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.accentSoft
+                    border.color: AppTheme.accent
+                    ColumnLayout {
+                        id: updateDescription
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.top: parent.top; anchors.margins: 14
+                        spacing: 6
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Lurviko v" + (page.updateChecker ? page.updateChecker.latestVersion : "")
+                            color: AppTheme.accent; font.bold: true; font.pixelSize: 12
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: lang.language === "tr" ? "Yeni sürüm hazır. Yenilikleri ve kaynak kodunu GitHub’da görüntüle →" : "A new release is available. View the changes and source code on GitHub →"
+                            color: AppTheme.text; font.pixelSize: 11; wrapMode: Text.WordWrap
+                        }
+                    }
+                    MouseArea {
+                        id: updateCardMouse
+                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: page.updateChecker.openReleasePage()
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: lang.language === "tr" ? "Yeni sürümler otomatik kontrol edilir." : "New releases are checked automatically."
+                    color: AppTheme.textMuted; font.pixelSize: 10; wrapMode: Text.WordWrap
                 }
 
                 Item { Layout.fillHeight: true }
@@ -1728,8 +1801,8 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: lang.language === "tr"
-                                      ? "Nextcloud, ownCloud ve WebDAV adreslerinde https:// kullanabilirsin; g-File bunu KIO için webdavs:// biçimine dönüştürür. Kullanıcı adı/parolayı URL'ye yazma; KIO gerektiğinde kimlik bilgilerini ister ve KDE Wallet ile saklayabilir."
-                                      : "You may enter https:// URLs for Nextcloud, ownCloud and WebDAV; g-File converts them to webdavs:// for KIO. Do not put credentials in the URL; KIO can request them when needed and store them with KDE Wallet."
+                                      ? "Nextcloud, ownCloud ve WebDAV adreslerinde https:// kullanabilirsin; Lurviko bunu KIO için webdavs:// biçimine dönüştürür. Kullanıcı adı/parolayı URL'ye yazma; KIO gerektiğinde kimlik bilgilerini ister ve KDE Wallet ile saklayabilir."
+                                      : "You may enter https:// URLs for Nextcloud, ownCloud and WebDAV; Lurviko converts them to webdavs:// for KIO. Do not put credentials in the URL; KIO can request them when needed and store them with KDE Wallet."
                                 color: AppTheme.textMuted
                                 font.pixelSize: 9
                                 wrapMode: Text.WordWrap
@@ -2290,8 +2363,8 @@ Item {
                 visible: true
                 text: page.oauthProvider === "google"
                       ? (lang.language === "tr"
-                         ? "Client türü Desktop app olmalı. Hata invalid_client veya client_secret ile ilgiliyse Google Cloud'dan Desktop client JSON'unu indirip Client ID ve varsa Client Secret alanlarını g-File OAuth ayarlarına gir."
-                         : "The client type must be Desktop app. If the error mentions invalid_client or client_secret, download the Desktop client JSON and enter its Client ID and optional Client Secret in g-File.")
+                         ? "Client türü Desktop app olmalı. Hata invalid_client veya client_secret ile ilgiliyse Google Cloud'dan Desktop client JSON'unu indirip Client ID ve varsa Client Secret alanlarını Lurviko OAuth ayarlarına gir."
+                         : "The client type must be Desktop app. If the error mentions invalid_client or client_secret, download the Desktop client JSON and enter its Client ID and optional Client Secret in Lurviko.")
                       : (lang.language === "tr"
                          ? "OneDrive için Application (client) ID kullanılır. Entra > Authentication > Add a platform > Mobile and desktop applications altında http://localhost redirect URI'sini kaydet. Tenant genelde common bırakılabilir; kişisel hesap için consumers, yalnızca iş/okul hesapları için organizations kullanabilirsin."
                          : "OneDrive uses the Application (client) ID. Under Entra > Authentication > Add a platform > Mobile and desktop applications, register http://localhost. Tenant can usually stay common; use consumers for personal accounts or organizations for work/school accounts only.")

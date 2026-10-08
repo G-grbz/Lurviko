@@ -1,0 +1,49 @@
+name: Release Lurviko source
+
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate version and prepare source archives
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          test "$REF_TYPE" = tag
+          python3 .github/scripts/prepare-release.py
+      - name: Publish source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; preserving it.'
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" \
+            "release/Lurviko-${RELEASE_VERSION}.tar.gz" \
+            "release/Lurviko-${RELEASE_VERSION}.zip" \
+            "release/SHA256SUMS" \
+            --verify-tag --title "Lurviko v${RELEASE_VERSION}" --generate-notes
