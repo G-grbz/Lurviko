@@ -1,1 +1,0 @@
-"""G-TMCE application package."""

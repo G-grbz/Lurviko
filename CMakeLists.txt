@@ -340,7 +340,3 @@ install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurvik
         PATTERN "requirements*.txt"
         PATTERN "LICENSE"
 )
-
-install(DIRECTORY tools/gtmce/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/gtmce
-    FILES_MATCHING PATTERN "*.py" PATTERN "README.md" PATTERN "LICENSE"
-)

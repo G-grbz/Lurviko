@@ -197,6 +197,10 @@ Configure a Google desktop OAuth client or a Microsoft public-client application
 
 ### Local AI subtitles
 
+Lurviko runs its own bundled subtitle worker directly for Whisper transcription
+and local AI translation. Runtime dependencies and model caches are managed in
+Lurviko's user directories; no separate subtitle application is required.
+
 AI features are optional and do not affect basic file browsing. Python, the relevant inference packages, downloaded models and adequate RAM/disk space are needed. The bundled worker can provision dependencies when an AI task is requested; first use can require network access. Existing subtitle translation does not load Whisper unless audio transcription is requested.
 
 See [tools/subtitle-ai/README.md](tools/subtitle-ai/README.md), [runtime requirements](tools/subtitle-ai/requirements.txt) and [translation-only requirements](tools/subtitle-ai/requirements-translation.txt). Model licenses are separate from the application license. NVIDIA acceleration requires the compatible CUDA/cuDNN runtime; CPU execution is also supported.

@@ -42,8 +42,7 @@ prepare() {
   # Installed workers are found in /usr/share/Lurviko. Do not embed the
   # temporary source directory as a development-only fallback in the binary.
   sed -i 's/const QString sourceDir = QString::fromUtf8(LURVIKO_SOURCE_DIR);/const QString sourceDir;/' \
-    "Lurviko-${pkgver}/src/subtitleaimanager.cpp" \
-    "Lurviko-${pkgver}/src/gtmcemanager.cpp"
+    "Lurviko-${pkgver}/src/subtitleaimanager.cpp"
 }
 
 build() {

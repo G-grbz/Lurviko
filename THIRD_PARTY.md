@@ -2,12 +2,9 @@
 
 ## Bundled Python tools
 
-The existing licenses are preserved with the tools:
-
-- [Subtitle AI license](tools/subtitle-ai/LICENSE)
-- [G-TMCE bridge license](tools/gtmce/LICENSE)
-
-Both directories contain GNU General Public License v3 texts. Downloaded Python packages and AI models are not bundled in this repository; each has its own upstream license.
+Lurviko's built-in subtitle engine preserves its [GNU General Public License v3 text](tools/subtitle-ai/LICENSE).
+Whisper transcription and local AI translation run directly through this engine.
+Downloaded Python packages and AI models are not bundled in this repository; each has its own upstream license.
 
 ## System dependencies
 
