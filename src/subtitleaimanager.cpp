@@ -12,6 +12,8 @@
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QSettings>
+#include <QLocale>
 #include <QTimer>
 #include <QTemporaryFile>
 #include <QUrl>
@@ -26,6 +28,7 @@
 SubtitleAiManager::SubtitleAiManager(QObject *parent)
     : QObject(parent)
 {
+    m_downloadsAllowed = QSettings().value(QStringLiteral("subtitleAI/allowDownloads"), false).toBool();
     connect(&m_process, &QProcess::readyReadStandardOutput,
             this, &SubtitleAiManager::readStandardOutput);
     connect(&m_process, &QProcess::readyReadStandardError,
@@ -51,6 +54,15 @@ QString SubtitleAiManager::normalizeLocalPath(const QString &filePath) const
             return url.toLocalFile();
     }
     return value;
+}
+
+void SubtitleAiManager::setDownloadsAllowed(bool allowed)
+{
+    if (m_downloadsAllowed == allowed)
+        return;
+    m_downloadsAllowed = allowed;
+    QSettings().setValue(QStringLiteral("subtitleAI/allowDownloads"), allowed);
+    emit downloadsAllowedChanged();
 }
 
 QString SubtitleAiManager::cacheRoot() const
@@ -150,6 +162,9 @@ QVariantMap SubtitleAiManager::cacheInfoFromDirectory(const QString &directory,
     if (target.isEmpty())
         return result;
     const QJsonObject translation = state.value(QStringLiteral("translations")).toObject().value(target).toObject();
+    // Match worker.py TRANSLATION_ENGINE_VERSION; extracted/ASR sources stay reusable.
+    if (translation.value(QStringLiteral("engine_version")).toInt() != 1)
+        return result;
     const bool complete = translation.value(QStringLiteral("complete")).toBool(false);
     const int completedUnits = translation.value(QStringLiteral("completed_units")).toInt(0);
     const int totalUnits = translation.value(QStringLiteral("total_units")).toInt(0);
@@ -345,6 +360,14 @@ bool SubtitleAiManager::startWorker(const QStringList &arguments, const QString 
 
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
+    for (const QString &key : {QStringLiteral("LURVIKO_SUBTITLE_AI_AUTO_INSTALL"),
+                               QStringLiteral("LURVIKO_SUBTITLE_AI_ALLOW_MODEL_DOWNLOAD")}) {
+        if (!environment.contains(key))
+            environment.insert(key, m_downloadsAllowed ? QStringLiteral("1") : QStringLiteral("0"));
+    }
+    environment.insert(QStringLiteral("LURVIKO_SUBTITLE_AI_LANGUAGE"),
+                       QSettings().value(QStringLiteral("ui/language"),
+                           QLocale::system().language() == QLocale::Turkish ? "tr" : "en").toString());
 
     QString vendorDir = qEnvironmentVariable("LURVIKO_SUBTITLE_AI_VENDOR_DIR").trimmed();
     if (vendorDir.isEmpty()) {

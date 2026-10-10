@@ -12,6 +12,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTimer>
+#include <QWheelEvent>
 #include <cstdio>
 #include <array>
 #include <functional>
@@ -232,10 +233,25 @@ ApplicationWindow {
         auto button = qobject_cast<QQuickItem *>(item(pane, paneContext,
             "(function(){ for(let i=0; i<itemContextMenu.count; ++i) { const entry=itemContextMenu.itemAt(i); if(entry && entry.subMenu===copyActionsMenu) { itemContextMenu.currentIndex=i; return entry; } } return null; })()"));
         pause(50);
-        require(evaluatePane("(function(){ for(let i=1; i<itemContextMenu.count; ++i) { if(itemContextMenu.itemAt(i).subMenu===copyActionsMenu) return itemContextMenu.itemAt(i-1).text.indexOf(KeyboardShortcuts.displaySequence('Ctrl+C')) >= 0; } return false; })()").toBool(), "copy actions sits directly below Copy");
+        require(evaluatePane("(function(){ for(let i=1; i<itemContextMenu.count; ++i) { if(itemContextMenu.itemAt(i).subMenu===copyActionsMenu) return itemContextMenu.itemAt(i-1).shortcutText.indexOf(KeyboardShortcuts.displaySequence('Ctrl+C')) >= 0; } return false; })()").toBool(), "copy actions sits directly below Copy");
         click(button);
         require(item(pane, paneContext, "copyActionsMenu")->property("visible").toBool(), "copy actions submenu opens");
     };
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(directory->indexOfUrl(base + "/source.txt"))), Q_ARG(QVariant, QVariant(0))), "context menu fixture selected");
+    evaluatePane("itemContextMenu.maximumPopupHeight=220; itemContextMenu.open()"); pause(250);
+    auto menuList = qobject_cast<QQuickItem *>(item(pane, paneContext, "itemContextMenu.contentItem.children[0]"));
+    const QPointF wheelPoint = menuList->mapToScene(QPointF(menuList->width() / 2, menuList->height() / 2));
+    QWheelEvent wheelEvent(wheelPoint, window->mapToGlobal(wheelPoint.toPoint()), QPoint(), QPoint(0, -120),
+                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(window, &wheelEvent); pause(220);
+    require(evaluatePane("itemContextMenu.contentItem.children[0].contentY-itemContextMenu.contentItem.children[0].originY >= 200").toBool(),
+            "context menu wheel uses the configured pixel step instead of tiny default movement");
+    evaluatePane("itemContextMenu.contentItem.children[0].positionViewAtEnd()"); pause(50);
+    require(evaluatePane("itemContextMenu.contentItem.children[0].contentY > itemContextMenu.contentItem.children[0].originY").toBool(), "context menu is actually scrolled");
+    evaluatePane("closeContextMenus()"); pause(100);
+    evaluatePane("itemContextMenu.open()"); pause(250);
+    require(evaluatePane("Math.abs(itemContextMenu.contentItem.children[0].contentY-itemContextMenu.contentItem.children[0].originY)<1").toBool(), "new context menu starts at the top");
+    evaluatePane("closeContextMenus(); itemContextMenu.maximumPopupHeight=620"); pause(100);
     auto acceptLinkName = [&](const char *inputId, const QString &name) {
         auto input = item(pane, paneContext, inputId);
         input->setProperty("text", name);
@@ -246,8 +262,32 @@ ApplicationWindow {
         QApplication::sendEvent(window, &release);
         pause(240);
     };
+    evaluatePane("KeyboardShortcuts.assign('symlink', ['Ctrl+Shift+Alt+L'])");
     openCopyActions();
-    click(qobject_cast<QQuickItem *>(item(pane, paneContext, "copyActionsMenu.itemAt(0)")));
+    auto symlinkAction = qobject_cast<QQuickItem *>(item(pane, paneContext, "copyActionsMenu.itemAt(0)"));
+    auto shortcutLabel = findView(symlinkAction, "menuShortcutText");
+    require(shortcutLabel && shortcutLabel->property("text").toString() == "Ctrl+Alt+Shift+L"
+            && !shortcutLabel->property("truncated").toBool(), "long saved shortcut is shown without ellipsis");
+    const auto modifier = [&](QEvent::Type type, int key, Qt::KeyboardModifiers flags) {
+        QKeyEvent event(type, key, flags);
+        QApplication::sendEvent(window, &event);
+        pause(30);
+    };
+    const qreal popupWidth = item(pane, paneContext, "copyActionsMenu")->property("width").toReal();
+    modifier(QEvent::KeyPress, Qt::Key_Control, Qt::ControlModifier);
+    require(symlinkAction->property("shortcutHighlighted").toBool(), "Ctrl highlights compatible saved shortcuts");
+    modifier(QEvent::KeyPress, Qt::Key_Shift, Qt::ControlModifier | Qt::ShiftModifier);
+    require(symlinkAction->property("shortcutHighlighted").toBool()
+            && !item(pane, paneContext, "copyActionsMenu.itemAt(3)")->property("shortcutHighlighted").toBool(),
+            "Ctrl+Shift highlights matching actions only");
+    require(item(pane, paneContext, "copyActionsMenu")->property("width").toReal() == popupWidth,
+            "modifier hints do not resize the open popup");
+    window->grabWindow().save("/tmp/lurviko-menu-shortcuts.png");
+    modifier(QEvent::KeyRelease, Qt::Key_Shift, Qt::ControlModifier);
+    modifier(QEvent::KeyRelease, Qt::Key_Control, Qt::NoModifier);
+    require(!symlinkAction->property("shortcutHighlighted").toBool(), "releasing modifiers clears shortcut hints");
+    std::fprintf(stderr, "PASS: complete shortcut column and live Ctrl/Shift hints\n");
+    click(symlinkAction);
     require(item(pane, paneContext, "newSymlinkDialog")->property("visible").toBool(), "symlink action opens dialog");
     require(!item(pane, paneContext, "itemContextMenu")->property("visible").toBool(), "link action dismisses parent menu");
     require(item(pane, paneContext, "newSymlinkTargetInput")->property("text").toString() == base + "/source.txt", "symlink source is prefilled");
@@ -274,7 +314,7 @@ ApplicationWindow {
     require(pane->property("selectedIsDir").toBool(), "folder fixture is selected");
     require(item(pane, paneContext, "copyActionsMenu.itemAt(0)")->property("enabled").toBool()
             && !item(pane, paneContext, "copyActionsMenu.itemAt(1)")->property("enabled").toBool(), "folder allows symlink and rejects hardlink");
-    require(evaluatePane("copyActionsMenu.itemAt(3).text.indexOf(KeyboardShortcuts.displaySequence('Ctrl+D')) >= 0").toBool(), "duplicate shortcut retained in submenu");
+    require(evaluatePane("copyActionsMenu.itemAt(3).shortcutText.indexOf(KeyboardShortcuts.displaySequence('Ctrl+D')) >= 0").toBool(), "duplicate shortcut retained in submenu");
     evaluatePane("closeContextMenus()"); pause(100);
     std::fprintf(stderr, "PASS: selection copy actions create symlink and hardlink through dialogs\n");
     // Internal sidebar ids are visible in one of its child item contexts.

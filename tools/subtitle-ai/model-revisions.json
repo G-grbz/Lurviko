@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "asr": {
+    "large-v3": {
+      "repo": "Systran/faster-whisper-large-v3",
+      "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478"
+    },
+    "medium": {
+      "repo": "Systran/faster-whisper-medium",
+      "revision": "08e178d48790749d25932bbc082711ddcfdfbc4f"
+    },
+    "turbo": {
+      "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"
+    }
+  },
+  "translation": {
+    "Nextcloud-AI/madlad400-3b-mt-ct2-int8": {
+      "repo": "Nextcloud-AI/madlad400-3b-mt-ct2-int8",
+      "revision": "aa32bbdeba7880eff2096ec044cb155a340a9400"
+    }
+  }
+}

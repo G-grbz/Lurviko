@@ -151,7 +151,7 @@ ApplicationWindow {
     pane->forceActiveFocus(); key(Qt::Key_F7);
     require(linkDialog && linkDialog->property("visible").toBool(), "assigned shortcut opens selected source's symlink dialog");
     require(evaluate(pane, context, "newSymlinkTargetInput.text").toString() == base + "/source.txt", "shortcut uses correct source");
-    require(evaluate(pane, context, "copyActionsMenu.itemAt(0).text").toString().contains("F7"), "context menu displays custom shortcut");
+    require(evaluate(pane, context, "copyActionsMenu.itemAt(0).shortcutText").toString().contains("F7"), "context menu displays custom shortcut");
     QMetaObject::invokeMethod(linkDialog, "close"); pause(150);
     manager->assign("hardlink", {"F8"}); pane->forceActiveFocus(); key(Qt::Key_F8);
     auto hardDialog = evaluate(pane, context, "newHardlinkDialog").value<QObject *>();

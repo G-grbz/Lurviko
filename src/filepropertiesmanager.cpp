@@ -15,6 +15,9 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
+#include <grp.h>
+#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -67,6 +70,7 @@ bool atomicReplaceLink(const QString &path, const QString &target, bool symbolic
 FilePropertiesManager::FilePropertiesManager(QObject *parent)
     : QObject(parent)
 {
+    initializeAccess();
 }
 
 void FilePropertiesManager::setCalculating(bool value)
@@ -91,9 +95,14 @@ QString FilePropertiesManager::readFolderIcon(const QString &path)
 
 void FilePropertiesManager::inspect(const QString &urlOrPath)
 {
+    if (!m_accessBusy) {
+        m_accessError.clear();
+        emit accessProgressChanged();
+    }
     ++m_generation;
     const int generation = m_generation;
     const QUrl url = QUrl::fromUserInput(urlOrPath);
+    m_localFile = url.isLocalFile();
     const QString local = url.isLocalFile() ? url.toLocalFile() : urlOrPath;
     const QFileInfo info(local);
 
@@ -140,20 +149,7 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     if (m_linkType.isEmpty() && S_ISREG(st.st_mode) && st.st_nlink > 1)
         m_linkType = QStringLiteral("hardlink");
 
-    const QFileDevice::Permissions perms = info.permissions();
-    auto bit = [perms](QFileDevice::Permission permission, QChar value) {
-        return perms.testFlag(permission) ? value : QLatin1Char('-');
-    };
-    m_permissionsText = QString()
-        + bit(QFileDevice::ReadOwner, QLatin1Char('r'))
-        + bit(QFileDevice::WriteOwner, QLatin1Char('w'))
-        + bit(QFileDevice::ExeOwner, QLatin1Char('x'))
-        + bit(QFileDevice::ReadGroup, QLatin1Char('r'))
-        + bit(QFileDevice::WriteGroup, QLatin1Char('w'))
-        + bit(QFileDevice::ExeGroup, QLatin1Char('x'))
-        + bit(QFileDevice::ReadOther, QLatin1Char('r'))
-        + bit(QFileDevice::WriteOther, QLatin1Char('w'))
-        + bit(QFileDevice::ExeOther, QLatin1Char('x'));
+    refreshPermissions();
     emit propertiesChanged();
 
     if (!m_directory || !info.exists()) {
@@ -194,6 +190,65 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
         }
         return stats;
     }));
+}
+
+void FilePropertiesManager::refreshPermissions()
+{
+    m_permissionMode = 0;
+    m_ownerName.clear();
+    m_groupName.clear();
+    m_permissionsEditable = false;
+    m_permissionsText.clear();
+    struct stat st {};
+    const QByteArray nativePath = QFile::encodeName(m_path);
+    if (m_localFile && ::lstat(nativePath.constData(), &st) == 0) {
+        m_permissionMode = static_cast<int>(st.st_mode & 0777);
+        const auto owner = ::getpwuid(st.st_uid);
+        m_ownerName = owner ? QString::fromLocal8Bit(owner->pw_name) : QString::number(st.st_uid);
+        const auto group = ::getgrgid(st.st_gid);
+        m_groupName = group ? QString::fromLocal8Bit(group->gr_name) : QString::number(st.st_gid);
+        m_permissionsEditable = (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode))
+                                && (::geteuid() == 0 || ::geteuid() == st.st_uid);
+        m_permissionsText = QStringLiteral("---------");
+        const char letters[] = "rwxrwxrwx";
+        for (int index = 0; index < 9; ++index)
+            if (st.st_mode & (0400 >> index))
+                m_permissionsText[index] = QLatin1Char(letters[index]);
+        if (st.st_mode & S_ISUID) m_permissionsText[2] = QLatin1Char(st.st_mode & S_IXUSR ? 's' : 'S');
+        if (st.st_mode & S_ISGID) m_permissionsText[5] = QLatin1Char(st.st_mode & S_IXGRP ? 's' : 'S');
+        if (st.st_mode & S_ISVTX) m_permissionsText[8] = QLatin1Char(st.st_mode & S_IXOTH ? 't' : 'T');
+    }
+    emit permissionsChanged();
+}
+
+bool FilePropertiesManager::setPermissionMode(int mode)
+{
+    if (m_accessBusy)
+        return false;
+    if (!m_localFile || m_path.isEmpty() || mode < 0 || mode > 0777)
+        return false;
+    struct stat st {};
+    const QByteArray nativePath = QFile::encodeName(m_path);
+    if (::lstat(nativePath.constData(), &st) != 0) {
+        emit error(tr("Could not read file permissions: %1").arg(QString::fromLocal8Bit(std::strerror(errno))));
+        return false;
+    }
+    // Symbolic links have no editable POSIX mode. Never change their targets
+    // through this dialog, including when the path was replaced after inspect().
+    if ((!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))
+        || (::geteuid() != 0 && ::geteuid() != st.st_uid)) {
+        emit error(tr("You do not own this item, or its permissions cannot be changed here."));
+        return false;
+    }
+    const mode_t requested = static_cast<mode_t>(mode) | (st.st_mode & (S_ISUID | S_ISGID | S_ISVTX));
+    if (::fchmodat(AT_FDCWD, nativePath.constData(), requested, AT_SYMLINK_NOFOLLOW) != 0) {
+        emit error(tr("Could not change file permissions: %1").arg(QString::fromLocal8Bit(std::strerror(errno))));
+        return false;
+    }
+    refreshPermissions();
+    emit propertiesChanged();
+    emit permissionsApplied(m_path);
+    return true;
 }
 
 bool FilePropertiesManager::setFolderIcon(const QString &iconName)

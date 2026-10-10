@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from .download_policy import model_spec, matches_snapshot, require_model_download_permission
 import gc
 import html
 from difflib import SequenceMatcher
@@ -1795,13 +1796,14 @@ def _prepare_local_model(
     if source.is_dir():
         return source
 
+    repository, revision = model_spec(model_name, "asr")
     saved_snapshot = _saved_model_snapshot(model_name)
-    if saved_snapshot is not None:
+    if saved_snapshot is not None and matches_snapshot(saved_snapshot, repository, revision):
         logger(f"Lurviko Subtitle AI ASR: using saved model snapshot: {saved_snapshot}")
         return saved_snapshot
 
     try:
-        from faster_whisper import download_model  # type: ignore
+        from huggingface_hub import snapshot_download  # type: ignore
     except ImportError as exc:
         raise UserVisibleError(ui_text("error_asr_dependency_missing")) from exc
 
@@ -1813,8 +1815,10 @@ def _prepare_local_model(
     # partially or fully completed before upgrading the app.
     try:
         cached = Path(
-            download_model(
-                model_name,
+            snapshot_download(
+                repo_id=repository,
+                revision=revision,
+                allow_patterns=["config.json", "model.bin", "tokenizer.json", "preprocessor_config.json", "vocabulary.*"],
                 local_files_only=True,
                 cache_dir=str(cache_dir),
             )
@@ -1826,6 +1830,7 @@ def _prepare_local_model(
     except Exception:
         pass
 
+    require_model_download_permission()
     expected = MODEL_DOWNLOAD_BYTES.get(model_name.lower())
     initial_size = _directory_size(cache_dir)
     if expected:
@@ -1868,7 +1873,8 @@ def _prepare_local_model(
         # faster-whisper intentionally disables Hugging Face's tqdm display.
         # We keep its native cache path (so existing/partial downloads resume)
         # and report cache activity through the Lurviko Subtitle AI log instead.
-        downloaded = download_model(model_name, cache_dir=str(cache_dir))
+        downloaded = snapshot_download(repo_id=repository, revision=revision, cache_dir=str(cache_dir),
+            allow_patterns=["config.json", "model.bin", "tokenizer.json", "preprocessor_config.json", "vocabulary.*"])
     finally:
         stop.set()
         thread.join(timeout=2.0)
@@ -1928,6 +1934,8 @@ def _prepare_translation_model(
     if source.is_dir():
         return source
 
+    repository, revision = model_spec(model_name, "translation")
+
     try:
         from huggingface_hub import snapshot_download  # type: ignore
     except ImportError as exc:
@@ -1940,7 +1948,8 @@ def _prepare_translation_model(
     try:
         cached = Path(
             snapshot_download(
-                repo_id=model_name,
+                repo_id=repository,
+                revision=revision,
                 cache_dir=str(cache_dir),
                 allow_patterns=allow_patterns,
                 local_files_only=True,
@@ -1952,6 +1961,7 @@ def _prepare_translation_model(
     except Exception:
         pass
 
+    require_model_download_permission()
     logger(
         "Lurviko Subtitle AI AI Translation: model is not cached; downloading/resuming "
         f"~{_format_bytes(TRANSLATION_MODEL_DOWNLOAD_BYTES)} into {cache_dir}"
@@ -1985,7 +1995,8 @@ def _prepare_translation_model(
     thread.start()
     try:
         downloaded = snapshot_download(
-            repo_id=model_name,
+            repo_id=repository,
+            revision=revision,
             cache_dir=str(cache_dir),
             allow_patterns=allow_patterns,
         )
@@ -2045,6 +2056,7 @@ def _load_translation_runtime(
         if device != "cuda":
             raise UserVisibleError(ui_text("error_translation_failed", error=exc)) from exc
         logger(f"Lurviko Subtitle AI AI Translation: CUDA load failed; retrying on CPU/int8 ({exc})")
+        device = "cpu"
         try:
             translator = ctranslate2.Translator(
                 str(model_path),
@@ -2880,252 +2892,34 @@ def translate_cues_with_ai(
     unit_callback: Callable[[int, int, list[SubtitleCue]], None] | None = None,
     cancel_event: Any | None = None,
     log: Callable[[str], None] | None = None,
+    authored: bool = False,
+    quality_profile: str = "balanced",
 ) -> list[SubtitleCue]:
-    """Translate subtitle text locally with one multilingual CT2 AI model."""
-    source_raw = str(source_language or "und").strip().lower()
-    if source_raw in {"", "und", "auto"}:
-        source_language = "und"
-    else:
-        source_language = normalise_asr_language(source_raw)
-    target_language = normalise_asr_language(target_language)
-    if target_language not in TRANSLATION_TARGET_CODES:
-        raise UserVisibleError(
-            ui_text("error_translation_target_unsupported", language=target_language)
-        )
-    if source_language != "und" and target_language == source_language:
-        raise UserVisibleError(
-            ui_text("error_translation_same_language", language=target_language)
-        )
+    """Translate with EOS, source-fidelity ranking and structure-aware QA.
 
-    logger = log or (lambda _message: None)
-    model_name = (
-        model_name
-        or os.environ.get("LURVIKO_SUBTITLE_AI_TRANSLATION_MODEL", DEFAULT_TRANSLATION_MODEL)
-    ).strip() or DEFAULT_TRANSLATION_MODEL
-
-    raw_units = _translation_units(cues)
-    cue_list: list[_TranslationUnit] = []
-    for unit in raw_units:
-        duration = max(0.0, unit.end - unit.start)
-        if (
-            len(unit.cues) == 1
-            and _is_unreliable_tiny_translation_fragment(
-                unit.text, duration, source_language
-            )
-        ):
-            logger(
-                "Lurviko Subtitle AI AI Translation: dropping incomplete tiny ASR fragment at "
-                f"{srt_timestamp(unit.start)}: {unit.text!r}"
-            )
-            continue
-        cue_list.append(unit)
-    if not cue_list:
-        return []
-    if cancel_event is not None and cancel_event.is_set():
-        raise OperationCancelled()
-
-    model_path = _prepare_translation_model(model_name, logger, cancel_event)
-    translator, tokenizer, translation_device = _load_translation_runtime(model_path, logger)
-    translated: list[SubtitleCue] = list(initial_translated or [])
-    batch_size, main_beam_size = _translation_decode_profile(translation_device, logger)
-    total = len(cue_list)
-    resume_unit_offset = max(0, min(int(resume_unit_offset or 0), total))
-    target_name = translation_language_name(target_language)
-    logger(
-        f"Lurviko Subtitle AI AI Translation: translating {total} unit(s) "
-        f"from {source_language} to {target_name} ({target_language})..."
-    )
-
-    if resume_unit_offset:
-        logger(
-            "Lurviko Subtitle AI AI Translation: resuming at unit "
-            f"{resume_unit_offset + 1}/{total}; {len(translated)} cached cue(s) restored"
-        )
-
+    Checkpoints count original source cues; readability layout is deterministic
+    and shared by streamed, checkpointed and completed subtitles.
+    """
+    from .translation_quality import translate_existing_subtitle_cues_with_ai
+    items = [cue for cue in cues if cue.text.strip() and cue.end > cue.start]
+    source_known = str(source_language or "und").strip().lower() not in {"und", "auto", ""}
+    if not authored and source_known:
+        language = normalise_asr_language(source_language)
+        items = [cue for cue in items if not _is_unreliable_tiny_translation_fragment(
+            cue.text, max(0.0, cue.end - cue.start), language)]
     try:
-        offset = resume_unit_offset
-        while offset < total:
-            if cancel_event is not None and cancel_event.is_set():
-                raise OperationCancelled()
-            batch = cue_list[offset: offset + batch_size]
-            source_tokens = [
-                tokenizer.encode(
-                    f"<2{target_language}> {_clean_text(unit.text)}",
-                    out_type=str,
-                )
-                for unit in batch
-            ]
-            longest_input = max((len(tokens) for tokens in source_tokens), default=1)
-            # MADLAD can otherwise spend hundreds of decoding steps repeating
-            # one token when Whisper produced a tiny/incomplete fragment.
-            batch_max_length = min(160, max(24, longest_input * 3 + 12))
-            try:
-                results = translator.translate_batch(
-                    source_tokens,
-                    beam_size=main_beam_size,
-                    repetition_penalty=1.08,
-                    no_repeat_ngram_size=3,
-                    max_decoding_length=batch_max_length,
-                )
-            except Exception as decode_exc:
-                if translation_device == "cuda" and _is_cuda_oom_error(decode_exc):
-                    if batch_size > 1:
-                        old_batch = batch_size
-                        batch_size = max(1, batch_size // 2)
-                        main_beam_size = min(main_beam_size, 2)
-                        logger(
-                            "Lurviko Subtitle AI AI Translation: CUDA çalışma alanı belleği yetmedi; "
-                            f"batch {old_batch} -> {batch_size}, beam={main_beam_size} ile aynı noktadan tekrar deneniyor."
-                        )
-                        continue
-                    if main_beam_size > 1:
-                        main_beam_size = 1
-                        logger(
-                            "Lurviko Subtitle AI AI Translation: CUDA tekli batch için beam=1 ile aynı noktadan tekrar deneniyor."
-                        )
-                        continue
-                    logger(
-                        "Lurviko Subtitle AI AI Translation: model GPU'ya sığıyor ancak decoder için ek VRAM kalmadı; "
-                        "tamamlanan çeviriler korunarak CPU/int8 ile aynı noktadan devam ediliyor."
-                    )
-                    try:
-                        del translator
-                    except Exception:
-                        pass
-                    gc.collect()
-                    try:
-                        import ctranslate2  # type: ignore
-                        translator = ctranslate2.Translator(
-                            str(model_path), device="cpu", compute_type="int8"
-                        )
-                    except Exception as cpu_exc:
-                        raise UserVisibleError(ui_text("error_translation_failed", error=cpu_exc)) from cpu_exc
-                    translation_device = "cpu"
-                    batch_size, main_beam_size = 8, 2
-                    continue
-                raise
-            for batch_index, (unit, result) in enumerate(zip(batch, results)):
-                unit_index = offset + batch_index
-                text = _decode_translation_result(result, tokenizer, target_language)
-                reason = _translation_invalid_reason(unit.text, text)
-                if reason is not None:
-                    logger(
-                        "Lurviko Subtitle AI AI Translation: suspicious decoder output at "
-                        f"{srt_timestamp(unit.start)} ({reason}); retrying safely"
-                    )
-                    retry = _safe_retry_translation(
-                        translator,
-                        tokenizer,
-                        SubtitleCue(unit.start, unit.end, unit.text),
-                        target_language,
-                    )
-                    retry_reason = _translation_invalid_reason(unit.text, retry)
-                    if retry and retry_reason is None:
-                        text = retry
-                    else:
-                        rescue = _rescue_source_echo_translation(
-                            translator, tokenizer, unit.text, target_language
-                        )
-                        rescue_reason = _translation_invalid_reason(unit.text, rescue)
-                        if rescue and rescue_reason is None:
-                            logger(
-                                "Lurviko Subtitle AI AI Translation: recovered stubborn output with "
-                                f"source reshaping at {srt_timestamp(unit.start)}"
-                            )
-                            text = rescue
-                        else:
-                            context_rescue = _rescue_translation_with_neighbor(
-                                translator, tokenizer, cue_list, unit_index, target_language
-                            )
-                            context_reason = _translation_invalid_reason(
-                                unit.text, context_rescue
-                            )
-                            if context_rescue and context_reason is None:
-                                logger(
-                                    "Lurviko Subtitle AI AI Translation: recovered stubborn output with "
-                                    f"neighbour context at {srt_timestamp(unit.start)}"
-                                )
-                                text = context_rescue
-                            else:
-                                # A decoder loop is still safer to expose as the
-                                # source than to write hundreds of bogus tokens.
-                                # Source echoes, however, have exhausted three
-                                # translation strategies before reaching here.
-                                logger(
-                                    "Lurviko Subtitle AI AI Translation: all local rescue paths failed at "
-                                    f"{srt_timestamp(unit.start)} "
-                                    f"({context_reason or rescue_reason or retry_reason or 'empty'}); "
-                                    "preserving source as last-resort safety fallback"
-                                )
-                                text = _clean_text(unit.text)
-                if not text:
-                    logger(
-                        "Lurviko Subtitle AI AI Translation: empty model output after rescue; preserving source unit at "
-                        f"{srt_timestamp(unit.start)}"
-                    )
-                    text = _clean_text(unit.text)
-                if (
-                    len(unit.cues) == 1
-                    and _cue_has_protected_syntax(unit.cues[0].text)
-                    and len(_subtitle_templates(unit.cues[0].text)) > 1
-                ):
-                    structured = _translate_structured_cue_lines(
-                        translator, tokenizer, unit.cues[0], target_language, logger
-                    )
-                    pieces = (
-                        [SubtitleCue(unit.cues[0].start, unit.cues[0].end, structured)]
-                        if structured else []
-                    )
-                else:
-                    pieces = _split_translation_across_source_cues(unit.cues, text)
-                if len(unit.cues) > 1 and len(pieces) < len(unit.cues):
-                    logger(
-                        "Lurviko Subtitle AI AI Translation: contextual output is too compressed to "
-                        f"redistribute at {srt_timestamp(unit.start)}; translating source cues individually"
-                    )
-                    pieces = []
-                    for source_cue in unit.cues:
-                        individual = _safe_retry_translation(
-                            translator, tokenizer, source_cue, target_language
-                        )
-                        individual_reason = _translation_invalid_reason(
-                            source_cue.text, individual
-                        )
-                        if not individual or individual_reason is not None:
-                            rescued_individual = _rescue_source_echo_translation(
-                                translator, tokenizer, source_cue.text, target_language
-                            )
-                            rescued_reason = _translation_invalid_reason(
-                                source_cue.text, rescued_individual
-                            )
-                            if rescued_individual and rescued_reason is None:
-                                individual = rescued_individual
-                            else:
-                                individual = _clean_text(source_cue.text)
-                        pieces.extend(
-                            _split_long_translation_cue(
-                                SubtitleCue(source_cue.start, source_cue.end, individual)
-                            )
-                        )
-                pieces = readable_subtitle_cues(pieces)
-                translated.extend(pieces)
-                if partial_callback is not None and pieces:
-                    partial_callback(list(pieces), "translated")
-                if unit_callback is not None:
-                    unit_callback(unit_index + 1, total, list(pieces))
-            logger(
-                "Lurviko Subtitle AI AI Translation: "
-                f"{min(offset + len(batch), total)}/{total} unit(s) complete"
-            )
-            offset += len(batch)
-    except OperationCancelled:
-        raise
-    except UserVisibleError:
+        translated = translate_existing_subtitle_cues_with_ai(
+            items, source_language, target_language, model_name=model_name,
+            partial_callback=partial_callback, unit_callback=unit_callback,
+            resume_unit_offset=resume_unit_offset, initial_translated=initial_translated,
+            cancel_event=cancel_event, log=log, quality_profile=quality_profile,
+        )
+        return readable_subtitle_cues(translated)
+    except (OperationCancelled, UserVisibleError):
         raise
     except Exception as exc:
         raise UserVisibleError(ui_text("error_translation_failed", error=exc)) from exc
 
-    return _rebalance_translation_timings(translated)
 
 
 def _parse_srt_timestamp(value: str) -> float:
@@ -3177,6 +2971,7 @@ def translate_srt_with_ai(
         cues,
         source_language,
         target_language,
+        authored=True,
         model_name=model_name,
         cancel_event=cancel_event,
         log=log,

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.0.0 LANGUAGES CXX)
+project(Lurviko VERSION 1.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -122,6 +122,7 @@ qt_add_executable(lurviko
     src/iconpickermanager.cpp
     src/iconpickermanager.h
     src/filepropertiesmanager.cpp
+    src/filepropertiesaccess.cpp
     src/filepropertiesmanager.h
     src/filemanager1interface.cpp
     src/filemanager1interface.h
@@ -148,6 +149,9 @@ qt_add_executable(lurviko
     src/subtitlestylemanager.cpp
     src/subtitlestylemanager.h
     src/privatevaultmanager.cpp
+    src/vaultsecurity.cpp
+    src/vaultsecurity.h
+    src/archivearguments.h
     src/privatevaultmanager.h
 )
 
@@ -178,6 +182,7 @@ qt_add_qml_module(lurviko
         qml/components/SidebarItem.qml
         qml/components/BrowserPane.qml
         qml/components/GMenu.qml
+        qml/components/GPopupWheelScroll.qml
         qml/components/GPopupDismissHandler.qml
         qml/components/GToolTip.qml
         qml/components/GModalSurface.qml
@@ -334,5 +339,6 @@ install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurvik
         PATTERN "*.py"
         PATTERN "README.md"
         PATTERN "requirements*.txt"
+        PATTERN "model-revisions.json"
         PATTERN "LICENSE"
 )

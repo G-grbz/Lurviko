@@ -1,0 +1,4 @@
+ctranslate2==4.8.2
+sentencepiece==0.2.2
+huggingface-hub==1.33.0
+numpy>=1.26,<3

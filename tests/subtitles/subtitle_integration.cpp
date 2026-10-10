@@ -1,8 +1,16 @@
 #include <QApplication>
 #include <QAudioOutput>
 #include <QElapsedTimer>
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QEventLoop>
 #include <QMediaPlayer>
+#include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlExpression>
@@ -59,6 +67,37 @@ int main(int argc, char **argv) {
     QQuickStyle::setStyle("Basic");
     // REGISTER_BACKEND_TYPES
     const QString path = QString::fromLocal8Bit(qgetenv("LURVIKO_SUBTITLE_TEST_ROOT")) + "/fixture.mkv";
+    {
+        const QFileInfo input(path);
+        const QByteArray material = QStringLiteral("v2\n%1\n%2\n%3\n0\nen\nmedium\n")
+            .arg(input.canonicalFilePath()).arg(input.size()).arg(input.lastModified().toMSecsSinceEpoch()).toUtf8();
+        const QString key = QString::fromLatin1(QCryptographicHash::hash(material, QCryptographicHash::Sha256).toHex());
+        const QString directory = QDir(QString::fromLocal8Bit(qgetenv("XDG_CACHE_HOME")))
+            .absoluteFilePath("Lurviko/subtitle-ai/jobs/" + key);
+        require(QDir().mkpath(directory), "isolated translation cache fixture created");
+        QFile source(directory + "/source.srt");
+        require(source.open(QIODevice::WriteOnly), "source cache fixture opens");
+        source.write("1\n00:00:01,000 --> 00:00:02,000\nSource\n\n"); source.close();
+        const auto writeState = [&](int engineVersion) {
+            QJsonObject translation{{"complete", true}, {"completed_units", 12}, {"total_units", 12}, {"progress", 100}};
+            if (engineVersion) translation.insert("engine_version", engineVersion);
+            QFile state(directory + "/state.json");
+            require(state.open(QIODevice::WriteOnly | QIODevice::Truncate), "cache state fixture opens");
+            state.write(QJsonDocument(QJsonObject{{"source_ready", true}, {"detected_language", "en"},
+                {"translations", QJsonObject{{"tr", translation}}}}).toJson());
+        };
+        SubtitleAiManager cacheManager;
+        writeState(0);
+        auto cached = cacheManager.cacheInfo(path, "en", "medium", "tr");
+        require(cached.value("sourceReady").toBool() && !cached.value("translationReady").toBool()
+                && cached.value("translationProgress").toInt() == 0,
+                "legacy translation cache is invalidated while source remains ready");
+        writeState(1);
+        cached = cacheManager.cacheInfo(path, "en", "medium", "tr");
+        require(cached.value("translationReady").toBool() && cached.value("translationProgress").toInt() == 100,
+                "current translation engine cache remains ready");
+        std::fprintf(stderr, "PASS: translation engine version invalidation retains source cache\n");
+    }
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new FixtureImages);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
@@ -110,6 +149,40 @@ ApplicationWindow {
     auto style = viewer->findChild<SubtitleStyleManager *>();
     require(style, "subtitle style manager available");
     style->setBackgroundBlur(24);
+    require(!manager->downloadsAllowed(), "AI downloads default to disabled in a clean profile");
+    english();
+    QMetaObject::invokeMethod(viewer, "openSubtitleAiTranslateDialog");
+    pause(100);
+    auto permission = visualItem(window->contentItem(), "aiDownloadPermission");
+    require(permission && permission->isVisible() && !permission->property("checked").toBool(),
+            "idle AI dialog shows an unchecked download permission");
+    const QPointF permissionTop = permission->mapToItem(window->contentItem(), QPointF());
+    require(permissionTop.y() >= 0 && permissionTop.y() + permission->height() <= window->height(),
+            "download permission fits in the video dialog");
+    const auto clickPermission = [&] {
+        const QPointF position = permission->mapToScene(QPointF(9, permission->height() / 2));
+        const QPointF global = window->mapToGlobal(position.toPoint());
+        QMouseEvent press(QEvent::MouseButtonPress, position, global,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, position, global,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(window, &press);
+        QApplication::sendEvent(window, &release);
+    };
+    clickPermission();
+    pause(30);
+    require(manager->downloadsAllowed(), "checkbox grants download permission");
+    {
+        SubtitleAiManager restored;
+        require(restored.downloadsAllowed(), "download choice persists across manager instances");
+    }
+    clickPermission();
+    pause(30);
+    require(!manager->downloadsAllowed(), "checkbox revokes download permission");
+    QQmlExpression closeAi(qmlContext(player), viewer, "subtitleAiSubtitlePopup.close()");
+    closeAi.evaluate();
+    require(!closeAi.hasError(), "AI permission dialog closes");
+    std::fprintf(stderr, "PASS: download permission is visible, opt-in, persistent and revocable\n");
     for (bool whisper : {false, true}) {
         english();
         QMetaObject::invokeMethod(viewer, whisper ? "openSubtitleAiGenerateDialog" : "openSubtitleAiTranslateDialog");

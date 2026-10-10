@@ -16,8 +16,11 @@ bash .github/scripts/run-headless-tests.sh
 | --- | --- |
 | `test-gfile-ui-controls.py` | Shared QML control conventions |
 | `test-source-uninstall.py` | Custom install prefixes, DESTDIR, preservation of personal data and unrelated aliases, repeated removal and manifest validation |
+| `run-security-tests.py` | KDF limits, canonical path boundaries, RAM-only storage and real bsdtar option-like filenames |
+| `test-ai-download-policy.py` | Default-off installs/downloads, dependency hashes, wheel flags, pinned revisions, cache/offline reuse and error language |
 | `test-subtitle-translation-formatting.py` | SRT formatting and protected subtitle syntax |
 | `test-subtitle-readable-cues.py` | Long-cue splitting, timing, styling and live/cache parity |
+| `test-translation-quality.py` | EOS, fidelity ranking, sentence context, protected styles, live/resume parity, bounded caches and GPU memory recovery (pytest; no downloads) |
 | `run-qml-tests.py` | Gallery/grouped layout, resizing, navigation anchoring, collection-wide music queues, stable genre filters/counts, independent music zoom, category zoom and slider ranges across directory navigation/page recreation, compact track rows and album/artist navigation |
 | `run-system-icon-tests.py` | Asynchronous system icon rendering |
 
@@ -33,6 +36,7 @@ python3 tests/run-search-tests.py
 python3 tests/run-sync-tests.py
 python3 tests/run-music-tests.py
 python3 tests/run-thumbnail-tests.py
+python3 tests/run-properties-tests.py
 python3 tests/run-mpris-tests.py
 python3 tests/run-vault-tests.py
 LURVIKO_SHORTCUT_QPA=wayland python3 tests/run-shortcut-tests.py
@@ -45,9 +49,21 @@ Use Wayland commands in a Wayland desktop session; inspect each runner's environ
 
 The thumbnail harness swaps equal-size SVGs with matching modification times and edits an SVG while preserving its size/mtime. It verifies directory watcher revisions and the real asynchronous provider's cached pixels using temporary files.
 
+The properties harness checks actual owner/group/other mode bits, execution,
+directory traversal, ownership labels, special-bit preservation, restoring a
+file with no read access, and symlink replacement boundaries. Recursive checks
+include hidden entries, executable/document distinctions, external symlinks,
+account/group enumeration, ordinary-user authority and cancellation. It also
+exercises octal input, the real Apply/execute controls, popup wheel scrolling and
+selected filename padding at three icon sizes. Administrator authentication is
+not invoked by this harness. A `0644` folder regression verifies an explicit
+access error, recovery through the permission editor, unchanged SVG bytes and
+the folder-access explanation in Properties. Light/dark screenshots are saved to
+`/tmp/lurviko-properties-*.png`.
+
 The MPRIS harness requires `dbus-run-session`, `playerctl` and `ffmpeg`. It uses a private D-Bus session and generated media to check real music tags, Turkish UTF-8 text, playlist artwork without a visible thumbnail delegate, native video pause/seek/volume, fullscreen continuity and returning control to music. Files and settings are isolated. Set `LURVIKO_MPRIS_QPA=wayland` to test in a Wayland desktop session.
 
-The vault harness creates a temporary encrypted vault and isolates data, configuration and runtime files. It checks retry delays, attempt limits, actual process restarts, password/KWallet lockout enforcement, successful-login and expiry resets, disabling protection, password changes and preservation of encrypted file bytes. The default run tests authentication without instantiating media viewers. Set `LURVIKO_VAULT_QPA=wayland` to also exercise the real security modal and automatic countdown recovery on the desktop; screenshots are saved as `/tmp/gfile-vault-*.png`.
+The vault harness creates a temporary encrypted vault and isolates data, configuration and runtime files. It checks retry delays, attempt limits, actual process restarts, password/KWallet lockout enforcement, successful-login and expiry resets, disabling protection, password changes and preservation of encrypted file bytes. Security regressions cover malformed/oversized headers, GCM tag tampering, the per-file GCM size limit, RAM storage, instance isolation and cleanup path boundaries. The default run tests authentication without instantiating media viewers. Set `LURVIKO_VAULT_QPA=wayland` to also exercise the real security modal and automatic countdown recovery on the desktop; screenshots are saved as `/tmp/gfile-vault-*.png`.
 
 The shortcut harness verifies conflict detection, explicit reassignment, alternative/disabled bindings across restarts, recording Escape without dismissing the editor, saved symlink/hardlink shortcuts, context-menu labels and native video input remapping. It also captures light/dark editor previews under `/tmp/gfile-keyboard-*.png` for visual review.
 

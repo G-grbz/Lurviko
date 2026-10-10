@@ -1,4 +1,5 @@
 #include "privatevaultmanager.h"
+#include "vaultsecurity.h"
 
 #include <QCoreApplication>
 #include <QBuffer>
@@ -23,6 +24,7 @@
 #include <KWallet>
 #include <QUuid>
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 #include <openssl/core_names.h>
@@ -33,6 +35,8 @@
 #include <openssl/rand.h>
 
 namespace {
+// DO NOT MODIFY legacy magic/AAD identifiers: existing encrypted vaults
+// authenticate these exact bytes, regardless of the application's display name.
 constexpr char kVaultMagic[] = "g-file-private-vault";
 constexpr char kBlobMagic[] = "GFBLOB01";
 constexpr char kThumbMagic[] = "GFTHMB01";
@@ -90,6 +94,8 @@ PrivateVaultManager::PrivateVaultManager(QObject *parent)
 PrivateVaultManager::~PrivateVaultManager()
 {
     lock();
+    if (!m_runtimeRoot.isEmpty())
+        QDir(m_runtimeRoot).removeRecursively();
     if (m_wallet) {
         delete m_wallet;
         m_wallet = nullptr;
@@ -154,10 +160,19 @@ QString PrivateVaultManager::headerPath() const
 
 QString PrivateVaultManager::runtimeRoot() const
 {
-    QString runtime = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
-    if (runtime.isEmpty())
-        runtime = QDir::tempPath();
-    return QDir(runtime).filePath(QStringLiteral("lurviko-private"));
+    if (m_runtimeRoot.isEmpty())
+        m_runtimeRoot = VaultSecurity::createRuntimeDirectory(
+                QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation));
+    return m_runtimeRoot;
+}
+
+bool PrivateVaultManager::ensureRuntimeDirectory()
+{
+    if (!runtimeRoot().isEmpty())
+        return true;
+    setError(securityMessage("A memory-backed temporary directory is required to preview private files.",
+                             "Özel dosyaları önizlemek için bellekte tutulan bir geçici dizin gerekli."));
+    return false;
 }
 
 bool PrivateVaultManager::exists() const
@@ -228,11 +243,13 @@ bool PrivateVaultManager::ensureStorageLayout()
 
 void PrivateVaultManager::cleanupRuntimeFiles()
 {
-    QDir dir(runtimeRoot());
-    if (dir.exists())
-        dir.removeRecursively();
-    QDir().mkpath(runtimeRoot());
-    QFile::setPermissions(runtimeRoot(), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    // Keep the private directory itself until destruction; deleting and
+    // recreating it would introduce a race in a shared /dev/shm parent.
+    if (!m_runtimeRoot.isEmpty()) {
+        const QFileInfoList files = QDir(m_runtimeRoot).entryInfoList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+        for (const QFileInfo &file : files)
+            QFile::remove(file.absoluteFilePath());
+    }
     m_materializedPaths.clear();
     m_thumbnailMaterializedPaths.clear();
 }
@@ -278,20 +295,12 @@ bool PrivateVaultManager::derivePasswordKey(const QString &password, const QByte
 {
     if (!outKey || salt.size() != SaltSize)
         return false;
+    VaultSecurity::Argon2Parameters parameters;
+    if (params && !VaultSecurity::parseArgon2Parameters(*params, &parameters))
+        return false;
     QByteArray pass = password.toUtf8();
     if (pass.isEmpty())
         return false;
-
-    quint32 iterations = 3;
-    quint32 memCost = 65536; // KiB = 64 MiB
-    quint32 lanes = 1;
-    quint32 threads = 1;
-    if (params) {
-        iterations = static_cast<quint32>(params->value(QStringLiteral("iterations")).toInt(3));
-        memCost = static_cast<quint32>(params->value(QStringLiteral("memCostKiB")).toInt(65536));
-        lanes = static_cast<quint32>(params->value(QStringLiteral("lanes")).toInt(1));
-        threads = static_cast<quint32>(params->value(QStringLiteral("threads")).toInt(1));
-    }
 
     EVP_KDF *kdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
     if (!kdf) {
@@ -309,10 +318,10 @@ bool PrivateVaultManager::derivePasswordKey(const QString &password, const QByte
     OSSL_PARAM kdfParams[] = {
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, pass.data(), static_cast<size_t>(pass.size())),
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, const_cast<char *>(salt.constData()), static_cast<size_t>(salt.size())),
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iterations),
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memCost),
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &lanes),
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &threads),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &parameters.iterations),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &parameters.memoryKiB),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &parameters.lanes),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &parameters.threads),
         OSSL_PARAM_construct_end()
     };
     const int ok = EVP_KDF_derive(ctx, reinterpret_cast<unsigned char *>(key.data()), KeySize, kdfParams);
@@ -329,7 +338,8 @@ bool PrivateVaultManager::derivePasswordKey(const QString &password, const QByte
 bool PrivateVaultManager::aesGcmEncrypt(const QByteArray &plain, const QByteArray &key, const QByteArray &aad,
                                         QByteArray *iv, QByteArray *cipher, QByteArray *tag) const
 {
-    if (!iv || !cipher || !tag || key.size() != KeySize)
+    if (!iv || !cipher || !tag || key.size() != KeySize
+            || plain.size() > std::numeric_limits<int>::max() - EVP_MAX_BLOCK_LENGTH)
         return false;
     QByteArray localIv(IvSize, Qt::Uninitialized);
     if (RAND_bytes(reinterpret_cast<unsigned char *>(localIv.data()), IvSize) != 1)
@@ -373,7 +383,8 @@ bool PrivateVaultManager::aesGcmEncrypt(const QByteArray &plain, const QByteArra
 bool PrivateVaultManager::aesGcmDecrypt(const QByteArray &cipher, const QByteArray &key, const QByteArray &aad,
                                         const QByteArray &iv, const QByteArray &tag, QByteArray *plain) const
 {
-    if (!plain || key.size() != KeySize || iv.size() != IvSize || tag.size() != TagSize)
+    if (!plain || key.size() != KeySize || iv.size() != IvSize || tag.size() != TagSize
+            || cipher.size() > std::numeric_limits<int>::max() - EVP_MAX_BLOCK_LENGTH)
         return false;
     QByteArray out(cipher.size() + 16, Qt::Uninitialized);
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -415,15 +426,21 @@ bool PrivateVaultManager::aesGcmDecrypt(const QByteArray &cipher, const QByteArr
 bool PrivateVaultManager::readHeader(QJsonObject *header) const
 {
     QFile file(headerPath());
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 65536)
+        return false;
+    const QByteArray bytes = file.read(65537);
+    if (bytes.size() > 65536 || file.error() != QFileDevice::NoError || !file.atEnd())
         return false;
     QJsonParseError error;
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
+    const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError || !doc.isObject())
         return false;
     const QJsonObject object = doc.object();
     if (object.value(QStringLiteral("magic")).toString() != QString::fromLatin1(kVaultMagic)
             || object.value(QStringLiteral("version")).toInt() != 1)
+        return false;
+    VaultSecurity::Argon2Parameters parameters;
+    if (!VaultSecurity::parseArgon2Parameters(object, &parameters))
         return false;
     *header = object;
     return true;
@@ -1171,7 +1188,8 @@ QByteArray PrivateVaultManager::makeThumbnailPng(const QString &sourcePath, cons
     if (!mimeType.startsWith(QStringLiteral("video/")))
         return {};
 
-    QDir().mkpath(runtimeRoot());
+    if (runtimeRoot().isEmpty())
+        return {};
     const QString outPath = QDir(runtimeRoot()).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".png"));
     const QString thumbnailer = QStandardPaths::findExecutable(QStringLiteral("ffmpegthumbnailer"));
     QProcess process;
@@ -1211,6 +1229,8 @@ bool PrivateVaultManager::cacheThumbnailFromSource(const QString &objectId, cons
 QString PrivateVaultManager::thumbnailUrl(const QString &objectId)
 {
     if (!m_unlocked || objectId.isEmpty())
+        return {};
+    if (!ensureRuntimeDirectory())
         return {};
     const QString existing = m_thumbnailMaterializedPaths.value(objectId);
     if (!existing.isEmpty() && QFileInfo::exists(existing))
@@ -1508,7 +1528,7 @@ bool PrivateVaultManager::encryptFileToBlob(const QString &sourcePath, const QSt
                                             const QString &blobName, const QByteArray &key) const
 {
     QFile in(sourcePath);
-    if (!in.open(QIODevice::ReadOnly))
+    if (!in.open(QIODevice::ReadOnly) || in.size() > VaultSecurity::MaxGcmPlaintextBytes)
         return false;
     QSaveFile out(QDir(objectsRoot()).filePath(blobName));
     if (!out.open(QIODevice::WriteOnly))
@@ -1533,10 +1553,13 @@ bool PrivateVaultManager::encryptFileToBlob(const QString &sourcePath, const QSt
                                 reinterpret_cast<const unsigned char *>(aad.constData()), aad.size()) == 1;
     QByteArray input(kChunkSize, Qt::Uninitialized);
     QByteArray output(kChunkSize + EVP_MAX_BLOCK_LENGTH, Qt::Uninitialized);
+    qint64 processed = 0;
     while (ok && !in.atEnd()) {
         const qint64 read = in.read(input.data(), input.size());
         if (read < 0) { ok = false; break; }
         if (read == 0) break;
+        if (read > VaultSecurity::MaxGcmPlaintextBytes - processed) { ok = false; break; }
+        processed += read;
         if (EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char *>(output.data()), &len,
                               reinterpret_cast<const unsigned char *>(input.constData()), static_cast<int>(read)) != 1) {
             ok = false; break;
@@ -1552,6 +1575,7 @@ bool PrivateVaultManager::encryptFileToBlob(const QString &sourcePath, const QSt
     if (ok)
         ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TagSize, tag.data()) == 1;
     EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(input.data(), static_cast<size_t>(input.size()));
     if (ok)
         ok = out.write(tag) == tag.size() && out.commit();
     if (ok)
@@ -1569,7 +1593,7 @@ bool PrivateVaultManager::decryptBlobToFile(const QString &objectId, const QStri
         return false;
     const QByteArray iv = in.read(IvSize);
     const qint64 cipherBytes = in.size() - kBlobMagicSize - IvSize - TagSize;
-    if (cipherBytes < 0)
+    if (cipherBytes < 0 || cipherBytes > VaultSecurity::MaxGcmPlaintextBytes)
         return false;
     if (!in.seek(in.size() - TagSize))
         return false;
@@ -1579,6 +1603,8 @@ bool PrivateVaultManager::decryptBlobToFile(const QString &objectId, const QStri
 
     QSaveFile out(targetPath);
     if (!out.open(QIODevice::WriteOnly))
+        return false;
+    if (!out.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner))
         return false;
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx)
@@ -1614,12 +1640,13 @@ bool PrivateVaultManager::decryptBlobToFile(const QString &objectId, const QStri
             ok = out.write(output.constData(), len) == len;
     }
     EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(output.data(), static_cast<size_t>(output.size()));
     if (ok)
         ok = out.commit();
     if (ok)
         QFile::setPermissions(targetPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-    else
-        QFile::remove(targetPath);
+    // QSaveFile discards unauthenticated plaintext automatically. Never delete
+    // a pre-existing destination when authentication or writing fails.
     return ok;
 }
 
@@ -1652,6 +1679,11 @@ bool PrivateVaultManager::importPathRecursive(const QString &path, const QString
     }
     if (!info.isFile())
         return true;
+    if (info.size() > VaultSecurity::MaxGcmPlaintextBytes) {
+        setError(securityMessage("This vault format supports files smaller than 64 GiB.",
+                                 "Bu kasa biçimi 64 GiB'den küçük dosyaları destekliyor."));
+        return false;
+    }
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QString blob = QUuid::createUuid().toString(QUuid::WithoutBraces);
     if (!encryptFileToBlob(info.absoluteFilePath(), id, blob, m_masterKey))
@@ -1694,7 +1726,8 @@ bool PrivateVaultManager::importUrls(const QVariantList &urls)
             m_manifest = originalManifest;
             cleanupOrphanThumbnails();
             setBusy(false);
-            setError(tr("İçe aktarma tamamlanamadı. Kasa değiştirilmedi."));
+            if (m_lastError.isEmpty())
+                setError(tr("İçe aktarma tamamlanamadı. Kasa değiştirilmedi."));
             emit operationFinished(false, m_lastError);
             return false;
         }
@@ -1784,8 +1817,8 @@ QString PrivateVaultManager::materializeForOpen(const QString &objectId)
         return {};
     if (!ensureStorageLayout())
         return {};
-    QDir().mkpath(runtimeRoot());
-    QFile::setPermissions(runtimeRoot(), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    if (!ensureRuntimeDirectory())
+        return {};
     const QString originalName = item.value(QStringLiteral("name")).toString();
     const QString suffix = QFileInfo(originalName).suffix();
     QString tempName = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -1803,7 +1836,7 @@ QString PrivateVaultManager::materializeForOpen(const QString &objectId)
 void PrivateVaultManager::releaseMaterialized(const QString &urlOrPath)
 {
     const QString path = urlToLocalPath(urlOrPath);
-    if (!path.isEmpty() && QFileInfo(path).absoluteFilePath().startsWith(QFileInfo(runtimeRoot()).absoluteFilePath()))
+    if (VaultSecurity::containsFile(m_runtimeRoot, path))
         QFile::remove(path);
     for (auto it = m_materializedPaths.begin(); it != m_materializedPaths.end(); ) {
         if (it.value() == path)
@@ -1818,7 +1851,5 @@ bool PrivateVaultManager::isRuntimeUrl(const QString &urlOrPath) const
     const QString path = urlToLocalPath(urlOrPath);
     if (path.isEmpty())
         return false;
-    const QString runtime = QFileInfo(runtimeRoot()).absoluteFilePath();
-    const QString candidate = QFileInfo(path).absoluteFilePath();
-    return candidate == runtime || candidate.startsWith(runtime + QDir::separator());
+    return VaultSecurity::containsFile(m_runtimeRoot, path);
 }

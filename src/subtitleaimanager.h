@@ -20,6 +20,7 @@ class SubtitleAiManager : public QObject
     Q_PROPERTY(int liveRevision READ liveRevision NOTIFY liveRevisionChanged)
     Q_PROPERTY(bool liveTranslationActive READ liveTranslationActive NOTIFY liveRevisionChanged)
     Q_PROPERTY(QString selectedSubtitlePath READ selectedSubtitlePath NOTIFY selectedSubtitleChanged)
+    Q_PROPERTY(bool downloadsAllowed READ downloadsAllowed WRITE setDownloadsAllowed NOTIFY downloadsAllowedChanged)
 
 public:
     explicit SubtitleAiManager(QObject *parent = nullptr);
@@ -34,6 +35,8 @@ public:
     int liveRevision() const { return m_liveRevision; }
     bool liveTranslationActive() const { return m_liveTranslationActive; }
     QString selectedSubtitlePath() const { return m_selectedSubtitlePath; }
+    bool downloadsAllowed() const { return m_downloadsAllowed; }
+    void setDownloadsAllowed(bool allowed);
 
     Q_INVOKABLE bool startTranscription(const QString &filePath,
                                         const QString &language = QStringLiteral("tr"),
@@ -75,6 +78,7 @@ signals:
     void lastLogChanged();
     void liveRevisionChanged();
     void selectedSubtitleChanged();
+    void downloadsAllowedChanged();
     void completed(const QString &outputPath);
     void failed(const QString &message);
     void cancelled();
@@ -125,6 +129,7 @@ private:
     QByteArray m_stdoutBuffer;
     QByteArray m_stderrBuffer;
     bool m_busy = false;
+    bool m_downloadsAllowed = false;
     bool m_cancelRequested = false;
     bool m_terminalEventReceived = false;
     int m_progress = 0;

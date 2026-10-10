@@ -17,6 +17,9 @@
 #include <cstdio>
 #include <functional>
 #include "backend_test_types.h"
+#include "vaultsecurity.h"
+#include <QJsonDocument>
+#include <QTemporaryDir>
 
 static void require(bool ok, const char *message) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -114,7 +117,61 @@ int main(int argc, char **argv) {
     QFile decrypted(QUrl(opened).toLocalFile());
     require(decrypted.open(QIODevice::ReadOnly) && decrypted.readAll() == payload, "encrypted file bytes survive password changes and authentication resets");
     decrypted.close();
+    require(VaultSecurity::isMemoryFilesystem(QFileInfo(decrypted).absolutePath()), "vault plaintext uses a verified memory filesystem");
+    require(!(QFileInfo(decrypted).permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther)), "plaintext has owner-only permissions");
+    {
+        PrivateVaultManager second;
+        require(second.unlock(changedPassword), "second vault instance opens independently");
+        const QString another = second.materializeForOpen(payloadId);
+        require(!another.isEmpty() && another != opened, "each vault instance has independent runtime storage");
+        second.lock();
+        require(QFileInfo::exists(QUrl(opened).toLocalFile()), "locking another instance preserves the first instance's plaintext");
+    }
+    QTemporaryDir sibling(QFileInfo(decrypted).absolutePath() + "-sibling-XXXXXX");
+    QFile siblingFile(sibling.filePath("keep.txt")); require(siblingFile.open(QIODevice::WriteOnly), "sibling fixture opens");
+    siblingFile.write("keep"); siblingFile.close();
+    require(!vault.isRuntimeUrl(siblingFile.fileName()), "runtime sibling prefix is rejected");
+    vault.releaseMaterialized(siblingFile.fileName());
+    require(QFileInfo::exists(siblingFile.fileName()), "releasing a sibling path cannot delete it");
     vault.releaseMaterialized(opened);
+    const QString privateRoot = QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)).filePath(".private-vault");
+    const QString blobPath = QDir(privateRoot + "/objects").entryInfoList(QDir::Files).constFirst().absoluteFilePath();
+    QFile blob(blobPath); require(blob.open(QIODevice::ReadOnly), "ciphertext fixture opens");
+    const QByteArray originalBlob = blob.readAll(); blob.close();
+    QByteArray damagedBlob = originalBlob; damagedBlob[damagedBlob.size()-1] ^= 1;
+    require(blob.open(QIODevice::WriteOnly | QIODevice::Truncate), "ciphertext tamper fixture opens");
+    blob.write(damagedBlob); blob.close();
+    require(vault.materializeForOpen(payloadId).isEmpty(), "tampered GCM tag never produces a plaintext file");
+    require(blob.open(QIODevice::WriteOnly | QIODevice::Truncate), "ciphertext fixture is restored");
+    blob.write(originalBlob); blob.close();
+    const QString recovered = vault.materializeForOpen(payloadId);
+    QFile recoveredFile(QUrl(recovered).toLocalFile());
+    require(recoveredFile.open(QIODevice::ReadOnly) && recoveredFile.readAll() == payload, "valid authenticated ciphertext remains compatible");
+    recoveredFile.close(); vault.releaseMaterialized(recovered);
+    QFile oversized(QDir(QString::fromLocal8Bit(qgetenv("LURVIKO_VAULT_TEST_ROOT"))).filePath("oversized-sparse.bin"));
+    require(oversized.open(QIODevice::WriteOnly) && oversized.resize(VaultSecurity::MaxGcmPlaintextBytes+1), "sparse oversized fixture is created without allocating data");
+    oversized.close();
+    require(!vault.importUrls({QUrl::fromLocalFile(oversized.fileName())}) && vault.totalItemCount() == 2, "GCM length limit rejects oversized files before reading or modifying the vault");
+    oversized.remove();
+    require(vault.setPasswordProtection(false, 2, 1, 0), "disable counters for malformed-header checks");
+    vault.lock();
+    QFile headerFile(privateRoot + "/vault.json"); require(headerFile.open(QIODevice::ReadOnly), "header fixture opens");
+    const QByteArray originalHeader = headerFile.readAll(); headerFile.close();
+    const QJsonObject originalObject = QJsonDocument::fromJson(originalHeader).object();
+    for (const QString &field : {QStringLiteral("iterations"), QStringLiteral("memCostKiB"), QStringLiteral("lanes"), QStringLiteral("threads")}) {
+        QJsonObject corrupt = originalObject; corrupt[field] = -1;
+        require(headerFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "corrupt KDF header opens");
+        headerFile.write(QJsonDocument(corrupt).toJson()); headerFile.close();
+        QElapsedTimer timer; timer.start();
+        require(!vault.unlock(changedPassword) && timer.elapsed() < 500, "corrupt KDF header is rejected before allocating Argon2 resources");
+    }
+    require(headerFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "oversized header fixture opens");
+    headerFile.write(QByteArray(65537, ' ')); headerFile.close();
+    require(!vault.unlock(changedPassword), "oversized header is rejected before parsing");
+    require(headerFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "valid header is restored");
+    headerFile.write(originalHeader); headerFile.close();
+    require(vault.unlock(changedPassword), "original encrypted vault still unlocks after header checks");
+    std::fprintf(stderr, "PASS: memory-backed private storage, instance isolation, sibling paths, authenticated tamper rejection, GCM size limit and malformed KDF headers\n");
     std::fprintf(stderr, "PASS: disabled policy and password change preserve encrypted data\n");
     const QString authFile = QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
                                  .filePath(".private-vault/authentication.json");

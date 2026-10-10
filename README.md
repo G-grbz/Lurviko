@@ -207,12 +207,33 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 | Archive creation / extraction | `bsdtar` from libarchive / `7z` from 7zip; format support depends on the helper |
 | AppImage icon extraction | `unsquashfs` from squashfs-tools |
 | Additional image formats | Qt image-format plugins |
-| Administrator locations | `kio-admin` and a functioning Polkit agent |
+| Administrator locations, file ownership and permissions | `kio-admin` and a functioning Polkit agent |
 | Terminal, external search, disk usage | Your configured terminal; optional `kfind`, `filelight` |
 | Device/Bluetooth sending | Optional KDE Connect/Bluetooth tools |
 | Film metadata | A user-provided TMDB read-access token in settings or `TMDB_API_TOKEN` |
 
+### File permissions and ownership
+
+Properties provides an editable octal permission code, individual read/write/execute
+controls, and owner/group selectors. Normal changes use your current account's
+permissions; the group selector lists groups your account belongs to. Enable
+**Use administrator authentication** to select any system user or group and let
+the system's authentication dialog authorize the change. This requires `kio-admin`
+and a running Polkit agent; Lurviko does not collect administrator passwords.
+
+Folders need execute ("Enter folder") permission to access their children and
+read file metadata. `0644` is a common file mode; folders typically use `0755`
+or `0700`. Removing folder access does not erase the files inside it.
+
+For folders, **Apply to enclosed files and folders** includes hidden entries,
+skips symbolic links, and supports cancellation. Execute permissions apply to
+subfolders and already executable files without making ordinary documents
+executable. Cancellation stops further changes; changes already applied remain.
+
 ### Cloud accounts
+
+See [Google Drive client setup and scope requirements](docs/google-drive-setup.md)
+before connecting an account or publishing a shared OAuth client.
 
 Configure a Google desktop OAuth client or a Microsoft public-client application in the cloud settings, then connect your account. Environment defaults are also supported: `LURVIKO_GOOGLE_CLIENT_ID`, `LURVIKO_GOOGLE_CLIENT_SECRET`, `LURVIKO_ONEDRIVE_CLIENT_ID` and `LURVIKO_ONEDRIVE_TENANT`. Tokens/secrets are handled through KWallet. No shared OAuth or TMDB credentials are included in this repository.
 
@@ -222,7 +243,13 @@ Lurviko runs its own bundled subtitle worker directly for Whisper transcription
 and local AI translation. Runtime dependencies and model caches are managed in
 Lurviko's user directories; no separate subtitle application is required.
 
-AI features are optional and do not affect basic file browsing. Python, the relevant inference packages, downloaded models and adequate RAM/disk space are needed. The bundled worker can provision dependencies when an AI task is requested; first use can require network access. Existing subtitle translation does not load Whisper unless audio transcription is requested.
+AI features are optional and do not affect basic file browsing. Python 3.11+,
+inference packages, models and adequate RAM/disk space are needed. Installation
+and model downloads default to disabled; explicitly enable them in the subtitle
+dialog if needed. That preference is saved and can be disabled there. Existing
+cached models/user-provided runtimes work without download permission. New
+packages use hash-locked dependencies; built-in models use immutable commits.
+Existing subtitle translation does not load Whisper unless requested.
 
 See [tools/subtitle-ai/README.md](tools/subtitle-ai/README.md), [runtime requirements](tools/subtitle-ai/requirements.txt) and [translation-only requirements](tools/subtitle-ai/requirements-translation.txt). Model licenses are separate from the application license. NVIDIA acceleration requires the compatible CUDA/cuDNN runtime; CPU execution is also supported.
 
@@ -282,7 +309,10 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 
 ### Publishing a source release
 
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.0.0`** (or `Lurviko-v1.0.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.0.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+Published tags are immutable: source fixes need a new version/tag rather than
+replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
+
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.1.0`** (or `Lurviko-v1.1.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.1.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
 
 The workflow publishes source code; it does not produce distribution packages. See [GitHub tag triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push) and [release creation](https://cli.github.com/manual/gh_release_create).
 

@@ -27,6 +27,14 @@ from typing import Any
 
 CACHE_VERSION = 2
 EXISTING_CACHE_VERSION = 3
+TRANSLATION_ENGINE_VERSION = 1
+
+
+def prepare_translation_state(state: dict, target_language: str) -> None:
+    """Invalidate legacy translation units while keeping extracted/ASR sources."""
+    translations = state.setdefault("translations", {})
+    if target_language and translations.get(target_language, {}).get("engine_version") != TRANSLATION_ENGINE_VERSION:
+        translations[target_language] = {"engine_version": TRANSLATION_ENGINE_VERSION}
 
 
 def emit(event: str, **payload: Any) -> None:
@@ -130,15 +138,16 @@ def _ensure_private_cuda_runtime(vendor: Path) -> bool:
 
     cublas = vendor / "nvidia" / "cublas" / "lib" / "libcublas.so.12"
     cudnn = vendor / "nvidia" / "cudnn" / "lib" / "libcudnn.so.9"
-    auto_install = os.environ.get("LURVIKO_SUBTITLE_AI_AUTO_INSTALL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    auto_install = os.environ.get("LURVIKO_SUBTITLE_AI_AUTO_INSTALL", "0").strip().lower() in {"1", "true", "yes", "on"}
     if (not cublas.is_file() or not cudnn.is_file()) and auto_install:
         vendor.mkdir(parents=True, exist_ok=True)
         emit("progress", value=0, message="Lurviko Subtitle AI GPU çalışma ortamı hazırlanıyor…")
         emit("log", message="Lurviko Subtitle AI: NVIDIA için özel CUDA çalışma zamanı hazırlanıyor…")
         completed = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--isolated", "--disable-pip-version-check",
-             "--no-warn-conflicts", "--upgrade", "--ignore-installed", "--target", str(vendor),
-             "nvidia-cublas-cu12", "nvidia-cudnn-cu12==9.*"],
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--isolated", "--disable-pip-version-check",
+             "--no-warn-conflicts", "--ignore-installed", "--require-hashes", "--only-binary=:all:",
+             "--index-url", "https://pypi.org/simple", "--target", str(vendor),
+             "-r", str(Path(__file__).resolve().parent / "requirements-gpu.txt")],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False,
         )
         if completed.returncode != 0:
@@ -148,8 +157,11 @@ def _ensure_private_cuda_runtime(vendor: Path) -> bool:
 
 
 def bootstrap_runtime(vendor: Path, *, translation_only: bool = False) -> None:
+    if sys.version_info < (3, 11):
+        from gfile_subtitle_ai.core import ui_text
+        raise RuntimeError(ui_text("error_python_version"))
     packages_ready = runtime_ready(translation_only=translation_only)
-    auto_install = os.environ.get("LURVIKO_SUBTITLE_AI_AUTO_INSTALL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    auto_install = os.environ.get("LURVIKO_SUBTITLE_AI_AUTO_INSTALL", "0").strip().lower() in {"1", "true", "yes", "on"}
 
     if not packages_ready and auto_install:
         requirements = Path(__file__).resolve().parent / (
@@ -159,9 +171,14 @@ def bootstrap_runtime(vendor: Path, *, translation_only: bool = False) -> None:
             vendor.mkdir(parents=True, exist_ok=True)
             emit("progress", value=0, message="Lurviko Subtitle AI çalışma ortamı hazırlanıyor…")
             emit("log", message=f"Lurviko Subtitle AI: Python paketleri {vendor} dizinine kuruluyor.")
+            # A partial target may already contain namespace directories (e.g.
+            # nvidia). Pip must merge/replace these when repairing an incomplete
+            # runtime, using only approved, hash-locked versions. Ready runtimes
+            # never reach this branch and are not upgraded.
             cmd = [
-                sys.executable, "-m", "pip", "install", "--isolated", "--disable-pip-version-check",
-                "--no-warn-conflicts", "--upgrade", "--ignore-installed", "--target", str(vendor),
+                sys.executable, "-m", "pip", "install", "--upgrade", "--isolated", "--disable-pip-version-check",
+                "--no-warn-conflicts", "--ignore-installed", "--require-hashes", "--only-binary=:all:",
+                "--index-url", "https://pypi.org/simple", "--target", str(vendor),
                 "-r", str(requirements),
             ]
             completed = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
@@ -183,7 +200,8 @@ def bootstrap_runtime(vendor: Path, *, translation_only: bool = False) -> None:
         emit("log", message="Lurviko Subtitle AI: CUDA runtime kullanılamıyor; CPU fallback etkin.")
 
     if not runtime_ready(translation_only=translation_only):
-        raise RuntimeError("Gerekli Python paketleri yüklenemedi.")
+        from gfile_subtitle_ai.core import ui_text
+        raise RuntimeError(ui_text("error_runtime_permission"))
     emit("log", message="Lurviko Subtitle AI: çalışma ortamı hazır.")
 
 
@@ -402,8 +420,8 @@ def main() -> int:
     job_dir.mkdir(parents=True, exist_ok=True)
     state_path = job_dir / "state.json"
     source_path = job_dir / "source.srt"
-    translation_checkpoint = job_dir / f"translation-{target_language}.jsonl" if target_language else None
-    translation_final = job_dir / f"translation-{target_language}.srt" if target_language else None
+    translation_checkpoint = job_dir / f"translation-{target_language}-e{TRANSLATION_ENGINE_VERSION}.jsonl" if target_language else None
+    translation_final = job_dir / f"translation-{target_language}-e{TRANSLATION_ENGINE_VERSION}.srt" if target_language else None
 
     state = read_json(state_path)
     media_stat = input_path.stat()
@@ -424,7 +442,7 @@ def main() -> int:
             "subtitle_kind": subtitle_kind, "subtitle_track_index": subtitle_track_index,
             "subtitle_file": str(subtitle_path) if subtitle_path else "",
         })
-    state.setdefault("translations", {})
+    prepare_translation_state(state, target_language)
     atomic_json(state_path, state)
 
     progress_re = re.compile(r"^Progress:\s*(\d+)%")
@@ -574,7 +592,7 @@ def main() -> int:
             payload = cue_payload(source_cues)
             if payload:
                 emit("live_cues", stage="translated", replace=True, cues=payload)
-            state["translations"][target_language] = {"complete": True, "completed_units": 0, "total_units": 0, "progress": 100, "output": str(output)}
+            state["translations"][target_language] = {"engine_version": TRANSLATION_ENGINE_VERSION, "complete": True, "completed_units": 0, "total_units": 0, "progress": 100, "output": str(output)}
             atomic_json(state_path, state)
             publish_progress(100, "Kaynak dil hedef dille aynı; hazır altyazı kullanıldı.")
             emit("completed", output=str(output.resolve()))
@@ -623,6 +641,7 @@ def main() -> int:
             checkpoint_handle.flush()
             percent = int(done_units * 100 / max(1, total_units))
             state["translations"][target_language] = {
+                "engine_version": TRANSLATION_ENGINE_VERSION,
                 "complete": False, "completed_units": int(done_units), "total_units": int(total_units), "progress": percent,
             }
             atomic_json(state_path, state)
@@ -636,6 +655,7 @@ def main() -> int:
                 source_cues, source_language, target_language, partial_callback=translated_live,
                 resume_unit_offset=completed_units, initial_translated=restored_cues,
                 unit_callback=checkpoint_callback, cancel_event=cancel_event, log=log,
+                authored=(mode == "subtitle"),
             )
         finally:
             checkpoint_handle.close()
@@ -650,6 +670,7 @@ def main() -> int:
         shutil.copy2(translation_final, output)
         current = state["translations"].get(target_language, {})
         state["translations"][target_language] = {
+            "engine_version": TRANSLATION_ENGINE_VERSION,
             "complete": True, "completed_units": int(current.get("completed_units", 0)),
             "total_units": int(current.get("total_units", 0)), "progress": 100,
             "cache_path": str(translation_final), "output": str(output),

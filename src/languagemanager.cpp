@@ -115,6 +115,8 @@ QString LanguageManager::localizeMessage(const QString &message) const
         {QStringLiteral("Changes synced to Google Drive."), QStringLiteral("Değişiklikler Google Drive'a eşitlendi.")},
         {QStringLiteral("Google Drive is not connected. Return to Home and connect your account."), QStringLiteral("Google Drive bağlı değil. Ana Sayfa'ya dönüp hesabınızı bağlayın.")},
         {QStringLiteral("Folder does not exist."), QStringLiteral("Klasör mevcut değil.")},
+        {QStringLiteral("Cannot read this folder's contents. Check its read and folder access permissions."),
+         QStringLiteral("Klasör içeriği okunamıyor. Okuma ve dizine girme izinlerini kontrol edin.")},
         {QStringLiteral("Invalid Google Drive location."), QStringLiteral("Google Drive konumu geçersiz.")},
         {QStringLiteral("Google Drive session expired or is invalid. Reconnect Google Drive from Home."), QStringLiteral("Google Drive oturumunun süresi dolmuş veya oturum geçersiz. Ana Sayfa'dan yeniden bağlanın.")},
         {QStringLiteral("Invalid Google Drive item or name."), QStringLiteral("Google Drive öğesi veya adı geçersiz.")},

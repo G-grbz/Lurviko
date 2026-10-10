@@ -1,4 +1,5 @@
 #include "fileoperations.h"
+#include "archivearguments.h"
 
 #include <QClipboard>
 #include <QDir>
@@ -1668,7 +1669,7 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     for (const QFileInfo &info : std::as_const(sources)) {
         // -C before each operand avoids embedding absolute paths even when a
         // category selection contains files from different directories.
-        args << QStringLiteral("-C") << info.absolutePath() << info.fileName();
+        args << ArchiveArguments::sourceOperand(info);
         if (info.isFile() && info.size() > 0)
             inputBytes += qulonglong(info.size());
     }

@@ -36,6 +36,8 @@
 #include <utility>
 
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace {
 
@@ -1708,6 +1710,16 @@ void DirectoryModel::loadLocal(bool incremental)
             return result;
         }
         result.absolutePath = dir.absolutePath();
+
+        // readdir can return names without directory search permission, but
+        // stat cannot read any child metadata. QFileInfo then reports size 0,
+        // which must not be presented as if the files had become empty.
+        // Check effective access (including ACLs) rather than just mode bits.
+        if (::faccessat(AT_FDCWD, QFile::encodeName(result.absolutePath).constData(),
+                        R_OK | X_OK, AT_EACCESS) != 0) {
+            result.error = QStringLiteral("Cannot read this folder's contents. Check its read and folder access permissions.");
+            return result;
+        }
 
         QDir::Filters filters = QDir::AllEntries | QDir::NoDotAndDotDot;
         if (showHidden)

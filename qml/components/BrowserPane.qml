@@ -3231,8 +3231,6 @@ Rectangle {
 
     function openPropertiesForSelection() {
         openWithModel.setContext(selectedUrl, selectedMimeType)
-        if (selectedLocalPath.length > 0)
-            fileProperties.inspect(selectedUrl)
         propertiesDialog.open()
     }
 
@@ -3349,6 +3347,17 @@ Rectangle {
 
     FilePropertiesManager {
         id: fileProperties
+        onPermissionsChanged: propertiesDialog.resetAccessDraft()
+        onPermissionsApplied: directory.requestRefresh()
+        onAccessFinished: function(success, cancelled, changed, failed) {
+            const message = cancelled
+                    ? (lang.language === "tr" ? "İşlem iptal edildi. Güncellenen: " : "Cancelled. Updated: ") + changed
+                    : failed > 0
+                      ? (lang.language === "tr" ? "Güncellenen: " : "Updated: ") + changed
+                        + (lang.language === "tr" ? " · Başarısız: " : " · Failed: ") + failed
+                      : (lang.language === "tr" ? "Erişim ayarları güncellendi: " : "Access settings updated: ") + changed
+            root.requestToast(message)
+        }
         onFolderIconChanged: function(path, iconName) {
             directory.requestRefresh()
             root.requestToast(lang.language === "tr" ? "Klasör ikonu değiştirildi." : "Folder icon changed.")
@@ -4312,7 +4321,7 @@ Rectangle {
                     // Icon + name + metadata need a little vertical breathing
                     // room.  The old +52 was already tight in normal mode and
                     // overflowed as soon as the F2 editor grew by a few pixels.
-                    cellHeight: Math.round(iconExtent + 62)
+                    cellHeight: Math.round(iconExtent + 68)
                     boundsBehavior: Flickable.StopAtBounds
                     onContentYChanged: root.scheduleTabScrollSnapshot()
 
@@ -4430,6 +4439,7 @@ Rectangle {
                         // No permanent tile/card background: the icon and labels own the space.
                         // A lightweight highlight appears only for selection/hover feedback.
                         Rectangle {
+                            objectName: "gridItemHighlight"
                             anchors.fill: parent
                             anchors.leftMargin: 7
                             anchors.rightMargin: 7
@@ -4493,7 +4503,7 @@ Rectangle {
                             anchors.leftMargin: 7
                             anchors.rightMargin: 7
                             anchors.topMargin: 7
-                            anchors.bottomMargin: 9
+                            anchors.bottomMargin: 14
                             spacing: 4
 
                             Item {
@@ -4680,9 +4690,12 @@ Rectangle {
 
                             Item {
                                 Layout.fillWidth: true
+                                Layout.leftMargin: 10
+                                Layout.rightMargin: 10
                                 Layout.preferredHeight: root.inlineRenameUrl === itemUrl ? 26 : 22
 
                                 Text {
+                                    objectName: "gridFileName"
                                     anchors.fill: parent
                                     visible: root.inlineRenameUrl !== itemUrl
                                     text: name
@@ -4760,6 +4773,8 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
+                                Layout.leftMargin: 10
+                                Layout.rightMargin: 10
                                 text: directory.searchActive
                                       ? root.searchParentLabel(itemUrl, localPath)
                                       : (isDir ? root.folderItemCountText(childCount)
@@ -6665,7 +6680,7 @@ Rectangle {
         }
 
         GMenuItem {
-            text: lang.t("open")
+            text: lang.t("open"); shortcutAction: "open"
             enabled: root.selectedCount > 0
             onTriggered: root.openSelected()
         }
@@ -6772,12 +6787,12 @@ Rectangle {
         GMenuSeparator {}
 
         GMenuItem {
-            text: (lang.language === "tr" ? "Kes" : "Cut") + root.shortcutSuffix("cut")
+            text: (lang.language === "tr" ? "Kes" : "Cut"); shortcutAction: "cut"
             enabled: root.selectedCount > 0
             onTriggered: root.cutSelection()
         }
         GMenuItem {
-            text: (lang.language === "tr" ? "Kopyala" : "Copy") + root.shortcutSuffix("copy")
+            text: (lang.language === "tr" ? "Kopyala" : "Copy"); shortcutAction: "copy"
             enabled: root.selectedCount > 0
             onTriggered: root.copySelection()
         }
@@ -6787,26 +6802,26 @@ Rectangle {
             enabled: root.selectedCount > 0 && root.submenuActivationReady
 
             GMenuItem {
-                text: (lang.language === "tr" ? "Symlink Oluştur…" : "Create Symlink…") + root.shortcutSuffix("symlink")
+                text: (lang.language === "tr" ? "Symlink Oluştur…" : "Create Symlink…"); shortcutAction: "symlink"
                 enabled: root.selectedCanCreateLink
                 onTriggered: root.showNewSymlinkDialog(true)
             }
             GMenuItem {
-                text: (lang.language === "tr" ? "Hardlink Oluştur…" : "Create Hardlink…") + root.shortcutSuffix("hardlink")
+                text: (lang.language === "tr" ? "Hardlink Oluştur…" : "Create Hardlink…"); shortcutAction: "hardlink"
                 enabled: root.selectedCanCreateLink && !root.selectedIsDir
                          && root.selectedLinkType !== "symlink"
                 onTriggered: root.showNewHardlinkDialog(true)
             }
             GMenuSeparator {}
             GMenuItem {
-                text: lang.t("duplicate") + root.shortcutSuffix("duplicate")
+                text: lang.t("duplicate"); shortcutAction: "duplicate"
                 enabled: root.selectedCount > 0
                 onTriggered: root.duplicateSelection()
             }
         }
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedIsDir && !root.selectedIsCloud
-            text: (lang.language === "tr" ? "Klasöre yapıştır" : "Paste into folder") + root.shortcutSuffix("paste_into")
+            text: (lang.language === "tr" ? "Klasöre yapıştır" : "Paste into folder"); shortcutAction: "paste_into"
             enabled: fileOps.canPaste
             onTriggered: root.pasteIntoSelection()
         }
@@ -6832,6 +6847,7 @@ Rectangle {
             text: root.selectedCount > 1
                   ? (lang.language === "tr" ? "Toplu yeniden adlandır…" : "Batch rename…")
                   : lang.t("rename")
+            shortcutAction: "rename"
             enabled: root.selectedCount > 0
                      && (root.selectedCount === 1 || !root.isCloudUrl(directory.location))
             onTriggered: root.renameSelection()
@@ -7077,6 +7093,7 @@ Rectangle {
         GMenuItem {
             text: (root.isTrashLocation || root.contextShiftDelete)
                   ? lang.t("delete_permanently") : lang.t("move_trash")
+            shortcutAction: (root.isTrashLocation || root.contextShiftDelete) ? "delete" : "trash"
             enabled: root.selectedCount > 0
             onTriggered: {
                 if (root.isTrashLocation || root.contextShiftDelete)
@@ -7089,7 +7106,7 @@ Rectangle {
 
         GMenuItem {
             visible: root.selectedCount === 1
-            text: lang.t("properties")
+            text: lang.t("properties"); shortcutAction: "properties"
             onTriggered: root.openPropertiesForSelection()
         }
     }
@@ -7116,11 +7133,13 @@ Rectangle {
 
             GMenuItem {
                 text: lang.t("new_folder")
+                shortcutAction: "new_folder"
                 onTriggered: root.showNewFolderDialog()
             }
             GMenuItem {
                 visible: !root.isCloudUrl(directory.location)
                 text: lang.language === "tr" ? "Yeni dosya…" : "New file…"
+                shortcutAction: "new_file"
                 onTriggered: root.showNewFileDialog()
             }
             GMenuSeparator { visible: root.currentLocationIsLocal }
@@ -7138,7 +7157,7 @@ Rectangle {
 
         GMenuItem {
             visible: !root.isCloudUrl(directory.location) && !root.isCategoryLocation
-            text: (lang.language === "tr" ? "Yapıştır" : "Paste") + root.shortcutSuffix("paste")
+            text: (lang.language === "tr" ? "Yapıştır" : "Paste"); shortcutAction: "paste"
             enabled: fileOps.canPaste
             onTriggered: root.pasteHere()
         }
@@ -7160,8 +7179,8 @@ Rectangle {
         }
 
         GMenuSeparator {}
-        GMenuItem { text: lang.t("select_all") + root.shortcutSuffix("select_all"); onTriggered: root.selectAll() }
-        GMenuItem { text: lang.t("clear_selection") + root.shortcutSuffix("clear_selection"); enabled: root.selectedCount > 0; onTriggered: root.clearSelection() }
+        GMenuItem { text: lang.t("select_all"); shortcutAction: "select_all"; onTriggered: root.selectAll() }
+        GMenuItem { text: lang.t("clear_selection"); shortcutAction: "clear_selection"; enabled: root.selectedCount > 0; onTriggered: root.clearSelection() }
 
         GMenuSeparator {}
 
@@ -7271,6 +7290,36 @@ Rectangle {
 
     GModalPopup {
         id: propertiesDialog
+        objectName: "filePropertiesDialog"
+        property int permissionDraft: 0
+        property string ownerDraft: ""
+        property string groupDraft: ""
+        property bool recursiveDraft: false
+        property bool administratorDraft: false
+        property var ownerChoices: []
+        property var groupChoices: []
+        readonly property bool canEditAccess: !fileProperties.accessBusy
+                && fileProperties.linkType !== "symlink"
+                && (fileProperties.permissionsEditable || administratorDraft)
+        readonly property bool permissionsDirty: permissionDraft !== fileProperties.permissionMode
+                || ownerDraft !== fileProperties.ownerName || groupDraft !== fileProperties.groupName || recursiveDraft
+        function reloadAccessChoices() {
+            ownerChoices = fileProperties.availableOwners(administratorDraft)
+            groupChoices = fileProperties.availableGroups(administratorDraft)
+            if (ownerChoices.indexOf(ownerDraft) < 0) ownerDraft = fileProperties.ownerName
+            if (groupChoices.indexOf(groupDraft) < 0) groupDraft = fileProperties.groupName
+        }
+        function resetAccessDraft() {
+            permissionDraft = fileProperties.permissionMode
+            ownerDraft = fileProperties.ownerName
+            groupDraft = fileProperties.groupName
+            reloadAccessChoices()
+        }
+        function applyAccessDraft() {
+            if (canEditAccess && permissionsDirty && permissionModeInput.acceptableInput)
+                fileProperties.applyAccess(permissionDraft, ownerDraft, groupDraft, recursiveDraft, administratorDraft)
+        }
+        onAdministratorDraftChanged: reloadAccessChoices()
         parent: Overlay.overlay
         modal: true
         focus: true
@@ -7280,6 +7329,9 @@ Rectangle {
         padding: 0
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onOpened: {
+            propertiesWheel.reset()
+            recursiveDraft = false
+            administratorDraft = false
             openWithModel.setContext(root.selectedUrl, root.selectedMimeType)
             if (root.selectedLocalPath.length > 0) {
                 fileProperties.inspect(root.selectedUrl)
@@ -7291,6 +7343,7 @@ Rectangle {
                 defaultAppCombo.currentIndex = openWithModel.indexForDesktopEntry(openWithModel.defaultDesktopEntry)
             })
         }
+        onClosed: { propertiesWheel.reset(); fileProperties.cancelAccess() }
         background: GModalSurface { }
 
         ColumnLayout {
@@ -7399,6 +7452,7 @@ Rectangle {
 
             ScrollView {
                 id: propertiesScroll
+                objectName: "filePropertiesScroll"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -7472,6 +7526,268 @@ Rectangle {
 
                             Text { text: lang.t("mime_type"); color: AppTheme.textMuted; font.pixelSize: 11 }
                             Text { text: root.selectedMimeType || "—"; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                        }
+                    }
+
+                    Text {
+                        visible: root.selectedLocalPath.length > 0
+                        text: lang.language === "tr" ? "ERİŞİM İZİNLERİ" : "ACCESS PERMISSIONS"
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        font.bold: true
+                        font.letterSpacing: 0.8
+                    }
+
+                    Rectangle {
+                        visible: root.selectedLocalPath.length > 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: permissionsContent.implicitHeight + 32
+                        radius: 16
+                        color: AppTheme.surfaceRaised
+                        border.color: AppTheme.border
+
+                        ColumnLayout {
+                            id: permissionsContent
+                            objectName: "filePermissionEditor"
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    Text { text: lang.language === "tr" ? "Sahibi" : "Owner"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                                    GComboBox {
+                                        objectName: "permissionOwnerCombo"
+                                        Layout.fillWidth: true
+                                        implicitWidth: 160
+                                        implicitHeight: 34
+                                        model: propertiesDialog.ownerChoices
+                                        currentIndex: propertiesDialog.ownerChoices.indexOf(propertiesDialog.ownerDraft)
+                                        enabled: propertiesDialog.canEditAccess && count > 1
+                                        onActivated: propertiesDialog.ownerDraft = currentText
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    Text { text: lang.language === "tr" ? "Grup" : "Group"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                                    GComboBox {
+                                        objectName: "permissionGroupCombo"
+                                        Layout.fillWidth: true
+                                        implicitWidth: 160
+                                        implicitHeight: 34
+                                        model: propertiesDialog.groupChoices
+                                        currentIndex: propertiesDialog.groupChoices.indexOf(propertiesDialog.groupDraft)
+                                        enabled: propertiesDialog.canEditAccess && count > 1
+                                        onActivated: propertiesDialog.groupDraft = currentText
+                                    }
+                                }
+                                ColumnLayout {
+                                    spacing: 3
+                                    Text { text: lang.language === "tr" ? "İzin kodu" : "Mode"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                                    GTextField {
+                                        id: permissionModeInput
+                                        objectName: "permissionModeInput"
+                                        Layout.preferredWidth: 76
+                                        implicitHeight: 34
+                                        leftPadding: 8
+                                        rightPadding: 8
+                                        horizontalAlignment: Text.AlignHCenter
+                                        font.pixelSize: 12
+                                        font.family: "monospace"
+                                        enabled: propertiesDialog.canEditAccess
+                                        validator: RegularExpressionValidator { regularExpression: /0?[0-7]{3}/ }
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        function syncModeText() {
+                                            text = "0" + propertiesDialog.permissionDraft.toString(8).padStart(3, "0")
+                                        }
+                                        Component.onCompleted: syncModeText()
+                                        onTextEdited: {
+                                            if (acceptableInput) propertiesDialog.permissionDraft = parseInt(text, 8)
+                                        }
+                                        onActiveFocusChanged: if (!activeFocus) syncModeText()
+                                        onAccepted: propertiesDialog.applyAccessDraft()
+                                        Connections {
+                                            target: propertiesDialog
+                                            function onPermissionDraftChanged() {
+                                                if (!permissionModeInput.activeFocus
+                                                        || (permissionModeInput.acceptableInput
+                                                            && parseInt(permissionModeInput.text, 8) !== propertiesDialog.permissionDraft))
+                                                    permissionModeInput.syncModeText()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Item { Layout.preferredWidth: 100 }
+                                Repeater {
+                                    model: [lang.language === "tr" ? "Okuma" : "Read",
+                                            lang.language === "tr" ? "Yazma" : "Write",
+                                            root.selectedIsDir ? (lang.language === "tr" ? "Dizine girme" : "Enter folder")
+                                                               : (lang.language === "tr" ? "Çalıştırma" : "Execute")]
+                                    Text {
+                                        required property string modelData
+                                        Layout.fillWidth: true
+                                        Layout.preferredWidth: 1
+                                        text: modelData
+                                        horizontalAlignment: Text.AlignHCenter
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: 10
+                                    }
+                                }
+                            }
+
+                            Repeater {
+                                model: [
+                                    { label: lang.language === "tr" ? "Sahibi" : "Owner", key: "Owner", bits: [256, 128, 64] },
+                                    { label: lang.language === "tr" ? "Grup" : "Group", key: "Group", bits: [32, 16, 8] },
+                                    { label: lang.language === "tr" ? "Diğerleri" : "Others", key: "Other", bits: [4, 2, 1] }
+                                ]
+                                RowLayout {
+                                    id: permissionRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    Text {
+                                        Layout.preferredWidth: 100
+                                        text: permissionRow.modelData.label
+                                        color: AppTheme.text
+                                        font.pixelSize: 11
+                                    }
+                                    Repeater {
+                                        model: permissionRow.modelData.bits
+                                        Item {
+                                            required property int modelData
+                                            required property int index
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 1
+                                            Layout.preferredHeight: 30
+                                            GCheckBox {
+                                                objectName: "permission" + permissionRow.modelData.key + ["Read", "Write", "Execute"][parent.index]
+                                                anchors.centerIn: parent
+                                                width: 28
+                                                enabled: propertiesDialog.canEditAccess
+                                                checked: (propertiesDialog.permissionDraft & parent.modelData) !== 0
+                                                Accessible.name: permissionRow.modelData.label + " "
+                                                        + (lang.language === "tr" ? ["Okuma", "Yazma", root.selectedIsDir ? "Dizine girme" : "Çalıştırma"]
+                                                                                  : ["Read", "Write", root.selectedIsDir ? "Enter folder" : "Execute"])[parent.index]
+                                                onToggled: {
+                                                    const bit = parent.modelData
+                                                    propertiesDialog.permissionDraft = checked
+                                                            ? propertiesDialog.permissionDraft | bit
+                                                            : propertiesDialog.permissionDraft & ~bit
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            GCheckBox {
+                                objectName: "allowFileExecution"
+                                visible: !root.selectedIsDir
+                                Layout.fillWidth: true
+                                text: lang.language === "tr" ? "Dosyanın program olarak çalıştırılmasına izin ver"
+                                                             : "Allow executing this file as a program"
+                                enabled: propertiesDialog.canEditAccess
+                                checked: (propertiesDialog.permissionDraft & 73) !== 0
+                                onToggled: {
+                                    let mode = propertiesDialog.permissionDraft
+                                    // Add execute only to owner and classes that can read the file.
+                                    propertiesDialog.permissionDraft = checked
+                                            ? mode | 64 | ((mode & 32) ? 8 : 0) | ((mode & 4) ? 1 : 0)
+                                            : mode & ~73
+                                }
+                            }
+
+                            GCheckBox {
+                                objectName: "recursiveAccessPermissions"
+                                visible: root.selectedIsDir
+                                Layout.fillWidth: true
+                                enabled: propertiesDialog.canEditAccess
+                                text: lang.language === "tr" ? "Alt dosya ve klasörlere de uygula" : "Apply to enclosed files and folders"
+                                checked: propertiesDialog.recursiveDraft
+                                onToggled: propertiesDialog.recursiveDraft = checked
+                            }
+
+                            Text {
+                                objectName: "folderTraversalWarning"
+                                visible: root.selectedIsDir && (propertiesDialog.permissionDraft & 73) === 0
+                                Layout.fillWidth: true
+                                text: lang.language === "tr"
+                                      ? "Bu izinler klasöre girme hakkını kaldırır. Dosyalar boşalmaz; ancak içerikleri ve boyut bilgileri okunamaz. Klasörler için genellikle 0755 veya 0700 kullanılır."
+                                      : "These permissions remove folder access. Files keep their contents, but their data and sizes cannot be read. Folders typically use 0755 or 0700."
+                                color: AppTheme.danger
+                                font.pixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+
+                            GCheckBox {
+                                objectName: "administratorAccessPermissions"
+                                Layout.fillWidth: true
+                                enabled: fileProperties.administratorAvailable && !fileProperties.accessBusy
+                                text: lang.language === "tr" ? "Yönetici yetkisi kullan" : "Use administrator authentication"
+                                checked: propertiesDialog.administratorDraft
+                                onToggled: propertiesDialog.administratorDraft = checked
+                            }
+
+                            RowLayout {
+                                visible: fileProperties.accessBusy
+                                Layout.fillWidth: true
+                                GBusyIndicator { running: fileProperties.accessBusy; Layout.preferredWidth: 20; Layout.preferredHeight: 20 }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: (lang.language === "tr" ? "Erişim ayarları uygulanıyor · " : "Applying access settings · ")
+                                            + fileProperties.accessCompleted
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: 10
+                                }
+                            }
+
+                            Text {
+                                visible: fileProperties.accessError.length > 0
+                                Layout.fillWidth: true
+                                text: fileProperties.accessError
+                                color: AppTheme.danger
+                                font.pixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                text: fileProperties.linkType === "symlink"
+                                      ? (lang.language === "tr" ? "Sembolik bağlantının izinleri değiştirilemez. Hedefin özelliklerini açabilirsin."
+                                                               : "Symbolic link permissions cannot be edited. Open the target's properties instead.")
+                                      : !fileProperties.administratorAvailable
+                                        ? (lang.language === "tr" ? "Yöneticiyle değişiklik için kio-admin paketini kurabilirsin."
+                                                                 : "Install kio-admin to enable administrator changes.")
+                                      : !propertiesDialog.canEditAccess && !fileProperties.accessBusy
+                                        ? (lang.language === "tr" ? "Bu öğenin izinlerini değiştirme yetkin yok."
+                                                                 : "You do not have permission to change this item.")
+                                        : fileProperties.linkType === "hardlink"
+                                          ? (lang.language === "tr" ? "Sabit bağlantılar aynı dosya izinlerini paylaşır. Değişiklik diğer sabit bağlantılara da yansır."
+                                                                   : "Hard links share the same file permissions. Changes also affect its other hard links.")
+                                        : root.selectedIsDir
+                                          ? (propertiesDialog.recursiveDraft
+                                             ? (lang.language === "tr" ? "İzinler, sahip ve grup alt öğelere uygulanır. Çalıştırma izni klasörlere ve zaten çalıştırılabilir dosyalara uygulanır."
+                                                                      : "Permissions, owner and group apply to descendants. Execute applies to folders and files already executable.")
+                                             : (lang.language === "tr" ? "Dizine girme izni klasörü açmayı sağlar. Değişiklikler yalnızca bu klasöre uygulanır."
+                                                                      : "Enter folder allows access to the directory. Changes apply only to this folder."))
+                                          : (lang.language === "tr" ? "Değişiklikler Uygula düğmesiyle kaydedilir."
+                                                                   : "Save your changes with Apply.")
+                                color: AppTheme.textMuted
+                                font.pixelSize: 10
+                            }
                         }
                     }
 
@@ -7641,6 +7957,15 @@ Rectangle {
                 }
             }
 
+            GPopupWheelScroll {
+                id: propertiesWheel
+                parent: propertiesScroll
+                anchors.fill: parent
+                view: propertiesScroll.contentItem
+                scrollbar: propertiesScroll.ScrollBar.vertical
+                enabled: propertiesDialog.visible
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 Text {
@@ -7652,8 +7977,20 @@ Rectangle {
                     font.pixelSize: 9
                 }
                 GModalButton {
-                    id: propertiesDoneButton
+                    objectName: "applyFilePermissions"
+                    visible: root.selectedLocalPath.length > 0
+                    enabled: propertiesDialog.canEditAccess && propertiesDialog.permissionsDirty && permissionModeInput.acceptableInput
                     primary: true
+                    text: lang.language === "tr" ? "Uygula" : "Apply"
+                    onClicked: propertiesDialog.applyAccessDraft()
+                }
+                GModalButton {
+                    visible: fileProperties.accessBusy
+                    text: lang.language === "tr" ? "İptal" : "Cancel"
+                    onClicked: fileProperties.cancelAccess()
+                }
+                GModalButton {
+                    id: propertiesDoneButton
                     text: lang.t("close")
                     onClicked: propertiesDialog.close()
                 }

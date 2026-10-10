@@ -32,7 +32,19 @@ Menu {
     leftPadding: 10
     rightPadding: 10
     margins: 8
-    implicitWidth: Math.max(228, contentItem ? contentItem.implicitWidth + leftPadding + rightPadding : 228)
+    readonly property real maximumPopupWidth: Math.max(180, Math.min(600,
+        parent && parent.Window.window ? parent.Window.window.width - 32 : 600))
+    readonly property real preferredContentWidth: {
+        let result = 220
+        for (let i = 0; i < count; ++i) {
+            const entry = itemAt(i)
+            if (entry && entry.visible)
+                result = Math.max(result, entry.implicitWidth)
+        }
+        return result
+    }
+    implicitWidth: Math.min(maximumPopupWidth, preferredContentWidth + leftPadding + rightPadding
+                           + (menuScroll.visible ? 12 : 0))
     // Keep long context menus inside the visible window. The ListView below
     // becomes scrollable when content exceeds this height.
     property real maximumPopupHeight: Math.max(180, Math.min(620,
@@ -43,8 +55,14 @@ Menu {
     dim: false
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    onAboutToShow: { interactionOpen = true; currentIndex = -1 }
-    onAboutToHide: interactionOpen = false
+    onAboutToShow: {
+        interactionOpen = true
+        currentIndex = -1
+        menuWheel.reset()
+        menuList.cancelFlick()
+        menuList.positionViewAtBeginning()
+    }
+    onAboutToHide: { interactionOpen = false; menuWheel.reset() }
     Connections {
         target: control
         function onClosed() {
@@ -128,6 +146,15 @@ Menu {
             width: menuScroll.visible ? 12 : 0
         }
 
+        GPopupWheelScroll {
+            id: menuWheel
+            parent: menuList
+            anchors.fill: parent
+            view: menuList
+            scrollbar: menuScroll
+            enabled: control.interactionOpen
+        }
+
         ScrollBar {
             id: menuScroll
             anchors.top: parent.top
@@ -146,6 +173,7 @@ Menu {
                     menuList.contentY = menuList.originY
                             + position * Math.max(0, menuList.contentHeight - menuList.height)
             }
+            onPressedChanged: if (pressed) menuWheel.reset()
             contentItem: Rectangle {
                 implicitWidth: 5
                 radius: 3

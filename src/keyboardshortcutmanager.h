@@ -10,12 +10,15 @@ class KeyboardShortcutManager : public QObject
     Q_PROPERTY(QVariantMap bindings READ bindings NOTIFY bindingsChanged)
     Q_PROPERTY(bool editorOpen READ editorOpen WRITE setEditorOpen NOTIFY editorOpenChanged)
     Q_PROPERTY(bool recording READ recording NOTIFY recordingChanged)
+    Q_PROPERTY(int heldModifiers READ heldModifiers NOTIFY heldModifiersChanged)
 public:
     explicit KeyboardShortcutManager(QObject *parent = nullptr);
     QVariantList catalog() const { return m_catalog; }
     QVariantMap bindings() const { return m_bindings; }
     bool editorOpen() const { return m_editorOpen; }
     bool recording() const { return m_recording; }
+    int heldModifiers() const { return m_heldModifiers; }
+    Q_INVOKABLE bool usesHeldModifiers(const QStringList &sequences) const;
     void setEditorOpen(bool open);
     Q_INVOKABLE void startRecording();
     Q_INVOKABLE void stopRecording();
@@ -30,6 +33,7 @@ signals:
     void editorOpenChanged();
     void recordingChanged();
     void sequenceRecorded(const QString &sequence);
+    void heldModifiersChanged();
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 private:
@@ -40,4 +44,5 @@ private:
     QVariantMap m_bindings;
     bool m_editorOpen = false;
     bool m_recording = false;
+    int m_heldModifiers = 0;
 };

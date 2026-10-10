@@ -227,6 +227,18 @@ bool KeyboardShortcutManager::matches(const QString &action, int key, int modifi
     return !m_editorOpen && m_bindings.value(action).toStringList().contains(sequenceForKey(key, modifiers));
 }
 
+bool KeyboardShortcutManager::usesHeldModifiers(const QStringList &sequences) const
+{
+    if (!m_heldModifiers)
+        return false;
+    for (const QString &sequence : sequences) {
+        const QKeySequence keys(sequence, QKeySequence::PortableText);
+        if (!keys.isEmpty() && (int(keys[0].keyboardModifiers()) & m_heldModifiers) == m_heldModifiers)
+            return true;
+    }
+    return false;
+}
+
 void KeyboardShortcutManager::setEditorOpen(bool open)
 {
     if (open == m_editorOpen) return;
@@ -247,6 +259,33 @@ void KeyboardShortcutManager::stopRecording()
 
 bool KeyboardShortcutManager::eventFilter(QObject *watched, QEvent *event)
 {
+    int modifiers = m_heldModifiers;
+    if (event->type() == QEvent::ApplicationDeactivate) {
+        modifiers = 0;
+    } else if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease
+               || event->type() == QEvent::ShortcutOverride) {
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (!key->isAutoRepeat()) {
+            modifiers = int(key->modifiers());
+            int flag = 0;
+            switch (key->key()) {
+            case Qt::Key_Control: flag = Qt::ControlModifier; break;
+            case Qt::Key_Shift: flag = Qt::ShiftModifier; break;
+            case Qt::Key_Alt: flag = Qt::AltModifier; break;
+            case Qt::Key_Meta: flag = Qt::MetaModifier; break;
+            default: break;
+            }
+            if (event->type() == QEvent::KeyRelease)
+                modifiers &= ~flag;
+            else
+                modifiers |= flag;
+        }
+    }
+    modifiers &= Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier;
+    if (modifiers != m_heldModifiers) {
+        m_heldModifiers = modifiers;
+        emit heldModifiersChanged();
+    }
     if (!m_editorOpen || !m_recording
         || (event->type() != QEvent::KeyPress && event->type() != QEvent::ShortcutOverride))
         return QObject::eventFilter(watched, event);

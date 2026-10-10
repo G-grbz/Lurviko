@@ -318,7 +318,7 @@ def app_config_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "Lurviko" / "subtitle-ai"
 
 
-_UI_TEXT = {
+_UI_TEXT_TR = {
     "error_asr_audio_missing": "Ses/video kaynağı bulunamadı: {path}",
     "error_asr_dependency_missing": "Whisper bağımlılıkları bulunamadı: {error}",
     "error_asr_failed": "Whisper işlemi başarısız: {error}",
@@ -334,9 +334,36 @@ _UI_TEXT = {
     "error_ffmpeg_missing": "FFmpeg bulunamadı. ffmpeg ve ffprobe paketlerini yükleyin.",
 }
 
+_UI_TEXT = {
+    "error_asr_audio_missing": "Audio/video source not found: {path}",
+    "error_asr_dependency_missing": "Whisper dependencies are missing.",
+    "error_asr_failed": "Whisper failed: {error}",
+    "error_asr_language_unknown": "The source language is unknown.",
+    "error_asr_language_unsupported": "Unsupported source language: {language}",
+    "error_asr_no_speech": "No speech was detected.",
+    "error_translation_dependency_missing": "AI translation dependencies are missing.",
+    "error_translation_failed": "AI translation failed: {error}",
+    "error_translation_model_invalid": "Invalid translation model: {path}",
+    "error_translation_no_output": "AI translation produced no output.",
+    "error_translation_same_language": "Source and target languages are identical: {language}",
+    "error_translation_target_unsupported": "Unsupported target language: {language}",
+    "error_ffmpeg_missing": "FFmpeg was not found. Install ffmpeg and ffprobe.",
+    "error_runtime_permission": "AI packages are missing. Enable AI downloads in the subtitle dialog, or supply your own runtime.",
+    "error_python_version": "Subtitle AI requires Python 3.11 or newer.",
+    "error_model_permission": "The selected model is not cached. Enable AI downloads in the subtitle dialog.",
+    "error_model_revision": "An immutable commit revision is required for custom model {model}.",
+}
+_UI_TEXT_TR.update({
+    "error_runtime_permission": "AI paketleri eksik. Altyazı penceresinde AI indirmelerine izin verin veya kendi çalışma ortamınızı sağlayın.",
+    "error_python_version": "Altyazı AI için Python 3.11 veya daha yeni bir sürüm gerekli.",
+    "error_model_permission": "Seçilen model önbellekte yok. Altyazı penceresinde AI indirmelerine izin verin.",
+    "error_model_revision": "Özel {model} modeli için sabit bir commit sürümü gerekli.",
+})
+
 
 def ui_text(key: str, **values: Any) -> str:
-    template = _UI_TEXT.get(key, key)
+    messages = _UI_TEXT_TR if os.environ.get("LURVIKO_SUBTITLE_AI_LANGUAGE", "en") == "tr" else _UI_TEXT
+    template = messages.get(key, _UI_TEXT.get(key, key))
     try:
         return template.format(**values) if values else template
     except Exception:

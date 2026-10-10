@@ -16,7 +16,7 @@ depends=(
   'openssl>=3.2' 'ffmpeg' 'hicolor-icon-theme'
 )
 makedepends=('cmake>=3.21' 'extra-cmake-modules' 'ninja')
-checkdepends=('python' 'breeze-icons' 'desktop-file-utils')
+checkdepends=('python' 'python-pytest' 'breeze-icons' 'desktop-file-utils' 'libarchive')
 optdepends=(
   'qt6-wayland: Wayland desktop sessions'
   'qt6-imageformats: additional image formats'
@@ -33,6 +33,7 @@ optdepends=(
   'python-pillow: optional media worker artwork processing'
   'breeze-icons: fallback icon theme'
   'kio-extras: additional network and filesystem protocols'
+  'kio-admin: administrator authentication for file ownership and permissions'
 )
 install=lurviko.install
 source=("Lurviko-${pkgver}-${pkgrel}.tar.gz::${url}/releases/download/v${pkgver}/Lurviko-${pkgver}.tar.gz")

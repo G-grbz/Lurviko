@@ -2716,7 +2716,7 @@ Popup {
         modal: true
         focus: true
         width: Math.min(480, Math.max(360, viewer.width - 48))
-        height: Math.min(viewer.height - 40, subtitleAiManager.busy ? 350 : (subtitleAiManager.outputPath.length || subtitleAiManager.error.length ? 390 : 540))
+        height: Math.min(viewer.height - 40, subtitleAiManager.busy ? 350 : (subtitleAiManager.outputPath.length || subtitleAiManager.error.length ? 450 : 610))
         x: Math.round((viewer.width - width) / 2)
         y: Math.round((viewer.height - height) / 2)
         padding: 0
@@ -3074,6 +3074,42 @@ Popup {
                     }
                 }
 
+                GCheckBox {
+                    id: aiDownloadPermission
+                    objectName: "aiDownloadPermission"
+                    Layout.fillWidth: true
+                    visible: !subtitleAiManager.busy && !subtitleAiManager.outputPath.length
+                    checked: subtitleAiManager.downloadsAllowed
+                    onToggled: subtitleAiManager.downloadsAllowed = checked
+                    text: viewer.lang.language === "tr"
+                        ? "Eksik AI paketlerini kurmaya ve modelleri indirmeye izin ver"
+                        : "Allow installing missing AI packages and downloading models"
+                    indicator: Rectangle {
+                        x: 0; y: Math.round((parent.height - height) / 2)
+                        width: 18; height: 18; radius: 4
+                        color: aiDownloadPermission.checked ? videoTheme.accent : "transparent"
+                        border.color: aiDownloadPermission.checked ? videoTheme.accent : videoTheme.viewerTextMuted
+                        Text { anchors.centerIn: parent; text: "✓"; visible: aiDownloadPermission.checked; color: "white" }
+                    }
+                    contentItem: Text {
+                        text: aiDownloadPermission.text
+                        leftPadding: 26
+                        color: videoTheme.viewerText
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                    }
+                    background: Item {}
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: aiDownloadPermission.visible
+                    text: viewer.lang.language === "tr"
+                        ? "PyPI / NVIDIA paketleri ve Hugging Face modelleri birkaç GB indirebilir. Seçimin kaydedilir; altyazı işlemi yerelde yapılır."
+                        : "PyPI / NVIDIA packages and Hugging Face models can download several GB. Your choice is saved; subtitles are processed locally."
+                    color: videoTheme.viewerTextMuted
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
                 Item { Layout.fillHeight: true }
 
                 RowLayout {

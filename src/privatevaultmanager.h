@@ -119,6 +119,7 @@ private:
     QString thumbnailsRoot() const;
     QString headerPath() const;
     QString runtimeRoot() const;
+    bool ensureRuntimeDirectory();
 
     void setBusy(bool value);
     void setError(const QString &message);
@@ -173,6 +174,7 @@ private:
     void collectDescendants(const QString &id, QStringList *ids) const;
 
     bool m_unlocked = false;
+    mutable QString m_runtimeRoot;
     bool m_busy = false;
     QByteArray m_masterKey;
     QJsonObject m_header;
