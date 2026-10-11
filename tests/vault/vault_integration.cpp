@@ -367,6 +367,10 @@ int main(int argc, char **argv) {
         std::puts("PASS: vault exports reject symlink merges, preserve collisions, pin destination paths and publish owner-only authenticated content");
     }
     {
+        // These are prerequisites, not security rejections. Without the tools,
+        // even the hostile archive fixture would fail for the wrong reason.
+        require(!QStandardPaths::findExecutable("bsdtar").isEmpty(), "archive integration requires bsdtar (libarchive)");
+        require(!QStandardPaths::findExecutable("7z").isEmpty(), "archive integration requires 7z (7zip)");
         QTemporaryDir fixture;
         const QString destination = fixture.filePath("output"), outside = fixture.filePath("outside");
         require(QDir().mkpath(destination) && QDir().mkpath(outside), "archive integration destinations");
@@ -394,7 +398,8 @@ int main(int argc, char **argv) {
         ordinary.write("old contents"); ordinary.close();
         done = false; success = false;
         operations.extractArchiveOverwrite(archive, destination, false);
-        require(until([&] { return done; }) && success, "actual safe extractor retains confirmed ordinary overwrite");
+        require(until([&] { return done; }) && success,
+            qPrintable(QStringLiteral("actual safe extractor retains confirmed ordinary overwrite: %1").arg(operations.lastError())));
         require(ordinary.open(QIODevice::ReadOnly) && ordinary.readAll() == "new contents", "confirmed overwrite bytes"); ordinary.close();
         const QString fresh = fixture.filePath("fresh"); require(QDir().mkpath(fresh), "fresh extraction destination");
         done = false; success = false;
