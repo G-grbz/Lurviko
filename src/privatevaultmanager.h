@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 
 #include <QAbstractListModel>
 #include <QByteArray>
@@ -10,6 +11,8 @@
 
 class QTimer;
 namespace KWallet { class Wallet; }
+
+namespace VaultSecurity { class RuntimeDirectory; }
 
 class PrivateVaultManager : public QAbstractListModel
 {
@@ -175,6 +178,7 @@ private:
 
     bool m_unlocked = false;
     mutable QString m_runtimeRoot;
+    mutable std::unique_ptr<VaultSecurity::RuntimeDirectory> m_runtimeDirectory;
     bool m_busy = false;
     QByteArray m_masterKey;
     QJsonObject m_header;

@@ -75,6 +75,8 @@ PrivateVaultManager::PrivateVaultManager(QObject *parent)
     : QAbstractListModel(parent)
 {
     ensureStorageLayout();
+    VaultSecurity::cleanupStaleRuntimeDirectories(VaultSecurity::runtimeCleanupParents(
+        QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation)));
     cleanupRuntimeFiles();
     loadSecurityPreferences();
     m_authenticationTimer = new QTimer(this);
@@ -94,8 +96,8 @@ PrivateVaultManager::PrivateVaultManager(QObject *parent)
 PrivateVaultManager::~PrivateVaultManager()
 {
     lock();
-    if (!m_runtimeRoot.isEmpty())
-        QDir(m_runtimeRoot).removeRecursively();
+    m_runtimeDirectory.reset();
+    m_runtimeRoot.clear();
     if (m_wallet) {
         delete m_wallet;
         m_wallet = nullptr;
@@ -160,9 +162,11 @@ QString PrivateVaultManager::headerPath() const
 
 QString PrivateVaultManager::runtimeRoot() const
 {
-    if (m_runtimeRoot.isEmpty())
-        m_runtimeRoot = VaultSecurity::createRuntimeDirectory(
-                QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation));
+    if (!m_runtimeDirectory) {
+        m_runtimeDirectory = VaultSecurity::createRuntimeDirectory(
+            QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation));
+        m_runtimeRoot = m_runtimeDirectory ? m_runtimeDirectory->path() : QString{};
+    }
     return m_runtimeRoot;
 }
 
@@ -245,11 +249,8 @@ void PrivateVaultManager::cleanupRuntimeFiles()
 {
     // Keep the private directory itself until destruction; deleting and
     // recreating it would introduce a race in a shared /dev/shm parent.
-    if (!m_runtimeRoot.isEmpty()) {
-        const QFileInfoList files = QDir(m_runtimeRoot).entryInfoList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
-        for (const QFileInfo &file : files)
-            QFile::remove(file.absoluteFilePath());
-    }
+    if (m_runtimeDirectory)
+        m_runtimeDirectory->clearContents(); // Retain the locked session file.
     m_materializedPaths.clear();
     m_thumbnailMaterializedPaths.clear();
 }
@@ -1836,6 +1837,10 @@ QString PrivateVaultManager::materializeForOpen(const QString &objectId)
 void PrivateVaultManager::releaseMaterialized(const QString &urlOrPath)
 {
     const QString path = urlToLocalPath(urlOrPath);
+    // Only registered plaintext previews are releasable; never unlink the
+    // session lock or another internal file from an arbitrary runtime URL.
+    if (!m_materializedPaths.values().contains(path) && !m_thumbnailMaterializedPaths.values().contains(path))
+        return;
     if (VaultSecurity::containsFile(m_runtimeRoot, path))
         QFile::remove(path);
     for (auto it = m_materializedPaths.begin(); it != m_materializedPaths.end(); ) {

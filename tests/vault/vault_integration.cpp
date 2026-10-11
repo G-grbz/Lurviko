@@ -20,6 +20,7 @@
 #include "vaultsecurity.h"
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <unistd.h>
 
 static void require(bool ok, const char *message) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -48,6 +49,13 @@ int main(int argc, char **argv) {
     QQuickStyle::setStyle("Basic");
     PrivateVaultManager vault;
     const QStringList arguments = app.arguments();
+    if (arguments.size() == 4 && arguments[1] == "--crash-preview") {
+        require(vault.unlock(arguments[2]), "crash probe unlocks existing compatible vault");
+        const QString preview = vault.materializeForOpen(arguments[3]);
+        require(!preview.isEmpty(), "crash probe materializes plaintext");
+        std::printf("%s\n", qPrintable(QUrl(preview).toLocalFile())); std::fflush(stdout);
+        while (true) ::pause();
+    }
     if (arguments.size() > 2) {
         require(!vault.unlocked(), "restarted vault is locked");
         require(vault.failedPasswordAttempts() == arguments[2].toInt(), "failed-attempt count survives restart");
@@ -119,6 +127,9 @@ int main(int argc, char **argv) {
     decrypted.close();
     require(VaultSecurity::isMemoryFilesystem(QFileInfo(decrypted).absolutePath()), "vault plaintext uses a verified memory filesystem");
     require(!(QFileInfo(decrypted).permissions() & (QFileDevice::ReadGroup | QFileDevice::ReadOther)), "plaintext has owner-only permissions");
+    const QString sessionLock = QFileInfo(decrypted).absolutePath() + "/.lurviko-session.lock";
+    vault.releaseMaterialized(sessionLock);
+    require(QFileInfo::exists(sessionLock), "releasing arbitrary runtime paths cannot remove the session lock");
     {
         PrivateVaultManager second;
         require(second.unlock(changedPassword), "second vault instance opens independently");
@@ -127,6 +138,27 @@ int main(int argc, char **argv) {
         second.lock();
         require(QFileInfo::exists(QUrl(opened).toLocalFile()), "locking another instance preserves the first instance's plaintext");
     }
+    {
+        QProcess crashed;
+        crashed.start(QCoreApplication::applicationFilePath(), {"--crash-preview", changedPassword, payloadId});
+        require(crashed.waitForReadyRead(10000), "second process prepares a real plaintext preview");
+        const QString crashPreview = QString::fromUtf8(crashed.readLine()).trimmed();
+        require(QFileInfo::exists(crashPreview), "crash preview exists");
+        const QString crashDirectory = QFileInfo(crashPreview).absolutePath();
+        {
+            PrivateVaultManager sweepWhileLive;
+            require(QFileInfo::exists(crashPreview) && QFileInfo::exists(QUrl(opened).toLocalFile()),
+                    "startup sweeps preserve live processes and the current instance");
+        }
+        crashed.kill(); require(crashed.waitForFinished(), "crash process is terminated without cleanup");
+        require(QFileInfo::exists(crashPreview), "process crash leaves a testable plaintext orphan");
+        {
+            PrivateVaultManager sweepAfterCrash;
+            require(!QFileInfo::exists(crashDirectory), "next vault startup removes the crashed process directory");
+            require(QFileInfo::exists(QUrl(opened).toLocalFile()), "crash recovery leaves the live instance untouched");
+        }
+    }
+    std::fprintf(stderr, "PASS: live session locks, killed-process plaintext recovery and instance isolation\n");
     QTemporaryDir sibling(QFileInfo(decrypted).absolutePath() + "-sibling-XXXXXX");
     QFile siblingFile(sibling.filePath("keep.txt")); require(siblingFile.open(QIODevice::WriteOnly), "sibling fixture opens");
     siblingFile.write("keep"); siblingFile.close();

@@ -4,6 +4,7 @@ Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 rev
 
 | Report | Finding/action |
 | --- | --- |
+| Crash plaintext residue | Confirmed: random session directories were removed only on normal destruction. Each new session now holds an O_CLOEXEC flock lock; startup sweeps preferred runtime and /dev/shm session directories, plus legacy lurviko-private in runtime and the old temporary parent. Owner/fd/inode checks and nonblocking locks protect live sessions; descriptor-based deletion rejects symlinks and mount crossings. Native tests cover live/crashed processes, lockless orphans, legacy names, symlinks, simulated foreign ownership and instance isolation. |
 | Recursive administrator chmod/chown | Confirmed in kio-admin 26.08.1 and KIO 6.30.0 source: the final chmod/chown are path-based. Before recursive administrator jobs, perform local fd/no-follow tree checks; reject directories owned by neither root nor the target owner, group/other-write directories, and unreadable trees. Fake administrator regression verifies an unsafe symlink tree cannot dispatch a job or change an external target. See [source evidence and helper design](privileged-access-design.md). Preflight is a mitigation, not inode-pinned privileged execution. |
 | Menu retains scroll | Confirmed; cancel flick and reset on every GMenu opening. Native regression added. |
 | Disk-backed runtime fallback | Confirmed; plaintext previews use a unique owner-only directory on verified Linux tmpfs/ramfs. Prefer private runtime storage; fall back to `/dev/shm`, never disk-backed `/tmp`. If unavailable, refuse previews while preserving encrypted vault access/export. |
@@ -29,9 +30,15 @@ Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 rev
 - Linux tmpfs can swap pages. Avoiding ordinary disk-filesystem previews is not
   a guarantee against swap, hibernation, root or another process as the same
   user. Encrypted swap/memory policy belongs to the operating system.
-- A crash may leave plaintext in the private RAM directory until filesystem
-  cleanup. Normal locking removes plaintext; normal destruction removes the
-  directory. Each instance owns a separate directory.
+- A crash can leave plaintext until the next application startup (or operating
+  system cleanup). Startup now removes owned, unlocked orphan sessions, including
+  legacy runtime/temp directories. Normal locking clears plaintext while retaining
+  the session lock; destruction removes that instance's directory. Live sessions
+  with locks are skipped. Older releases did not hold locks: their live lockless
+  directories cannot be distinguished from orphans, so close old versions before
+  upgrading. Cleanup failures (permissions, mount crossings or unavailable
+  openat2 support) leave the candidate in place rather than follow unsafe paths.
+  Advisory locks do not defend against another malicious process with the same UID.
 - User-supplied Python environments/local models remain user-managed. Locks
   govern newly provisioned dependencies, not arbitrary existing installations.
 - Locks/revisions improve reproducibility and integrity; they do not prove

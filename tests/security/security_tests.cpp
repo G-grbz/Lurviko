@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <cstdio>
 #include <QProcess>
 #include <QTemporaryDir>
 #include "vaultsecurity.h"
@@ -6,6 +7,9 @@
 #include "fileaccesssecurity.h"
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include "syscall_doubles.h"
 
 class SecurityTests : public QObject {
     Q_OBJECT
@@ -44,14 +48,55 @@ private slots:
     }
     void runtimeStorage() {
         QTemporaryDir disk;
-        const QString first = VaultSecurity::createRuntimeDirectory(disk.path());
-        const QString second = VaultSecurity::createRuntimeDirectory({});
-        QVERIFY(!first.isEmpty()); QVERIFY(!second.isEmpty()); QVERIFY(first != second);
-        QVERIFY(VaultSecurity::isMemoryFilesystem(first));
-        QVERIFY(VaultSecurity::isMemoryFilesystem(second));
-        QVERIFY(!(QFileInfo(first).permissions() & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
+        const auto first = VaultSecurity::createRuntimeDirectory(disk.path());
+        const auto second = VaultSecurity::createRuntimeDirectory({});
+        QVERIFY(first); QVERIFY(second); QVERIFY(first->path() != second->path());
+        QVERIFY(VaultSecurity::isMemoryFilesystem(first->path()));
+        QVERIFY(VaultSecurity::isMemoryFilesystem(second->path()));
+        QVERIFY(!(QFileInfo(first->path()).permissions() & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
             | QFileDevice::ReadOther | QFileDevice::WriteOther)));
-        QVERIFY(QDir(first).removeRecursively()); QVERIFY(QDir(second).removeRecursively());
+        const int lock = ::open(QFile::encodeName(first->path() + "/.lurviko-session.lock").constData(), O_RDWR | O_CLOEXEC);
+        QVERIFY(lock >= 0); QVERIFY(::flock(lock, LOCK_EX | LOCK_NB) != 0); ::close(lock);
+        QFile file(first->path() + "/preview.txt"); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("plaintext"); file.close();
+        QVERIFY(first->clearContents()); QVERIFY(!file.exists());
+        QVERIFY(QFileInfo::exists(first->path() + "/.lurviko-session.lock"));
+    }
+    void runtimeOrphanCleanup() {
+        QTemporaryDir parent("/dev/shm/lurviko-security-parent-XXXXXX"); QVERIFY(parent.isValid());
+        const auto own = VaultSecurity::createRuntimeDirectory(parent.path()); QVERIFY(own);
+        QFile preview(own->path() + "/keep.txt"); QVERIFY(preview.open(QIODevice::WriteOnly)); preview.write("live"); preview.close();
+        QProcess live;
+        live.start(QCoreApplication::applicationFilePath(), {"--hold-runtime", parent.path()});
+        QVERIFY(live.waitForReadyRead());
+        const QString other = QString::fromUtf8(live.readLine()).trimmed(); QVERIFY(!other.isEmpty());
+        auto result = VaultSecurity::cleanupStaleRuntimeDirectories({parent.path()}, own->path());
+        QCOMPARE(result.removed, 0); QVERIFY(QFileInfo::exists(other)); QVERIFY(preview.exists());
+        live.kill(); QVERIFY(live.waitForFinished());
+        QVERIFY(QFileInfo::exists(other + "/plaintext.txt")); // Simulated crash residue.
+        result = VaultSecurity::cleanupStaleRuntimeDirectories({parent.path()}, own->path());
+        QCOMPARE(result.removed, 1); QVERIFY(!QFileInfo::exists(other)); QVERIFY(preview.exists());
+        const QString orphan = parent.filePath("lurviko-private-old-session");
+        const QString legacy = parent.filePath("lurviko-private");
+        const QString foreign = parent.filePath("lurviko-private-foreign");
+        const QString external = parent.filePath("outside");
+        for (const QString &path : {orphan, legacy, foreign, external}) QVERIFY(QDir().mkpath(path));
+        QFile outside(external + "/keep.txt"); QVERIFY(outside.open(QIODevice::WriteOnly)); outside.write("outside"); outside.close();
+        QVERIFY(QDir().mkpath(orphan + "/nested"));
+        QFile residue(orphan + "/nested/plain.txt"); QVERIFY(residue.open(QIODevice::WriteOnly)); residue.write("stale"); residue.close();
+        QVERIFY(QFile::link(external, orphan + "/escape"));
+        const QString linked = parent.filePath("lurviko-private-symlink"); QVERIFY(QFile::link(external, linked));
+        // Simulate foreign ownership at the descriptor boundary used by the
+        // real sweep; changing file ownership would require root.
+        SecurityTestDoubles::foreignOwnerPath = QFile::encodeName(foreign);
+        result = VaultSecurity::cleanupStaleRuntimeDirectories({parent.path()}, own->path());
+        SecurityTestDoubles::foreignOwnerPath.clear();
+        QCOMPARE(result.removed, 2); QCOMPARE(result.failed, 0);
+        QVERIFY(!QFileInfo::exists(orphan)); QVERIFY(!QFileInfo::exists(legacy));
+        QVERIFY(QFileInfo::exists(foreign)); QVERIFY(QFileInfo(linked).isSymLink()); QVERIFY(outside.exists());
+        QVERIFY(QFileInfo::exists(own->path() + "/.lurviko-session.lock"));
+        QVERIFY(own->clearContents());
+        const int lock = ::open(QFile::encodeName(own->path() + "/.lurviko-session.lock").constData(), O_RDWR | O_CLOEXEC);
+        QVERIFY(lock >= 0); QVERIFY(::flock(lock, LOCK_EX | LOCK_NB) != 0); ::close(lock);
     }
     void administratorTreePreflight() {
         QTemporaryDir fixture;
@@ -110,5 +155,18 @@ private slots:
         }
     }
 };
-QTEST_GUILESS_MAIN(SecurityTests)
+int main(int argc, char **argv) {
+    QCoreApplication app(argc, argv);
+    if (app.arguments().size() == 3 && app.arguments()[1] == "--hold-runtime") {
+        const auto directory = VaultSecurity::createRuntimeDirectory(app.arguments()[2]);
+        if (!directory) return 1;
+        QFile file(directory->path() + "/plaintext.txt");
+        if (!file.open(QIODevice::WriteOnly)) return 2;
+        file.write("crash residue"); file.close();
+        std::printf("%s\n", qPrintable(directory->path())); std::fflush(stdout);
+        while (true) ::pause();
+    }
+    SecurityTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "security_tests.moc"
