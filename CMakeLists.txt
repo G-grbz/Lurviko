@@ -122,6 +122,8 @@ qt_add_executable(lurviko
     src/iconpickermanager.cpp
     src/iconpickermanager.h
     src/filepropertiesmanager.cpp
+    src/fileaccesssecurity.cpp
+    src/fileaccesssecurity.h
     src/filepropertiesaccess.cpp
     src/filepropertiesmanager.h
     src/filemanager1interface.cpp

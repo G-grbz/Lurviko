@@ -1,9 +1,10 @@
 # Local security review
 
-Checked against the source prepared for Lurviko v1.1.0.
+Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 review).
 
 | Report | Finding/action |
 | --- | --- |
+| Recursive administrator chmod/chown | Confirmed in kio-admin 26.08.1 and KIO 6.30.0 source: the final chmod/chown are path-based. Before recursive administrator jobs, perform local fd/no-follow tree checks; reject directories owned by neither root nor the target owner, group/other-write directories, and unreadable trees. Fake administrator regression verifies an unsafe symlink tree cannot dispatch a job or change an external target. See [source evidence and helper design](privileged-access-design.md). Preflight is a mitigation, not inode-pinned privileged execution. |
 | Menu retains scroll | Confirmed; cancel flick and reset on every GMenu opening. Native regression added. |
 | Disk-backed runtime fallback | Confirmed; plaintext previews use a unique owner-only directory on verified Linux tmpfs/ramfs. Prefer private runtime storage; fall back to `/dev/shm`, never disk-backed `/tmp`. If unavailable, refuse previews while preserving encrypted vault access/export. |
 | KDF header values | Confirmed; validate integer types/ranges before Argon2. Bounds: 1–10 passes, 8–256 MiB, 1–8 lanes, 1–lanes threads. Reject rather than clamp; retain the existing 3-pass/64-MiB format. Bound header reads to 64 KiB. |
@@ -18,6 +19,12 @@ Checked against the source prepared for Lurviko v1.1.0.
 | Retagging | Previous v1.0.0 rebuild was explicitly requested and AUR's checksum/pkgrel was updated. Published tags should remain immutable: new source version/tag for fixes; pkgrel for packaging-only changes. No tags/releases are changed by this review. |
 
 ## Limits
+
+- Recursive administrator operations still use path-based KIO after a conservative
+  preflight. Trusted-owner mutations, mutable ancestor paths, non-POSIX ACLs,
+  hard links and mount changes are not solved atomically. Unreadable or
+  group/other-writable trees are refused. A privileged fd helper remains design
+  work; see [the proposal](privileged-access-design.md).
 
 - Linux tmpfs can swap pages. Avoiding ordinary disk-filesystem previews is not
   a guarantee against swap, hibernation, root or another process as the same

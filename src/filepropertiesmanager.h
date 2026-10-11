@@ -100,6 +100,7 @@ private:
     void finishAccess(bool cancelled);
     void startAdministratorAccess(bool recursive);
     void continueAdministratorAccess();
+    void listAdministratorTree(const QUrl &root);
     static QString readFolderIcon(const QString &path);
 
     QString m_path;

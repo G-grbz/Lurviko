@@ -1,9 +1,12 @@
 #include "filepropertiesmanager.h"
+#include "fileaccesssecurity.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFutureWatcher>
 #include <QTimer>
+#include <QLocale>
+#include <QSettings>
 #include <QtConcurrent/QtConcurrentRun>
 #include <KUser>
 #include <KProtocolInfo>
@@ -30,6 +33,12 @@ struct FileAccessTask {
 };
 
 namespace {
+QString securityMessage(const char *english, const char *turkish)
+{
+    const QString fallback = QLocale::system().language() == QLocale::Turkish ? QStringLiteral("tr") : QStringLiteral("en");
+    return QString::fromUtf8(QSettings().value(QStringLiteral("ui/language"), fallback).toString() == QStringLiteral("tr")
+                                ? turkish : english);
+}
 QStringList sortedNames(QStringList names, const QString &current)
 {
     if (!current.isEmpty()) names.append(current);
@@ -227,6 +236,44 @@ void FilePropertiesManager::startAdministratorAccess(bool recursive)
     root.setScheme(QStringLiteral("admin"));
     m_accessEntries = {{root, false}};
     if (!recursive) { continueAdministratorAccess(); return; }
+    // Complete a no-follow local preflight before any privileged list/stat/job.
+    // An unreadable tree is not assumed safe merely because admin:// can read it.
+    struct stat selected {};
+    if (::lstat(QFile::encodeName(m_accessPath).constData(), &selected) != 0) {
+        ++m_accessTask->failed;
+        m_accessError = securityMessage("Cannot safely inspect this tree before administrator changes.",
+                                       "Yönetici değişikliklerinden önce bu ağaç güvenle denetlenemiyor.");
+        emit error(m_accessError); finishAccess(false); return;
+    }
+    uid_t targetOwner = selected.st_uid;
+    if (!m_accessOwner.isEmpty()) {
+        if (const auto user = ::getpwnam(m_accessOwner.toLocal8Bit().constData()))
+            targetOwner = user->pw_uid;
+    }
+    auto *watcher = new QFutureWatcher<FileAccessSecurity::TreeCheck>(this);
+    const auto task = m_accessTask;
+    const QString path = m_accessPath;
+    connect(watcher, &QFutureWatcher<FileAccessSecurity::TreeCheck>::finished, this, [this, watcher, task, root] {
+        const auto check = watcher->result(); watcher->deleteLater();
+        if (task->cancelled) { finishAccess(true); return; }
+        if (!check.safe) {
+            ++task->failed;
+            m_accessError = securityMessage(
+                "Recursive administrator changes were refused. All directories must belong to root or the selected owner, must not allow group/other writes, and must be locally readable for safety checks.",
+                "Özyinelemeli yönetici değişiklikleri reddedildi. Tüm dizinler root veya seçilen kullanıcıya ait olmalı, grup/diğerleri tarafından yazılamamalı ve güvenlik denetimi için yerel olarak okunabilmelidir.")
+                + QStringLiteral("\n") + check.path;
+            emit error(m_accessError); finishAccess(false); return;
+        }
+        listAdministratorTree(root);
+    });
+    watcher->setFuture(QtConcurrent::run([path, targetOwner, task] {
+        return FileAccessSecurity::checkAdministratorTree(path, targetOwner, &task->cancelled);
+    }));
+}
+
+void FilePropertiesManager::listAdministratorTree(const QUrl &root)
+{
+    if (m_accessTask->cancelled) { finishAccess(true); return; }
     auto *job = KIO::listRecursive(root, KIO::HideProgressInfo);
     m_accessJob = job;
     connect(job, &KIO::ListJob::entries, this, [this, root](KIO::Job *, const KIO::UDSEntryList &entries) {
