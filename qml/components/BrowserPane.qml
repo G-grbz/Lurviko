@@ -1029,8 +1029,11 @@ Rectangle {
     }
 
     function iconForItem(isDir, suffix, systemIconName, itemName) {
-        // Bundled/default icon mode must always return to Lurviko's own folder
-        // artwork, even if the directory has a custom .directory icon.
+        const local = isDir ? AppTheme.localIconSource(systemIconName) : ""
+        if (local.length)
+            return local
+        // Theme-name folder overrides remain specific to system-icon mode.
+        // Explicit image files above are user artwork in either mode.
         if (AppTheme.useSystemIcons)
             return AppTheme.systemIcon(isDir
                                        ? AppTheme.folderSystemIcon(itemName, systemIconName)
@@ -7399,8 +7402,10 @@ Rectangle {
                             visible: root.selectedIsDir && root.selectedLocalPath.length > 0
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                const chosen = iconPicker.chooseSystemIcon(fileProperties.iconName || "folder",
-                                    lang.language === "tr" ? "Klasör ikonu seç" : "Choose folder icon")
+                                const title = lang.language === "tr" ? "Klasör ikonu seç" : "Choose folder icon"
+                                const chosen = AppTheme.useSystemIcons
+                                    ? iconPicker.chooseSystemIcon(AppTheme.iconPickerInitial(fileProperties.iconName || "folder"), title)
+                                    : iconPicker.chooseIconFile(AppTheme.localIconSource(fileProperties.iconName), title)
                                 if (chosen && chosen.length)
                                     fileProperties.setFolderIcon(chosen)
                             }

@@ -5,6 +5,7 @@
 #include "vaultsecurity.h"
 #include "vaultrecovery.h"
 #include "archivearguments.h"
+#include "iconreference.h"
 #include "fileaccesssecurity.h"
 #include <sys/stat.h>
 #include <unistd.h>
@@ -15,6 +16,77 @@
 class SecurityTests : public QObject {
     Q_OBJECT
 private slots:
+    void localIconAddressPolicy() {
+        const QString path = QString::fromUtf8("/tmp/ikon Türkçe #? 100%.svg");
+        const QString encoded = QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
+        QCOMPARE(IconReference::localFile(path), encoded);
+        QCOMPARE(IconReference::localFile("system:" + path), encoded);
+        QCOMPARE(IconReference::localFile(encoded), encoded);
+        QVERIFY(!IconReference::localFile("file://localhost/tmp/icon.svg").isEmpty());
+        for (const QString &invalid : {QString("https://example.com/icon.svg"), QString("file://remote/tmp/icon.svg"),
+                QString("file://user@localhost/tmp/icon.svg"), QString("file://localhost:22/tmp/icon.svg"),
+                QString("file:relative.svg"), QString("file:///tmp/icon.svg?secret"), QString("file:///tmp/icon.svg#fragment"),
+                QString("file:///tmp/icon%00.svg"), QString("system:file://remote/tmp/icon.svg"),
+                QString("/tmp/icon") + QChar::Null + QString(".svg")})
+            QVERIFY2(IconReference::localFile(invalid).isEmpty(), qPrintable(invalid));
+    }
+    void cloudArchiveFolderNamesAreOperands() {
+        QTemporaryDir fixture;
+        for (const QString &name : {QString("--help"), QString("-C"), QString("@list"), QString::fromUtf8("İşler Güçler")}) {
+            const QString source = fixture.filePath(name);
+            QVERIFY(QDir().mkpath(source));
+            QFile payload(source + "/payload.txt");
+            QVERIFY(payload.open(QIODevice::WriteOnly)); payload.write("cloud payload"); payload.close();
+            const QString archivePath = fixture.filePath("out.zip");
+            QProcess process;
+            process.start("bsdtar", QStringList{"-a", "-cf", archivePath}
+                + ArchiveArguments::sourceOperand(QFileInfo(source)));
+            QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+            QVERIFY(QFileInfo::exists(archivePath));
+            QTemporaryDir extracted;
+            process.start("bsdtar", {"-xf", archivePath, "-C", extracted.path()});
+            QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+            QFile recovered(extracted.filePath(name + "/payload.txt"));
+            QVERIFY(recovered.open(QIODevice::ReadOnly)); QCOMPARE(recovered.readAll(), QByteArray("cloud payload"));
+            QVERIFY(QFile::remove(archivePath));
+        }
+    }
+    void archiveExtractionRejectsSymlinkEscapes() {
+        for (const QString &name : {QString(".zip"), QString("..zip"), QString("...zip"), QString("..tar.gz")})
+            QCOMPARE(ArchiveArguments::extractionFolderName(name), QString("Archive"));
+        QCOMPARE(ArchiveArguments::extractionFolderName("İşler Güçler.tar.gz"), QString("İşler Güçler"));
+        QTemporaryDir fixture;
+        const QString outside = fixture.filePath("outside"), output = fixture.filePath("output");
+        QVERIFY(QDir().mkpath(outside)); QVERIFY(QDir().mkpath(output));
+        QFile victim(outside + "/victim.txt"); QVERIFY(victim.open(QIODevice::WriteOnly)); victim.write("unchanged"); victim.close();
+        QVERIFY(QFile::link(outside, output + "/nested"));
+        const QString archive = fixture.filePath("malicious.zip");
+        QProcess process;
+        process.start("python3", {"-c", "import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w') as z:\n z.writestr('nested/victim.txt','changed')\n z.writestr('../escape.txt','escaped')\n", archive});
+        QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+        process.start("bsdtar", ArchiveArguments::extraction(archive, output));
+        QVERIFY(process.waitForFinished()); QVERIFY(process.exitCode() != 0);
+        QVERIFY(victim.open(QIODevice::ReadOnly)); QCOMPARE(victim.readAll(), QByteArray("unchanged")); victim.close();
+        QVERIFY(!QFileInfo::exists(fixture.filePath("escape.txt")));
+        // Ordinary confirmed overwrite still works. A file symlink is replaced
+        // itself; the external target and its bytes are never opened for writing.
+        QVERIFY(QFile::link(victim.fileName(), output + "/file-link.txt"));
+        QFile ordinary(output + "/ordinary.txt"); QVERIFY(ordinary.open(QIODevice::WriteOnly)); ordinary.write("old"); ordinary.close();
+        process.start("python3", {"-c", "import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w') as z:\n z.writestr('file-link.txt','new link entry')\n z.writestr('ordinary.txt','new ordinary entry')\n", archive});
+        QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+        process.start("bsdtar", ArchiveArguments::extraction(archive, output));
+        QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+        QVERIFY(!QFileInfo(output + "/file-link.txt").isSymLink());
+        QVERIFY(victim.open(QIODevice::ReadOnly)); QCOMPARE(victim.readAll(), QByteArray("unchanged")); victim.close();
+        QVERIFY(ordinary.open(QIODevice::ReadOnly)); QCOMPARE(ordinary.readAll(), QByteArray("new ordinary entry")); ordinary.close();
+        // An archive-created symlink is equally unsafe; do not rely solely on
+        // checking the destination before starting the external process.
+        process.start("python3", {"-c", "import sys,tarfile,io\nwith tarfile.open(sys.argv[1], 'w') as t:\n link=tarfile.TarInfo('created-link');link.type=tarfile.SYMTYPE;link.linkname=sys.argv[2];t.addfile(link)\n item=tarfile.TarInfo('created-link/victim.txt');item.size=7;t.addfile(item,io.BytesIO(b'changed'))\n", archive, outside});
+        QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+        process.start("bsdtar", ArchiveArguments::extraction(archive, output));
+        QVERIFY(process.waitForFinished()); QVERIFY(process.exitCode() != 0);
+        QVERIFY(victim.open(QIODevice::ReadOnly)); QCOMPARE(victim.readAll(), QByteArray("unchanged"));
+    }
     void recoveryKeyEncoding() {
         const QByteArray key = VaultRecovery::generateKey(), other = VaultRecovery::generateKey();
         QCOMPARE(key.size(), 32); QCOMPARE(other.size(), 32); QVERIFY(key != other);
@@ -102,6 +174,35 @@ private slots:
         QFile file(first->path() + "/preview.txt"); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("plaintext"); file.close();
         QVERIFY(first->clearContents()); QVERIFY(!file.exists());
         QVERIFY(QFileInfo::exists(first->path() + "/.lurviko-session.lock"));
+    }
+    void privateExportCleanupPinsInodes() {
+        QTemporaryDir parent;
+        const QString owned = parent.filePath("private"), outside = parent.filePath("outside");
+        QVERIFY(QDir().mkpath(owned)); QVERIFY(QDir().mkpath(outside));
+        QVERIFY(::chmod(QFile::encodeName(owned).constData(), 0700) == 0);
+        QFile sentinel(outside + "/keep.txt"); QVERIFY(sentinel.open(QIODevice::WriteOnly)); sentinel.write("outside"); sentinel.close();
+        QVERIFY(QFile::link(outside, owned + "/link"));
+        const int parentFd = ::open(QFile::encodeName(parent.path()).constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        QVERIFY(parentFd >= 0);
+        int directory = ::openat(parentFd, "private", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        QVERIFY(directory >= 0);
+        QVERIFY(VaultSecurity::removeOwnedPrivateDirectory(parentFd, "private", directory));
+        ::close(directory); QVERIFY(!QFileInfo::exists(owned)); QVERIFY(sentinel.exists());
+        QVERIFY(QDir().mkpath(owned)); QVERIFY(::chmod(QFile::encodeName(owned).constData(), 0700) == 0);
+        directory = ::openat(parentFd, "private", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC); QVERIFY(directory >= 0);
+        QFile keep(owned + "/plain.txt"); QVERIFY(keep.open(QIODevice::WriteOnly)); keep.write("private"); keep.close();
+        SecurityTestDoubles::foreignOwnerPath = QFile::encodeName(owned);
+        QVERIFY(!VaultSecurity::removeOwnedPrivateDirectory(parentFd, "private", directory));
+        SecurityTestDoubles::foreignOwnerPath.clear(); QVERIFY(keep.exists());
+        QVERIFY(::chmod(QFile::encodeName(owned).constData(), 0777) == 0);
+        QVERIFY(!VaultSecurity::removeOwnedPrivateDirectory(parentFd, "private", directory)); QVERIFY(keep.exists());
+        QVERIFY(::chmod(QFile::encodeName(owned).constData(), 0700) == 0);
+        QVERIFY(QDir().rename(owned, parent.filePath("renamed"))); QVERIFY(QFile::link(outside, owned));
+        QVERIFY(!VaultSecurity::removeOwnedPrivateDirectory(parentFd, "private", directory));
+        QVERIFY(QFileInfo(owned).isSymLink()); QVERIFY(sentinel.exists());
+        QVERIFY(QFileInfo::exists(parent.filePath("renamed/plain.txt")));
+        QVERIFY(!VaultSecurity::removeOwnedPrivateDirectory(parentFd, "../outside", directory));
+        ::close(directory); ::close(parentFd);
     }
     void runtimeOrphanCleanup() {
         QTemporaryDir parent("/dev/shm/lurviko-security-parent-XXXXXX"); QVERIFY(parent.isValid());

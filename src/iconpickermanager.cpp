@@ -4,7 +4,10 @@
 #include <KIconLoader>
 
 #include <QIcon>
+#include <QDir>
+#include <QFileDialog>
 #include <QSet>
+#include <QUrl>
 #include <algorithm>
 #include <limits>
 
@@ -12,11 +15,27 @@ QString IconPickerManager::chooseSystemIcon(const QString &initialIcon, const QS
 {
     KIconDialog dialog;
     dialog.setup(KIconLoader::Desktop, KIconLoader::Any, false, 48, false);
+    const QUrl initialUrl(initialIcon);
     if (!initialIcon.isEmpty())
-        dialog.setSelectedIcon(initialIcon);
+        dialog.setSelectedIcon(initialUrl.isLocalFile() ? initialUrl.toLocalFile() : initialIcon);
     if (!title.isEmpty())
         dialog.setWindowTitle(title);
-    return dialog.openDialog();
+    // KDE emits the exact selection, including an external file's path. Do
+    // not infer a theme name from the browsed file's basename.
+    QString selection;
+    connect(&dialog, &KIconDialog::newIconName, &dialog,
+            [&selection](const QString &icon) { selection = icon; });
+    const QString result = dialog.openDialog();
+    return selection.isEmpty() ? result : selection;
+}
+
+QString IconPickerManager::chooseIconFile(const QString &initialIcon, const QString &title)
+{
+    const QUrl initialUrl(initialIcon);
+    const QString initialPath = initialUrl.isLocalFile() ? initialUrl.toLocalFile() : initialIcon;
+    return QFileDialog::getOpenFileName(nullptr, title,
+        QDir::isAbsolutePath(initialPath) ? initialPath : QDir::homePath(),
+        QStringLiteral("SVG / PNG / JPEG / WebP / ICO (*.svg *.svgz *.png *.jpg *.jpeg *.webp *.ico *.xpm)"));
 }
 
 int IconPickerManager::desktopIconSize() const

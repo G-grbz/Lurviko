@@ -204,7 +204,7 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 | Video duration/FPS, thumbnails, subtitle extraction | `ffmpeg`, `ffprobe`, `ffmpegthumbnailer` |
 | Embedded Matroska cover artwork | `mkvmerge`, `mkvextract` from MKVToolNix |
 | PDF previews | `pdftoppm` from Poppler |
-| Archive creation / extraction | `bsdtar` from libarchive / `7z` from 7zip; format support depends on the helper |
+| Archive creation / extraction | `bsdtar` from libarchive creates and safely extracts archives; `7z` from 7zip inspects entries for overwrite confirmation. Format support depends on libarchive; unsafe destination links are rejected. |
 | AppImage icon extraction | `unsquashfs` from squashfs-tools |
 | Additional image formats | Qt image-format plugins |
 | Administrator locations, file ownership and permissions | `kio-admin` and a functioning Polkit agent |

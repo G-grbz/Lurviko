@@ -13,6 +13,8 @@ public:
 
     Q_INVOKABLE QString chooseSystemIcon(const QString &initialIcon = QStringLiteral("folder"),
                                          const QString &title = QString());
+    Q_INVOKABLE QString chooseIconFile(const QString &initialIcon = QString(),
+                                      const QString &title = QString());
     int desktopIconSize() const;
     Q_INVOKABLE QVariantList availableSystemIconSizes(const QString &iconName = QStringLiteral("folder"), int maximumSize = 512) const;
     Q_INVOKABLE int nearestSystemIconSize(const QString &iconName, int requestedSize, int maximumSize = 512) const;

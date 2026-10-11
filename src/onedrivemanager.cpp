@@ -1,4 +1,5 @@
 #include "onedrivemanager.h"
+#include "archivearguments.h"
 
 #include <QDesktopServices>
 #include <QDir>
@@ -746,8 +747,8 @@ void OneDriveManager::finishFolderDownloadArchive()
     const QString archivePath = m_folderDownloadArchivePath;
     const QString tempBase = m_folderDownloadTempBase;
     const QString rootName = m_folderDownloadRootName;
-    const QStringList args{QStringLiteral("-a"), QStringLiteral("-cf"), archivePath,
-                           QStringLiteral("-C"), tempBase, rootName};
+    const QStringList args = QStringList{QStringLiteral("-a"), QStringLiteral("-cf"), archivePath}
+        + ArchiveArguments::sourceOperand(QFileInfo(QDir(tempBase).filePath(rootName)));
 
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart && m_folderDownloadRunning) {

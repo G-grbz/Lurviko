@@ -1,4 +1,5 @@
 #include "googledrivemanager.h"
+#include "archivearguments.h"
 
 #include <QDesktopServices>
 #include <QDir>
@@ -975,8 +976,8 @@ void GoogleDriveManager::finishFolderDownloadArchive()
     const QString tempBase = m_folderDownloadTempBase;
     const QString rootName = m_folderDownloadRootName;
     const int skipped = m_folderDownloadSkipped;
-    const QStringList args{QStringLiteral("-a"), QStringLiteral("-cf"), archivePath,
-                           QStringLiteral("-C"), tempBase, rootName};
+    const QStringList args = QStringList{QStringLiteral("-a"), QStringLiteral("-cf"), archivePath}
+        + ArchiveArguments::sourceOperand(QFileInfo(QDir(tempBase).filePath(rootName)));
 
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart && m_folderDownloadRunning) {

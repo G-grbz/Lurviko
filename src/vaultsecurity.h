@@ -35,5 +35,7 @@ struct CleanupResult { int removed = 0; int skipped = 0; int failed = 0; };
 // Explicit parents make the sweep testable without scanning unrelated sessions.
 CleanupResult cleanupStaleRuntimeDirectories(const QStringList &parents, const QString &currentDirectory = {});
 QStringList runtimeCleanupParents(const QString &preferredParent);
+// Remove only the pinned, owned 0700 tree; never a replacement at its old name.
+bool removeOwnedPrivateDirectory(int parent, const QByteArray &name, int directory);
 bool containsFile(const QString &directory, const QString &path);
 }

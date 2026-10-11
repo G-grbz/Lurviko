@@ -1,7 +1,16 @@
 #include "thumbnailprovider.h"
+#include "iconpickermanager.h"
+#include "iconreference.h"
 
 #include <KCompressionDevice>
 #include <KIconLoader>
+#include <KIconDialog>
+#include <QApplication>
+#include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QLineEdit>
+#include <QAbstractButton>
+#include <QTimer>
 #include <QGuiApplication>
 #include <QFile>
 #include <QImage>
@@ -50,6 +59,95 @@ private:
     }
 
 private slots:
+    void persistentLocalIconReferences()
+    {
+        const QString path = QString::fromUtf8("/tmp/ikon Türkçe #? 100%.svg");
+        const QString source = QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
+        QCOMPARE(IconReference::localFile(path), source);
+        QCOMPARE(IconReference::localFile(QStringLiteral("system:") + path), source);
+        QCOMPARE(IconReference::localFile(source), source);
+        for (const QString &invalid : {QStringLiteral("system:folder"), QStringLiteral("folder.svg"),
+                                      QStringLiteral("https://example.com/icon.svg"),
+                                      QStringLiteral("file://remote/icon.svg"), QStringLiteral("file:relative.svg")})
+            QVERIFY(IconReference::localFile(invalid).isEmpty());
+    }
+
+    void externalFilePickerAndCancellation()
+    {
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+        const auto path = write(QString::fromUtf8("external icon #? 100% türkçe.svg"), svg("#abc123"));
+        IconPickerManager picker;
+        bool selected = false;
+        QTimer::singleShot(50, &picker, [&] {
+            auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+            if (!dialog)
+                return;
+            dialog->selectFile(path);
+            selected = QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+        });
+        QTimer::singleShot(2000, &picker, [] {
+            if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+                dialog->reject();
+        });
+        QCOMPARE(picker.chooseIconFile(QUrl::fromLocalFile(path).toString(), QStringLiteral("Choose test icon")), path);
+        QVERIFY(selected);
+        QTimer::singleShot(50, &picker, [] {
+            if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+                dialog->reject();
+        });
+        QVERIFY(picker.chooseIconFile(path).isEmpty());
+    }
+
+    void kdeBrowseReturnsExternalPath()
+    {
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+        const auto path = write(QString::fromUtf8("browsed icon #? 100% türkçe.png"), {});
+        QImage original(32, 32, QImage::Format_ARGB32);
+        original.fill(QColor("#12ab34"));
+        QVERIFY(original.save(path));
+        IconPickerManager picker;
+        bool browsed = false;
+        QTimer::singleShot(100, &picker, [&] {
+            auto *dialog = qobject_cast<KIconDialog *>(QApplication::activeModalWidget());
+            if (!dialog)
+                return;
+            for (auto *button : dialog->findChildren<QAbstractButton *>()) {
+                if (button->icon().name() != QStringLiteral("folder-open"))
+                    continue;
+                QTimer::singleShot(100, &picker, [&] {
+                    QFileDialog *fileDialog = nullptr;
+                    for (auto *widget : QApplication::topLevelWidgets()) {
+                        auto *candidate = qobject_cast<QFileDialog *>(widget);
+                        if (candidate && candidate->isVisible())
+                            fileDialog = candidate;
+                    }
+                    if (!fileDialog)
+                        return;
+                    // QFileSystemModel loads a newly browsed directory
+                    // asynchronously; choose only once its listing is ready.
+                    fileDialog->setDirectory(QFileInfo(path).absolutePath());
+                    QTimer::singleShot(200, fileDialog, [&, fileDialog] {
+                        auto *filename = fileDialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+                        if (!filename)
+                            return;
+                        filename->setText(path);
+                        browsed = QMetaObject::invokeMethod(fileDialog, "accept", Qt::DirectConnection);
+                    });
+                });
+                button->click();
+                break;
+            }
+        });
+        QTimer::singleShot(3000, &picker, [] {
+            for (auto *widget : QApplication::topLevelWidgets()) {
+                if (auto *dialog = qobject_cast<QDialog *>(widget))
+                    dialog->reject();
+            }
+        });
+        QCOMPARE(picker.chooseSystemIcon(QStringLiteral("folder")), path);
+        QVERIFY(browsed);
+    }
+
     void svgResolutionAndTransparency()
     {
         const auto path = write("large.svg", svg("#bada55"));

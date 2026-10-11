@@ -22,12 +22,20 @@
 #include "appmigration.h"
 #include <QLocale>
 #include <QStandardPaths>
+#include <QTemporaryDir>
+#include <QScopeGuard>
 #include <QUrl>
 #include <KWallet>
 #include <QUuid>
 #include <algorithm>
 #include <limits>
 #include <utility>
+#include <cerrno>
+#include <fcntl.h>
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <openssl/core_names.h>
 #include <openssl/crypto.h>
@@ -1945,7 +1953,8 @@ bool PrivateVaultManager::exportItemRecursive(const QJsonObject &item, const QSt
     const QString name = sanitizedName(item.value(QStringLiteral("name")).toString());
     if (item.value(QStringLiteral("dir")).toBool()) {
         const QString dirPath = QDir(targetDirectory).filePath(name);
-        if (!QDir().mkpath(dirPath))
+        if (!QDir().mkpath(dirPath)
+                || !QFile::setPermissions(dirPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner))
             return false;
         const QString id = item.value(QStringLiteral("id")).toString();
         const QJsonArray items = m_manifest.value(QStringLiteral("items")).toArray();
@@ -1987,8 +1996,72 @@ bool PrivateVaultManager::exportItem(const QString &objectId, const QString &tar
         setError(tr("Geçerli bir dışa aktarma klasörü seçilmedi."));
         return false;
     }
+    // Pin the explicitly selected destination. Export only into a NEW 0700
+    // staging tree; never merge plaintext into an existing directory/symlink.
+    // /proc/self/fd anchors Qt's path-based QSaveFile operations to this fd even
+    // if an ancestor of the selected destination is renamed during export.
+    const QString canonicalTarget = QFileInfo(target).canonicalFilePath();
+    const int destinationFd = ::open(QFile::encodeName(canonicalTarget).constData(),
+                                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (destinationFd < 0) {
+        setError(securityMessage("Could not safely open the export destination.",
+                                 "Dışa aktarma konumu güvenli şekilde açılamadı."));
+        return false;
+    }
+    const auto closeDestination = qScopeGuard([destinationFd] { ::close(destinationFd); });
+    const QString pinnedTarget = QStringLiteral("/proc/self/fd/%1").arg(destinationFd);
+    QTemporaryDir staging(pinnedTarget + QStringLiteral("/.lurviko-export-XXXXXX"));
+    if (!staging.isValid()) {
+        setError(securityMessage("Could not create a private export staging directory.",
+                                 "Dışa aktarma için özel bir geçici dizin oluşturulamadı."));
+        return false;
+    }
+    staging.setAutoRemove(false); // Cleanup below is inode-pinned, not path-based.
+    const int stagingFd = ::open(QFile::encodeName(staging.path()).constData(),
+                                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (stagingFd < 0) {
+        setError(securityMessage("Could not safely open the export staging directory.",
+                                 "Dışa aktarma geçici dizini güvenli şekilde açılamadı."));
+        return false;
+    }
+    const QByteArray stagingName = QFile::encodeName(QFileInfo(staging.path()).fileName());
+    const auto closeStaging = qScopeGuard([destinationFd, stagingFd, stagingName] {
+        VaultSecurity::removeOwnedPrivateDirectory(destinationFd, stagingName, stagingFd);
+        ::close(stagingFd);
+    });
+    struct stat stagingStat {};
+    if (::fstat(stagingFd, &stagingStat) != 0 || stagingStat.st_uid != ::getuid()
+            || (stagingStat.st_mode & (S_IRWXG | S_IRWXO))) {
+        setError(securityMessage("This destination cannot provide private export staging permissions.",
+                                 "Bu konum, dışa aktarma geçici dizini için özel erişim izinlerini sağlayamıyor."));
+        return false;
+    }
     setBusy(true);
-    const bool ok = exportItemRecursive(item, target);
+    const QString pinnedStaging = QStringLiteral("/proc/self/fd/%1").arg(stagingFd);
+    bool ok = exportItemRecursive(item, pinnedStaging);
+    if (ok) {
+        const QString name = sanitizedName(item.value(QStringLiteral("name")).toString());
+        const QByteArray sourceName = QFile::encodeName(name);
+        const bool directory = item.value(QStringLiteral("dir")).toBool();
+        const QFileInfo info(name);
+        const QString base = directory ? name : info.completeBaseName();
+        const QString suffix = directory ? QString{} : info.completeSuffix();
+        // Atomic no-replace publication treats dangling symlinks and existing
+        // directories as collisions too. No check-then-overwrite window.
+        ok = false;
+        for (int number = 1; number <= 10000; ++number) {
+            const QString candidate = number == 1 ? name : (suffix.isEmpty()
+                ? QStringLiteral("%1 (%2)").arg(base).arg(number)
+                : QStringLiteral("%1 (%2).%3").arg(base).arg(number).arg(suffix));
+            if (::syscall(SYS_renameat2, stagingFd, sourceName.constData(), destinationFd,
+                          QFile::encodeName(candidate).constData(), RENAME_NOREPLACE) == 0) {
+                ok = true;
+                break;
+            }
+            if (errno != EEXIST)
+                break; // Fail closed if the kernel/filesystem cannot enforce no-replace.
+        }
+    }
     setBusy(false);
     if (ok)
         setStatus(tr("Öğe kasadan dışa aktarıldı."));

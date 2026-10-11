@@ -2,6 +2,7 @@
 #include "archivearguments.h"
 
 #include <QClipboard>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDBusConnection>
 #include <QDBusInterface>
@@ -17,6 +18,8 @@
 #include <QMimeDatabase>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QLocale>
+#include <QSettings>
 #include <QHash>
 #include <QSet>
 #include <QStandardPaths>
@@ -30,6 +33,7 @@
 #include <cerrno>
 #include <cstring>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #include <KIO/CopyJob>
@@ -47,6 +51,12 @@
 #include <KJobTrackerInterface>
 
 namespace {
+QString securityMessage(const char *english, const char *turkish)
+{
+    const QString fallback = QLocale::system().language() == QLocale::Turkish ? QStringLiteral("tr") : QStringLiteral("en");
+    return QString::fromUtf8(QSettings().value(QStringLiteral("ui/language"), fallback).toString() == QStringLiteral("tr")
+                                ? turkish : english);
+}
 struct PreparedClipboardData {
     QList<QUrl> urls;
     QByteArray uriList;
@@ -1800,30 +1810,32 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
         return;
     }
 
-    QString outputPath = destination.toLocalFile();
+    // The user explicitly selected this root; resolve its alias once. Derived
+    // archive subfolders are opened with O_NOFOLLOW below, never through links.
+    QString outputPath = QFileInfo(destination.toLocalFile()).canonicalFilePath();
+    if (outputPath.isEmpty()) {
+        const QString error = securityMessage("Choose an existing extraction destination directory.",
+                                              "Çıkarma hedefi olarak mevcut bir dizin seç.");
+        setLastError(error);
+        emit operationFinished(false, error, false);
+        return;
+    }
     if (createSubfolder) {
-        QString folderName = archiveInfo.fileName();
-        const QStringList suffixes = {
-            QStringLiteral(".tar.gz"), QStringLiteral(".tar.bz2"), QStringLiteral(".tar.xz"),
-            QStringLiteral(".tar.zst"), QStringLiteral(".tgz"), QStringLiteral(".tbz2"),
-            QStringLiteral(".txz"), QStringLiteral(".zip"), QStringLiteral(".rar"),
-            QStringLiteral(".7z"), QStringLiteral(".tar"), QStringLiteral(".gz"),
-            QStringLiteral(".bz2"), QStringLiteral(".xz"), QStringLiteral(".zst")
-        };
-        for (const QString &suffix : suffixes) {
-            if (folderName.endsWith(suffix, Qt::CaseInsensitive)) {
-                folderName.chop(suffix.size());
-                break;
-            }
-        }
-        if (folderName.isEmpty())
-            folderName = archiveInfo.completeBaseName();
-        outputPath = QDir(outputPath).filePath(folderName);
+        outputPath = QDir(outputPath).filePath(ArchiveArguments::extractionFolderName(archiveInfo.fileName()));
     }
 
     const QString executable = QStandardPaths::findExecutable(QStringLiteral("7z"));
     if (executable.isEmpty()) {
         const QString error = QStringLiteral("7-Zip was not found.");
+        setLastError(error);
+        emit operationFinished(false, error, false);
+        return;
+    }
+
+    const QString extractor = QStandardPaths::findExecutable(QStringLiteral("bsdtar"));
+    if (extractor.isEmpty()) {
+        const QString error = securityMessage("Safe archive extraction requires bsdtar (libarchive).",
+                                              "Güvenli arşiv çıkarma için bsdtar (libarchive) gerekiyor.");
         setLastError(error);
         emit operationFinished(false, error, false);
         return;
@@ -1836,7 +1848,7 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
             emit operationFinished(false, error, false);
             return;
         }
-        runArchiveExtraction(archiveInfo.absoluteFilePath(), outputPath, executable);
+        runArchiveExtraction(archiveInfo.absoluteFilePath(), outputPath, extractor);
         return;
     }
 
@@ -1846,7 +1858,7 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
     auto *probe = new QProcess(this);
     connect(probe, &QProcess::finished, this,
             [this, probe, sourceUrl, destinationLocation, createSubfolder,
-             archivePath = archiveInfo.absoluteFilePath(), outputPath, executable]
+             archivePath = archiveInfo.absoluteFilePath(), outputPath, extractor]
             (int exitCode, QProcess::ExitStatus status) {
         const QByteArray stdoutData = probe->readAllStandardOutput();
         const QByteArray stderrData = probe->readAllStandardError();
@@ -1928,7 +1940,7 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
             emit operationFinished(false, error, false);
             return;
         }
-        runArchiveExtraction(archivePath, outputPath, executable);
+        runArchiveExtraction(archivePath, outputPath, extractor);
     });
 
     probe->start(executable, {QStringLiteral("l"), QStringLiteral("-slt"),
@@ -1939,12 +1951,20 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
                                           const QString &outputPath,
                                           const QString &executable)
 {
+    const int directory = ::open(QFile::encodeName(outputPath).constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (directory < 0) {
+        const QString error = securityMessage("Could not safely open the extraction directory. A derived subfolder must not be a symbolic link.",
+                                              "Çıkarma dizini güvenli şekilde açılamadı. Arşiv için oluşturulan alt dizin sembolik bağ olmamalı.");
+        setLastError(error);
+        emit operationFinished(false, error, false);
+        return;
+    }
     auto *process = new QProcess(this);
-    const QStringList args = {
-        QStringLiteral("x"), archivePath,
-        QStringLiteral("-o%1").arg(outputPath), QStringLiteral("-aoa"), QStringLiteral("-y"),
-        QStringLiteral("-bsp1")
-    };
+    // Keep this parent-process descriptor alive until the child exits. bsdtar
+    // chdirs through it, pinning its root against asynchronous path replacement.
+    connect(process, &QObject::destroyed, [directory] { ::close(directory); });
+    const QString pinnedOutput = QStringLiteral("/proc/%1/fd/%2").arg(QCoreApplication::applicationPid()).arg(directory);
+    const QStringList args = ArchiveArguments::extraction(archivePath, pinnedOutput);
     auto *job = new ArchiveProgressJob(process, executable, args, QStringLiteral("Extracting archive"),
                                        QFileInfo(archivePath).fileName(), this);
     QPointer<ArchiveProgressJob> trackedJob(job);
@@ -1962,20 +1982,10 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
     connect(job, &KJob::suspended, this, [this, operationId] { setOperationPaused(operationId, true); });
     connect(job, &KJob::resumed, this, [this, operationId] { setOperationPaused(operationId, false); });
     auto lastOutput = std::make_shared<QString>();
-    connect(process, &QProcess::readyReadStandardOutput, this, [this, process, operationId, lastOutput, trackedJob] {
+    connect(process, &QProcess::readyReadStandardOutput, this, [process, lastOutput] {
         const QString chunk = QString::fromLocal8Bit(process->readAllStandardOutput());
         if (!chunk.isEmpty())
             *lastOutput = (*lastOutput + chunk).right(2048);
-        static const QRegularExpression percentPattern(QStringLiteral(R"((\d{1,3})%)"));
-        QRegularExpressionMatchIterator matches = percentPattern.globalMatch(*lastOutput);
-        int latest = -1;
-        while (matches.hasNext())
-            latest = matches.next().captured(1).toInt();
-        if (latest >= 0) {
-            setOperationProgress(operationId, qMin(95, latest));
-            if (trackedJob)
-                trackedJob->updateProgress(qMin(95, latest));
-        }
     });
     connect(process, &QProcess::finished, this,
             [this, process, outputPath, operationId, lastOutput, trackedJob](int exitCode, QProcess::ExitStatus status) {
@@ -2012,8 +2022,9 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
         process->deleteLater();
     });
 
-    // Conflicts have already been checked (or explicitly accepted), so -aoa is
-    // now safe and keeps the extraction non-interactive.
+    // Overwrite consent does not authorize following links outside the target.
+    // Keep libarchive's path guards enabled even after confirmation. Progress
+    // stays indeterminate until completion; pause/resume/cancel remain available.
     configureProgressJob(job, true);
     job->start();
 }

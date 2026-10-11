@@ -250,3 +250,14 @@ bool VaultSecurity::containsFile(const QString &directory, const QString &path)
     const QString parent = QFileInfo(candidate.absolutePath()).canonicalFilePath();
     return parent == root || parent.startsWith(root + QDir::separator());
 }
+
+bool VaultSecurity::removeOwnedPrivateDirectory(int parent, const QByteArray &name, int directory)
+{
+    if (name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\0'))
+        return false;
+    struct stat st {};
+    return ::fstat(directory, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == ::getuid()
+        && !(st.st_mode & (S_IRWXG | S_IRWXO)) && sameEntry(parent, name, directory)
+        && removeContents(directory, false) && sameEntry(parent, name, directory)
+        && ::unlinkat(parent, name.constData(), AT_REMOVEDIR) == 0;
+}

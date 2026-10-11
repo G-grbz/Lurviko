@@ -1975,13 +1975,23 @@ Item {
                 Layout.fillWidth: true
                 text: lang.language === "tr" ? "Plasma sistem ikonlarından seç…" : "Choose from Plasma system icons…"
                 onClicked: {
-                    var initial = page.editingShortcutIcon.indexOf("system:") === 0
-                            ? page.editingShortcutIcon.substring(7)
-                            : AppTheme.systemIconName(page.editingShortcutIcon)
+                    var initial = AppTheme.iconPickerInitial(page.editingShortcutIcon)
                     var chosen = shortcutIconPicker.chooseSystemIcon(initial,
                         lang.language === "tr" ? "Hızlı erişim ikonu seç" : "Choose quick access icon")
                     if (chosen && chosen.length)
-                        page.editingShortcutIcon = "system:" + chosen
+                        page.editingShortcutIcon = AppTheme.iconSelection(chosen)
+                }
+            }
+
+            GButton {
+                objectName: "shortcutIconFileButton"
+                Layout.fillWidth: true
+                text: lang.language === "tr" ? "Dosyadan ikon seç…" : "Choose icon from file…"
+                onClicked: {
+                    const chosen = shortcutIconPicker.chooseIconFile(AppTheme.localIconSource(page.editingShortcutIcon),
+                        lang.language === "tr" ? "Hızlı erişim ikonu seç" : "Choose quick access icon")
+                    if (chosen.length)
+                        page.editingShortcutIcon = AppTheme.iconSelection(chosen)
                 }
             }
 
@@ -2169,13 +2179,23 @@ Item {
                 Layout.fillWidth: true
                 text: lang.language === "tr" ? "Plasma sistem ikonlarından seç…" : "Choose from Plasma system icons…"
                 onClicked: {
-                    var initial = page.editingDiscoverIcon.indexOf("system:") === 0
-                            ? page.editingDiscoverIcon.substring(7)
-                            : AppTheme.systemIconName(page.editingDiscoverIcon)
+                    var initial = AppTheme.iconPickerInitial(page.editingDiscoverIcon)
                     var chosen = shortcutIconPicker.chooseSystemIcon(initial,
                         lang.language === "tr" ? "Öğe ikonu seç" : "Choose item icon")
                     if (chosen && chosen.length)
-                        page.editingDiscoverIcon = "system:" + chosen
+                        page.editingDiscoverIcon = AppTheme.iconSelection(chosen)
+                }
+            }
+
+            GButton {
+                objectName: "discoverIconFileButton"
+                Layout.fillWidth: true
+                text: lang.language === "tr" ? "Dosyadan ikon seç…" : "Choose icon from file…"
+                onClicked: {
+                    const chosen = shortcutIconPicker.chooseIconFile(AppTheme.localIconSource(page.editingDiscoverIcon),
+                        lang.language === "tr" ? "Öğe ikonu seç" : "Choose item icon")
+                    if (chosen.length)
+                        page.editingDiscoverIcon = AppTheme.iconSelection(chosen)
                 }
             }
 

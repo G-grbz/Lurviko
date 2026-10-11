@@ -1,4 +1,5 @@
 #include "quickaccessmodel.h"
+#include "iconreference.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -188,6 +189,9 @@ bool QuickAccessModel::pruneRecentLocations()
 QString QuickAccessModel::safeIcon(const QString &icon)
 {
     const QString trimmed = icon.trimmed();
+    const QString local = IconReference::localFile(trimmed);
+    if (!local.isEmpty())
+        return local;
     static const QStringList allowed = {
         QStringLiteral("folder.svg"), QStringLiteral("home-folder.svg"),
         QStringLiteral("desktop.svg"), QStringLiteral("downloads.svg"),

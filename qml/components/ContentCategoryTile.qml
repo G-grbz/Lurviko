@@ -81,6 +81,7 @@ Rectangle {
 
             CrispIcon {
                 id: categoryIconVisual
+                objectName: "categoryIconVisual"
                 anchors.fill: parent
                 source: AppTheme.useSystemIcons
                         ? AppTheme.systemIconAtSize(AppTheme.discoveryIcon(root.iconName, AppTheme.categoryDefaultIcon(root.categoryKey)), root.iconPixels)

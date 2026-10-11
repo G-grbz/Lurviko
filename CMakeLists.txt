@@ -96,6 +96,7 @@ qt_add_executable(lurviko
     src/favoritesmodel.h
     src/quickaccessmodel.cpp
     src/quickaccessmodel.h
+    src/iconreference.h
     src/contentindexmodel.cpp
     src/contentindexmodel.h
     src/languagemanager.cpp

@@ -225,6 +225,9 @@ Rectangle {
     }
 
     function sidebarModeIcon(iconName, customSystemName) {
+        const local = AppTheme.localIconSource(customSystemName)
+        if (local.length)
+            return local
         if (!AppTheme.useSystemIcons)
             return AppTheme.icon(iconName)
         const custom = String(customSystemName || "").trim()
@@ -236,6 +239,9 @@ Rectangle {
     function sidebarFavoriteIcon(iconName, fallbackName) {
         const raw = String(iconName || "").trim()
         const fallback = String(fallbackName || "folder.svg").trim() || "folder.svg"
+        const local = AppTheme.localIconSource(raw)
+        if (local.length)
+            return local
         if (!AppTheme.useSystemIcons)
             return AppTheme.discoveryIcon(raw, fallback)
         if (raw.indexOf("system:") === 0)
@@ -244,6 +250,9 @@ Rectangle {
     }
 
     function sidebarItemIcon(item) {
+        const local = AppTheme.localIconSource(savedSidebarIcon(item.key))
+        if (local.length)
+            return local
         if (item.key === "trash") {
             if (!AppTheme.useSystemIcons)
                 return AppTheme.icon(sidebar.trashHasItems ? "trashfull.svg" : "trash.svg")
@@ -1154,7 +1163,7 @@ Rectangle {
         modal: true
         focus: true
         width: 480
-        height: AppTheme.useSystemIcons ? 300 : 430
+        height: AppTheme.useSystemIcons ? 344 : 474
         padding: 20
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: GModalSurface { }
@@ -1195,13 +1204,11 @@ Rectangle {
                     Layout.fillWidth: true
                     text: lang.language === "tr" ? "Plasma sistem ikonlarından seç…" : "Choose from Plasma system icons…"
                     onClicked: {
-                        var initial = sidebar.editingFavoriteIcon.indexOf("system:") === 0
-                                ? sidebar.editingFavoriteIcon.substring(7)
-                                : AppTheme.systemIconName(sidebar.editingFavoriteIcon)
+                        var initial = AppTheme.iconPickerInitial(sidebar.editingFavoriteIcon)
                         var chosen = favoriteIconPicker.chooseSystemIcon(initial,
                             lang.language === "tr" ? "Favori ikonu seç" : "Choose favorite icon")
                         if (chosen && chosen.length)
-                            sidebar.editingFavoriteIcon = "system:" + chosen
+                            sidebar.editingFavoriteIcon = AppTheme.iconSelection(chosen)
                     }
                 }
                 Text {
@@ -1210,6 +1217,16 @@ Rectangle {
                     text: lang.language === "tr" ? "Lurviko ikonlarından seç" : "Choose a Lurviko icon"
                     color: AppTheme.textMuted
                     font.pixelSize: 11
+                }
+            }
+            GButton {
+                Layout.fillWidth: true
+                text: lang.language === "tr" ? "Dosyadan ikon seç…" : "Choose icon from file…"
+                onClicked: {
+                    const chosen = favoriteIconPicker.chooseIconFile(AppTheme.localIconSource(sidebar.editingFavoriteIcon),
+                        lang.language === "tr" ? "Favori ikonu seç" : "Choose favorite icon")
+                    if (chosen.length)
+                        sidebar.editingFavoriteIcon = AppTheme.iconSelection(chosen)
                 }
             }
             GridLayout {
@@ -1280,9 +1297,12 @@ Rectangle {
                         width: 46
                         height: 46
                         source: {
+                            const custom = sidebar.savedSidebarIcon(sidebar.sidebarPropertiesKey)
+                            const local = AppTheme.localIconSource(custom)
+                            if (local.length)
+                                return local
                             if (!AppTheme.useSystemIcons)
                                 return AppTheme.icon(sidebar.sidebarPropertiesDefaultIcon)
-                            const custom = sidebar.savedSidebarIcon(sidebar.sidebarPropertiesKey)
                             if (custom && custom.length)
                                 return AppTheme.systemIcon(custom)
                             return AppTheme.systemIcon(AppTheme.systemIconName(sidebar.sidebarPropertiesDefaultIcon))
@@ -1290,9 +1310,20 @@ Rectangle {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        enabled: AppTheme.useSystemIcons
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onClicked: {
+                            if (!AppTheme.useSystemIcons) {
+                                const file = favoriteIconPicker.chooseIconFile(
+                                    AppTheme.localIconSource(sidebar.savedSidebarIcon(sidebar.sidebarPropertiesKey)),
+                                    lang.language === "tr" ? "Klasör ikonu seç" : "Choose folder icon")
+                                if (file.length) {
+                                    sidebar.setSavedSidebarIcon(sidebar.sidebarPropertiesKey, file)
+                                    if (sidebar.sidebarPropertiesHasFileInfo && sidebarFileProperties.directory
+                                            && sidebarFileProperties.setFolderIcon(file))
+                                        sidebar.folderIconChanged(sidebar.sidebarPropertiesPath)
+                                }
+                                return
+                            }
                             var initial = sidebar.savedSidebarIcon(sidebar.sidebarPropertiesKey)
                             if (!initial || !initial.length)
                                 initial = AppTheme.systemIconName(sidebar.sidebarPropertiesDefaultIcon)

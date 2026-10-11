@@ -48,6 +48,21 @@ simply rotating the envelope is not a remedy for retained hostile copies.
 Older Lurviko builds can read the unchanged password/blob format, but may ignore
 or mishandle recovery settings. Use the updated build for recovery management.
 
+## In-app plaintext exports
+
+The unlocked vault's **Export** action writes authenticated content into a new
+private staging directory in the chosen destination, then publishes it without
+overwriting existing entries. Existing directories are not merged; name
+collisions, including symbolic links, receive numbered alternatives. Exported
+directories are owner-only (0700), and files are owner-only (0600). Linux fd
+pinning and atomic no-replace rename are required; export fails if those
+guarantees cannot be provided. This affects export paths, not the vault format
+or the offline recovery tool's key contract.
+
+Exported content is deliberately plaintext. A crash can leave a private
+`.lurviko-export-*` staging directory at the chosen output location; these
+locations are not part of the runtime-preview startup cleanup.
+
 ## Exact interoperable format
 
 All legacy identifiers remain fixed: header magic `g-file-private-vault`, header

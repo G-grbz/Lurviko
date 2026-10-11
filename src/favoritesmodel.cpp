@@ -1,4 +1,5 @@
 #include "favoritesmodel.h"
+#include "iconreference.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -60,6 +61,9 @@ QString FavoritesModel::displayName(const QString &location)
 QString FavoritesModel::safeIcon(const QString &icon)
 {
     const QString value = icon.trimmed();
+    const QString local = IconReference::localFile(value);
+    if (!local.isEmpty())
+        return local;
     static const QStringList bundled = {
         QStringLiteral("folder.svg"), QStringLiteral("home-folder.svg"),
         QStringLiteral("desktop.svg"), QStringLiteral("downloads.svg"),

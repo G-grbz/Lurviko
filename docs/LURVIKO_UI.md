@@ -1,6 +1,6 @@
-# G-File UI Design System
+# Lurviko UI Design System
 
-G-File uses Qt Quick Controls for input, focus, keyboard and accessibility behavior, but owns the visual layer itself. `QQuickStyle::setStyle("Basic")` remains the stable cross-platform fallback; application-facing controls use G-File components instead of desktop-theme visuals.
+Lurviko uses Qt Quick Controls for input, focus, keyboard and accessibility behavior, but owns the visual layer itself. `QQuickStyle::setStyle("Basic")` remains the stable cross-platform fallback; application-facing controls use Lurviko components instead of desktop-theme visuals.
 
 ## Design language
 
@@ -15,7 +15,7 @@ G-File uses Qt Quick Controls for input, focus, keyboard and accessibility behav
 
 Use these in pages/components instead of the corresponding raw Qt Quick Controls:
 
-| G-File control | Qt behavior base |
+| Lurviko control | Qt behavior base |
 | --- | --- |
 | `GButton` | `Button` |
 | `GToolButton` | `ToolButton` |
@@ -28,7 +28,7 @@ Use these in pages/components instead of the corresponding raw Qt Quick Controls
 | `GProgressBar` | `ProgressBar` |
 | `GBusyIndicator` | `BusyIndicator` |
 
-One-off media overlays may override `background`, `contentItem`, `delegate` or `popup`; the G-File control remains the behavioral base.
+One-off media overlays may override `background`, `contentItem`, `delegate` or `popup`; the Lurviko control remains the behavioral base.
 
 ## Tokens
 
@@ -45,7 +45,7 @@ python3 tests/test-gfile-ui-controls.py
 before committing UI work.
 
 
-## G-File UI v2 — visual identity pass
+## Lurviko UI v2 — visual identity pass
 
 The second pass intentionally changes the shell, not only individual controls:
 
@@ -57,4 +57,4 @@ The second pass intentionally changes the shell, not only individual controls:
 - 20 px context menus and 28 px modal surfaces
 - capsule search and stronger settings/info hierarchy
 
-These surfaces continue to use Qt Quick Controls for input/focus/accessibility, but visual state is owned by G-File tokens in `AppTheme.qml`.
+These surfaces continue to use Qt Quick Controls for input/focus/accessibility, but visual state is owned by Lurviko tokens in `AppTheme.qml`.

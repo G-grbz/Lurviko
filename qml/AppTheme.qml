@@ -275,7 +275,55 @@ QtObject {
     }
 
     function systemIcon(name) {
-        return "image://systemicon/" + encodeURIComponent(name || "text-x-generic")
+        const local = localIconSource(name)
+        if (local.length)
+            return local
+        const theme = String(name || "")
+        return "image://systemicon/" + encodeURIComponent(/^[A-Za-z0-9._+-]+$/.test(theme) ? theme : "text-x-generic")
+    }
+
+    // File artwork is an explicit user choice in both modes. Older settings
+    // sometimes contain "system:/absolute/path"; resolve these as files too.
+    function localIconSource(name) {
+        var raw = String(name || "").trim()
+        if (raw.indexOf("system:") === 0)
+            raw = raw.substring(7)
+        if (raw.indexOf("\u0000") !== -1)
+            return ""
+        if (raw.indexOf("file:") === 0) {
+            // Match persisted local references: no remote authority, credentials,
+            // query/fragment or encoded NUL. Never turn an icon into a network URL.
+            if (!/^file:(?:\/(?!\/)|\/\/\/(?!\/)|\/\/localhost\/)/i.test(raw)
+                    || /[?#]/.test(raw))
+                return ""
+            try {
+                return decodeURIComponent(raw).indexOf("\u0000") === -1 ? raw : ""
+            } catch (error) {
+                return ""
+            }
+        }
+        if (raw.indexOf("/") === 0)
+            return "file://" + encodeURI(raw).replace(/#/g, "%23").replace(/\?/g, "%3F")
+        return ""
+    }
+
+    function iconSelection(name) {
+        const raw = String(name || "").trim()
+        if (!raw.length)
+            return ""
+        const local = localIconSource(raw)
+        if (local.length)
+            return local
+        return /^(?:system:)?[A-Za-z0-9._+-]+$/.test(raw)
+                ? (raw.indexOf("system:") === 0 ? raw : "system:" + raw) : ""
+    }
+
+    function iconPickerInitial(name) {
+        const raw = String(name || "").trim()
+        const local = localIconSource(raw)
+        if (local.length)
+            return local
+        return raw.indexOf("system:") === 0 ? raw.substring(7) : systemIconName(raw)
     }
 
     // Keep the logical artwork size in the URL; sourceSize supplies the screen
@@ -296,6 +344,9 @@ QtObject {
     function discoveryIcon(name, fallbackName) {
         const raw = String(name || "").trim()
         const fallback = String(fallbackName || "folder.svg").trim() || "folder.svg"
+        const local = localIconSource(raw)
+        if (local.length)
+            return local
         // A system-theme icon chosen while System Icons was active is a
         // per-mode customization. Returning to bundled/default icons must
         // restore the bundled fallback instead of keeping the old theme icon.
@@ -318,6 +369,9 @@ QtObject {
     function customIcon(name) {
         if (!name || name.length === 0)
             return icon("folder.svg")
+        const local = localIconSource(name)
+        if (local.length)
+            return local
         if (name.indexOf("system:") === 0)
             return systemIcon(name.substring(7))
         return icon(name)
@@ -332,6 +386,9 @@ QtObject {
         const raw = String(name || "")
         if (raw.length === 0)
             return ""
+        const local = localIconSource(raw)
+        if (local.length)
+            return local
         // Explicit system-icon selections are still respected for places where
         // the user deliberately picked a theme icon (for example sidebar item
         // customization).
@@ -339,9 +396,10 @@ QtObject {
             return systemIcon(raw.substring(7))
         if (raw.indexOf("image://systemicon/") === 0
                 || raw.indexOf("image://bundledicon/") === 0
-                || raw.indexOf("qrc:/") === 0
-                || raw.indexOf("file:/") === 0)
+                || raw.indexOf("qrc:/") === 0)
             return raw
+        if (!/^[A-Za-z0-9._+-]+$/.test(raw))
+            return icon("folder.svg")
         // Explicitly selected UI glyphs only: category artwork and logos keep
         // their original colors. Include the color in the URL for Qt's cache.
         const monochrome = ["history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",

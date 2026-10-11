@@ -180,6 +180,10 @@ int main(int argc, char **argv) {
     require(blob.open(QIODevice::WriteOnly | QIODevice::Truncate), "ciphertext tamper fixture opens");
     blob.write(damagedBlob); blob.close();
     require(vault.materializeForOpen(payloadId).isEmpty(), "tampered GCM tag never produces a plaintext file");
+    QTemporaryDir failedExport;
+    require(!vault.exportItem(payloadId, failedExport.path()), "tampered ciphertext cannot be exported");
+    require(QDir(failedExport.path()).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+        "failed export publishes no plaintext and cleans its private staging directory");
     require(blob.open(QIODevice::WriteOnly | QIODevice::Truncate), "ciphertext fixture is restored");
     blob.write(originalBlob); blob.close();
     const QString recovered = vault.materializeForOpen(payloadId);
@@ -314,6 +318,111 @@ int main(int argc, char **argv) {
     }
     app.setApplicationName("Vault");
     std::puts("PASS: optional recovery, one-time display, rotation, disable, stale-instance protection, failed-write rollback, lockout and independent offline export");
+    {
+        QTemporaryDir destination, outside;
+        const auto findId = [&](const QString &name) {
+            for (int row = 0; row < vault.rowCount(); ++row)
+                if (vault.data(vault.index(row), PrivateVaultManager::NameRole).toString() == name)
+                    return vault.data(vault.index(row), PrivateVaultManager::ObjectIdRole).toString();
+            return QString{};
+        };
+        require(vault.createFolder("Export fixture"), "create directory export fixture");
+        const QString folderId = findId("Export fixture"); require(!folderId.isEmpty(), "directory export fixture ID");
+        require(vault.enterFolder(folderId) && vault.importUrls({QUrl::fromLocalFile(payloadPath)}), "import nested private export file");
+        vault.goRoot();
+        require(QFile::link(outside.path(), destination.filePath("Export fixture")), "existing export directory symlink fixture");
+        require(vault.exportItem(folderId, destination.path()), "directory export chooses a new name instead of following a symlink");
+        require(!QFileInfo::exists(outside.filePath("payload.txt")), "directory symlink's external target receives no plaintext");
+        const QString folderOutput = destination.filePath("Export fixture (2)");
+        QFile nested(folderOutput + "/payload.txt");
+        require(nested.open(QIODevice::ReadOnly) && nested.readAll() == payload, "new exported directory contains authenticated bytes");
+        require(!(QFileInfo(folderOutput).permissions() & (QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup
+            | QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther)), "exported directory is owner-only");
+        require(vault.exportItem(folderId, destination.path()), "repeat directory export preserves previous output");
+        require(QFileInfo::exists(destination.filePath("Export fixture (3)/payload.txt")), "repeat directory exports never merge existing trees");
+        require(QFile::link(outside.filePath("not-created.txt"), destination.filePath("payload.txt")), "dangling output symlink fixture");
+        require(vault.exportItem(payloadId, destination.path()), "file export handles dangling output symlinks without replacing them");
+        require(QFileInfo(destination.filePath("payload.txt")).isSymLink() && !QFileInfo::exists(outside.filePath("not-created.txt")),
+            "dangling output symlink and outside target remain untouched");
+        QFile fileOutput(destination.filePath("payload (2).txt"));
+        require(fileOutput.open(QIODevice::ReadOnly) && fileOutput.readAll() == payload, "file collision export contains original bytes");
+        require(destination.isValid() && outside.isValid(), "export test uses isolated destinations");
+        const QString originalRoot = destination.filePath("chosen");
+        const QString renamedRoot = destination.filePath("renamed");
+        require(QDir().mkpath(originalRoot), "ancestor change export fixture");
+        bool relocated = false;
+        const auto relocate = QObject::connect(&vault, &PrivateVaultManager::busyChanged, &vault, [&] {
+            if (vault.busy() && !relocated) {
+                relocated = true;
+                require(QDir().rename(originalRoot, renamedRoot) && QFile::link(outside.path(), originalRoot), "replace chosen path after destination fd is pinned");
+            }
+        });
+        require(vault.exportItem(payloadId, originalRoot), "export stays anchored when destination ancestors change");
+        QObject::disconnect(relocate);
+        require(relocated && QFileInfo::exists(renamedRoot + "/payload.txt") && !QFileInfo::exists(outside.filePath("payload.txt")),
+            "renamed destination receives export; substituted symlink target does not");
+        require(QDir(destination.path()).entryList({".lurviko-export-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+            "completed exports leave no staging directories");
+        require(vault.deleteItem(folderId) && vault.totalItemCount() == 2, "clean temporary vault export fixture");
+        std::puts("PASS: vault exports reject symlink merges, preserve collisions, pin destination paths and publish owner-only authenticated content");
+    }
+    {
+        QTemporaryDir fixture;
+        const QString destination = fixture.filePath("output"), outside = fixture.filePath("outside");
+        require(QDir().mkpath(destination) && QDir().mkpath(outside), "archive integration destinations");
+        QFile victim(outside + "/victim.txt"); require(victim.open(QIODevice::WriteOnly), "archive outside sentinel");
+        victim.write("unchanged"); victim.close();
+        require(QFile::link(outside, destination + "/nested"), "archive destination directory symlink");
+        const QString archive = fixture.filePath("test.zip");
+        const auto makeZip = [&](const QString &entry, const QString &contents) {
+            QProcess process;
+            process.start("python3", {"-c", "import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr(sys.argv[2],sys.argv[3])\n",
+                                      archive, entry, contents});
+            require(process.waitForFinished() && process.exitCode() == 0, "archive integration fixture ZIP creation");
+        };
+        FileOperations operations;
+        operations.setKioProgressEnabled(false);
+        bool done = false, success = false;
+        QObject::connect(&operations, &FileOperations::operationFinished, &operations,
+            [&](bool ok, const QString &, bool, bool) { success = ok; done = true; });
+        makeZip("nested/victim.txt", "changed");
+        operations.extractArchiveOverwrite(archive, destination, false);
+        require(until([&] { return done; }) && !success, "actual confirmed-overwrite extraction rejects directory link escape");
+        require(victim.open(QIODevice::ReadOnly) && victim.readAll() == "unchanged", "actual FileOperations preserves external target"); victim.close();
+        makeZip("ordinary.txt", "new contents");
+        QFile ordinary(destination + "/ordinary.txt"); require(ordinary.open(QIODevice::WriteOnly), "ordinary overwrite fixture");
+        ordinary.write("old contents"); ordinary.close();
+        done = false; success = false;
+        operations.extractArchiveOverwrite(archive, destination, false);
+        require(until([&] { return done; }) && success, "actual safe extractor retains confirmed ordinary overwrite");
+        require(ordinary.open(QIODevice::ReadOnly) && ordinary.readAll() == "new contents", "confirmed overwrite bytes"); ordinary.close();
+        const QString fresh = fixture.filePath("fresh"); require(QDir().mkpath(fresh), "fresh extraction destination");
+        done = false; success = false;
+        operations.extractArchive(archive, fresh, false);
+        require(until([&] { return done; }) && success, "actual probe path passes safe extractor to asynchronous extraction");
+        require(QFileInfo::exists(fresh + "/ordinary.txt"), "normal extraction publishes requested file");
+        const QString namedEscape = fixture.filePath("...zip"), guarded = fixture.filePath("guarded");
+        require(QFile::copy(archive, namedEscape) && QDir().mkpath(guarded), "archive basename traversal fixture");
+        done = false; success = false;
+        operations.extractArchiveOverwrite(namedEscape, guarded, true);
+        require(until([&] { return done; }) && success, "dot-only archive stem uses safe subfolder");
+        require(QFileInfo::exists(guarded + "/Archive/ordinary.txt") && !QFileInfo::exists(fixture.filePath("ordinary.txt")),
+            "extract-to-folder cannot escape the selected parent via archive basename");
+        const QString derivedRoot = fixture.filePath("derived"); require(QDir().mkpath(derivedRoot), "derived extraction root fixture");
+        require(QFile::link(outside, derivedRoot + "/test"), "derived archive subfolder symlink fixture");
+        done = false; success = true;
+        operations.extractArchiveOverwrite(archive, derivedRoot, true);
+        require(until([&] { return done; }) && !success && !QFileInfo::exists(outside + "/ordinary.txt"),
+            "implicit archive subfolder cannot follow a link outside the chosen root");
+        const QString pinned = fixture.filePath("pinned"), moved = fixture.filePath("moved");
+        require(QDir().mkpath(pinned), "asynchronous extraction root fixture");
+        done = false; success = false;
+        operations.extractArchiveOverwrite(archive, pinned, false);
+        require(QDir().rename(pinned, moved) && QFile::link(outside, pinned), "replace extraction root before child starts");
+        require(until([&] { return done; }) && success && QFileInfo::exists(moved + "/ordinary.txt")
+            && !QFileInfo::exists(outside + "/ordinary.txt"), "external extractor remains anchored to its pinned destination fd");
+        std::puts("PASS: actual archive jobs reject symlink escapes and preserve ordinary overwrite and probe-based extraction");
+    }
     if (arguments.contains("--backend-only")) {
         std::puts("PASS: vault authentication and encrypted file preservation without desktop/media services");
         return 0;
