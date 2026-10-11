@@ -109,10 +109,15 @@ References: [NIST GCM](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpu
 - Legacy magic/AAD values and header version remain unchanged; recovery is an
   optional header extension with its own authenticated envelope version.
 
-## v1.2.0 release preparation
+## v1.2.0 release
 
-The source and AUR version fields are prepared for 1.2.0. Published v1.0.0 and
-v1.1.0 tags remain unchanged. AUR source checksums are intentionally absent:
-**release sonrası güncellenecek** (update after the real release archive exists).
-Do not publish/build the AUR update until the actual archive's SHA-256 is recorded
-and .SRCINFO is regenerated. An empty checksum array is not a SKIP checksum.
+The reviewed fixes and recovery feature are published as v1.2.0. Published
+v1.0.0 and v1.1.0 tags remain unchanged. The release workflow passed its build,
+headless tests and installation/uninstall checks before publishing the archives.
+
+The actual `Lurviko-1.2.0.tar.gz` archive's SHA-256 was verified against both
+`SHA256SUMS` and the GitHub asset digest:
+`8d3866e7ace9d8cfcb6985819337f8c0c079d6e9c31dc1630ef09323dc138a3b`.
+The AUR recipe records this checksum and its `.SRCINFO` is regenerated.
+The source tag retains the pre-publication checksum placeholder; the completed
+recipe is maintained on `main` and in the AUR repository without moving the tag.
