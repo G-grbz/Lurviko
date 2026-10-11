@@ -132,6 +132,39 @@ private slots:
         QVERIFY(!FileAccessSecurity::checkAdministratorTree(root, ::getuid(), &cancelled).safe);
         QVERIFY(!FileAccessSecurity::checkAdministratorTree(root + "/child/link", ::getuid()).safe);
     }
+    void localAccessMountBoundary() {
+        QTemporaryDir fixture;
+        const QString root = fixture.filePath("tree");
+        const QString mount = root + "/mounted";
+        QVERIFY(QDir().mkpath(mount));
+        QVERIFY(::chmod(QFile::encodeName(root).constData(), 0700) == 0);
+        QVERIFY(::chmod(QFile::encodeName(mount).constData(), 0700) == 0);
+        QFile inside(mount + "/keep.txt"); QVERIFY(inside.open(QIODevice::WriteOnly)); inside.write("keep"); inside.close();
+        QVERIFY(::chmod(QFile::encodeName(inside.fileName()).constData(), 0600) == 0);
+        const auto task = std::make_shared<FileAccessTask>();
+        SecurityTestDoubles::differentDevicePath = QFile::encodeName(mount);
+        FileAccessSecurity::applyLocalAccess(root, 0755, uid_t(-1), gid_t(-1), true, task);
+        SecurityTestDoubles::differentDevicePath.clear();
+        QCOMPARE(task->skipped.load(), 1); QCOMPARE(task->failed.load(), 0); QCOMPARE(task->changed.load(), 1);
+        struct stat st {};
+        QVERIFY(::stat(QFile::encodeName(mount).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0700));
+        QVERIFY(::stat(QFile::encodeName(inside.fileName()).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0600));
+        QVERIFY(inside.open(QIODevice::ReadOnly)); QCOMPARE(inside.readAll(), QByteArray("keep"));
+    }
+    void localAccessPreservesSpecialBits() {
+        QTemporaryDir fixture;
+        const QString root = fixture.filePath("tree"); QVERIFY(QDir().mkpath(root));
+        QFile program(root + "/program"); QVERIFY(program.open(QIODevice::WriteOnly)); program.write("unchanged"); program.close();
+        QVERIFY(::chmod(QFile::encodeName(root).constData(), 03755) == 0);
+        QVERIFY(::chmod(QFile::encodeName(program.fileName()).constData(), 04755) == 0);
+        const auto task = std::make_shared<FileAccessTask>();
+        FileAccessSecurity::applyLocalAccess(root, 0700, uid_t(-1), gid_t(-1), true, task);
+        QCOMPARE(task->failed.load(), 0); QCOMPARE(task->changed.load(), 2);
+        struct stat st {};
+        QVERIFY(::stat(QFile::encodeName(root).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(03700));
+        QVERIFY(::stat(QFile::encodeName(program.fileName()).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(04700));
+        QVERIFY(program.open(QIODevice::ReadOnly)); QCOMPARE(program.readAll(), QByteArray("unchanged"));
+    }
     void archiveOptionsAreOperands() {
         QTemporaryDir first; QTemporaryDir second;
         const QStringList names = {"--help", "-C", "@list", "İşler Güçler.txt"};

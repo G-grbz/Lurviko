@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native KDF, path, memory-storage and real bsdtar operand regressions."""
+"""Native KDF, vault session recovery, permission safety and archive operand regressions."""
 from pathlib import Path
 import subprocess
 import tempfile

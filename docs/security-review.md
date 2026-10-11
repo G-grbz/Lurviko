@@ -4,6 +4,9 @@ Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 rev
 
 | Report | Finding/action |
 | --- | --- |
+| Recursive local filesystem boundary | Confirmed: local traversal did not check st_dev. Check the selected root's device and each entry/opened child; skip other devices without modifying their contents or mount root. Report the skipped count in progress/completion. Native fd/syscall doubles exercise a device change between path stat and open without requiring a real mount/root. No cross-filesystem opt-in is added in this version. |
+| Special permission bits | Confirmed intentional preservation of existing setuid/setgid/sticky bits; ordinary rwx controls cannot set/clear them. Added code comments and a bilingual Properties hint. Existing ownership changes may clear privilege bits and they are not restored. Native regression verifies unchanged special bits without ownership changes and unchanged file content. |
+| Unauthenticated Argon2id header parameters | Confirmed in derivePasswordKey: parameter validation precedes derivation and GCM verification, and the legacy wrapping AAD omits the header parameters. No format/code change; documented a future versioned unlock/rewrap/rollback design in [vault-kdf-upgrade-design.md](vault-kdf-upgrade-design.md). Bounds still limit unauthenticated resource requests. |
 | Crash plaintext residue | Confirmed: random session directories were removed only on normal destruction. Each new session now holds an O_CLOEXEC flock lock; startup sweeps preferred runtime and /dev/shm session directories, plus legacy lurviko-private in runtime and the old temporary parent. Owner/fd/inode checks and nonblocking locks protect live sessions; descriptor-based deletion rejects symlinks and mount crossings. Native tests cover live/crashed processes, lockless orphans, legacy names, symlinks, simulated foreign ownership and instance isolation. |
 | Recursive administrator chmod/chown | Confirmed in kio-admin 26.08.1 and KIO 6.30.0 source: the final chmod/chown are path-based. Before recursive administrator jobs, perform local fd/no-follow tree checks; reject directories owned by neither root nor the target owner, group/other-write directories, and unreadable trees. Fake administrator regression verifies an unsafe symlink tree cannot dispatch a job or change an external target. See [source evidence and helper design](privileged-access-design.md). Preflight is a mitigation, not inode-pinned privileged execution. |
 | Menu retains scroll | Confirmed; cancel flick and reset on every GMenu opening. Native regression added. |
@@ -27,6 +30,15 @@ Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 rev
   group/other-writable trees are refused. A privileged fd helper remains design
   work; see [the proposal](privileged-access-design.md).
 
+- Local recursive permission changes stay on the root st_dev by default. Same-device
+  bind mounts are not distinguished by st_dev; skipping such mounts would require
+  a further mount-ID/openat2 policy. Skipped counts describe entries/subtree roots,
+  not the number of unseen files inside them. There is no crossing opt-in.
+- Special permission bits remain outside the ordinary rwx editor. Ownership
+  changes can clear setuid/setgid as before; this update does not restore them.
+- Legacy Argon2id parameters are bounded but are not authenticated header fields.
+  Requests within those bounds can still consume KDF resources before a wrong
+  key fails GCM verification. Rehash-on-unlock is design work, not implemented.
 - Linux tmpfs can swap pages. Avoiding ordinary disk-filesystem previews is not
   a guarantee against swap, hibernation, root or another process as the same
   user. Encrypted swap/memory policy belongs to the operating system.
@@ -48,3 +60,32 @@ References: [NIST GCM](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpu
 [OpenSSL Argon2](https://docs.openssl.org/3.6/man7/EVP_KDF-ARGON2/),
 [Linux tmpfs](https://docs.kernel.org/filesystems/tmpfs.html),
 [pip secure installs](https://pip.pypa.io/en/stable/topics/secure-installs/).
+
+## v1.1.1 validation (2026-10-11)
+
+- `cmake --build build -j4`: successful Release build.
+- `python3 tests/run-security-tests.py`: 10 QtTest cases passed, no failures or
+  skips. Foreign ownership and a changed device are simulated through test-only
+  syscall wrappers; the administrator dispatch is a test double, not a root job.
+- `bash .github/scripts/run-headless-tests.sh`: every command passed, including
+  the real vault integration/crash recovery harness, 42 QML cases, 10 system-icon
+  cases and 86 translation-quality cases, plus the UI, uninstall, download-policy,
+  branding, chapter and subtitle guards. The script now includes vault integration.
+- `python3 tests/run-properties-tests.py`: passed native permission/content
+  checks and the actual Properties UI, including the special-bit explanation.
+  The scroll assertion waits for its animation instead of a fixed short delay.
+- The initial sandbox run blocked local ownership/media operations. The complete
+  headless suite and Properties harness subsequently passed outside that sandbox;
+  no test remained unrun. A test helper signature error was corrected before the
+  final successful Properties run.
+- Compared vault magic and legacy AAD expressions against v1.1.0: unchanged.
+  `makepkg --printsrcinfo` matches the prepared metadata (apart from its checksum
+  reminder comment), and neither published tag was modified.
+
+## v1.1.1 release preparation
+
+The source and AUR version fields are prepared for 1.1.1. Published v1.0.0 and
+v1.1.0 tags remain unchanged. AUR source checksums are intentionally absent:
+**release sonrası güncellenecek** (update after the real release archive exists).
+Do not publish/build the AUR update until the actual archive's SHA-256 is recorded
+and .SRCINFO is regenerated. An empty checksum array is not a SKIP checksum.

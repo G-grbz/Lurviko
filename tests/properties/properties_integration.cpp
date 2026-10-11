@@ -23,9 +23,9 @@ static void pause(int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEve
 static void require(bool ok, const char *message) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
 }
-static bool until(std::function<bool()> check) {
+static bool until(std::function<bool()> check, int timeout = 10000) {
     QElapsedTimer timer; timer.start();
-    while (!check() && timer.elapsed() < 10000) pause(10);
+    while (!check() && timer.elapsed() < timeout) pause(10);
     return check();
 }
 static QQuickItem *findItem(QQuickItem *root, const QString &name) {
@@ -246,6 +246,9 @@ ApplicationWindow {
     auto execution = findItem(window->contentItem(), "allowFileExecution");
     auto apply = findItem(window->contentItem(), "applyFilePermissions");
     require(scroll && execution && apply, "permission editor and apply button rendered");
+    auto hint = findItem(window->contentItem(), "specialPermissionsHint");
+    require(hint && hint->property("text").toString().contains("setuid")
+            && hint->property("text").toString().contains("setgid"), "special permission safety hint is visible in Properties");
     const auto click = [&](QQuickItem *item) {
         const QPointF pos = item->mapToScene(QPointF(9, item->height() / 2));
         const QPointF global = window->mapToGlobal(pos.toPoint());
@@ -259,8 +262,9 @@ ApplicationWindow {
     const QPointF wheelPoint = scroll->mapToScene(QPointF(scroll->width() / 2, scroll->height() / 2));
     QWheelEvent wheel(wheelPoint, window->mapToGlobal(wheelPoint.toPoint()), QPoint(), QPoint(0, -120),
                       Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
-    QApplication::sendEvent(window, &wheel); pause(220);
-    require(flick->property("contentY").toDouble() >= 200, "one mouse-wheel notch moves the properties content by the configured step");
+    QApplication::sendEvent(window, &wheel);
+    require(until([&] { return flick->property("contentY").toDouble() >= 200; }, 1200),
+            "one mouse-wheel notch moves the properties content by the configured step");
     const QPointF local = execution->mapToItem(scroll, QPointF());
     flick->setProperty("contentY", flick->property("contentY").toDouble() + local.y() - scroll->height() / 2);
     pause(200); window->grabWindow();

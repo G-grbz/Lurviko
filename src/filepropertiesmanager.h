@@ -32,6 +32,7 @@ class FilePropertiesManager : public QObject
     Q_PROPERTY(bool accessBusy READ accessBusy NOTIFY accessProgressChanged)
     Q_PROPERTY(int accessCompleted READ accessCompleted NOTIFY accessProgressChanged)
     Q_PROPERTY(int accessFailed READ accessFailed NOTIFY accessProgressChanged)
+    Q_PROPERTY(int accessSkipped READ accessSkipped NOTIFY accessProgressChanged)
     Q_PROPERTY(QString accessError READ accessError NOTIFY accessProgressChanged)
     Q_PROPERTY(QString iconName READ iconName NOTIFY propertiesChanged)
     Q_PROPERTY(QString linkType READ linkType NOTIFY propertiesChanged)
@@ -63,6 +64,9 @@ public:
     bool accessBusy() const { return m_accessBusy; }
     int accessCompleted() const;
     int accessFailed() const;
+    int accessSkipped() const;
+    Q_INVOKABLE QString specialPermissionsHint() const;
+    Q_INVOKABLE QString accessSkippedSummary() const;
     QString accessError() const { return m_accessError; }
     QString iconName() const { return m_iconName; }
     QString linkType() const { return m_linkType; }

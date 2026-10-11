@@ -14,23 +14,10 @@
 #include <KIO/SimpleJob>
 #include <KIO/StatJob>
 #include <algorithm>
-#include <atomic>
-#include <cerrno>
-#include <cstring>
-#include <dirent.h>
-#include <fcntl.h>
 #include <grp.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <vector>
-
-struct FileAccessTask {
-    std::atomic<bool> cancelled{false};
-    std::atomic<int> changed{0};
-    std::atomic<int> failed{0};
-    QString firstError; // Read by the UI only after the future has finished.
-};
 
 namespace {
 QString securityMessage(const char *english, const char *turkish)
@@ -46,88 +33,6 @@ QStringList sortedNames(QStringList names, const QString &current)
     names.sort(Qt::CaseInsensitive);
     return names;
 }
-
-void recordFailure(const std::shared_ptr<FileAccessTask> &task, const QString &path, int error)
-{
-    ++task->failed;
-    if (task->firstError.isEmpty())
-        task->firstError = path + QStringLiteral(": ") + QString::fromLocal8Bit(std::strerror(error));
-}
-
-void applyLocalAccess(const QString &path, int mode, uid_t owner, gid_t group, bool recursive,
-                      const std::shared_ptr<FileAccessTask> &task)
-{
-    const auto apply = [&](int parent, const QByteArray &name, const QString &display, bool descendant) {
-        if (task->cancelled) return;
-        struct stat st {};
-        if (::fstatat(parent, name.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
-            recordFailure(task, display, errno); return;
-        }
-        if (S_ISLNK(st.st_mode) || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))) return;
-        if ((owner != static_cast<uid_t>(-1) && owner != st.st_uid)
-            || (group != static_cast<gid_t>(-1) && group != st.st_gid)) {
-            if (::fchownat(parent, name.constData(), owner, group, AT_SYMLINK_NOFOLLOW) != 0) {
-                recordFailure(task, display, errno); return;
-            }
-            // chown may clear setuid/setgid. Do not restore cleared privilege bits.
-            if (::fstatat(parent, name.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
-                recordFailure(task, display, errno); return;
-            }
-            if (S_ISLNK(st.st_mode)) { recordFailure(task, display, ELOOP); return; }
-        }
-        int requested = mode;
-        // Match Dolphin's recursive +X behavior: ordinary documents stay
-        // non-executable; directories and existing programs receive execute bits.
-        if (descendant && S_ISREG(st.st_mode) && !(st.st_mode & 0111) && (mode & 0111))
-            requested &= ~0111;
-        requested |= st.st_mode & (S_ISUID | S_ISGID | S_ISVTX);
-        if (::fchmodat(parent, name.constData(), requested, AT_SYMLINK_NOFOLLOW) != 0)
-            recordFailure(task, display, errno);
-        else
-            ++task->changed;
-    };
-    if (!recursive) { apply(AT_FDCWD, QFile::encodeName(path), path, false); return; }
-
-    const int root = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (root < 0) { recordFailure(task, path, errno); return; }
-    DIR *rootStream = ::fdopendir(root);
-    if (!rootStream) { const int error = errno; ::close(root); recordFailure(task, path, error); return; }
-    struct Frame { DIR *stream; QString path; };
-    std::vector<Frame> stack{{rootStream, path}};
-    while (!stack.empty() && !task->cancelled) {
-        const Frame frame = stack.back();
-        errno = 0;
-        dirent *entry = ::readdir(frame.stream);
-        if (!entry) {
-            if (errno) recordFailure(task, frame.path, errno);
-            // Open directory descriptors keep traversal inside the selected
-            // tree. Change directories after their children, even for 0000.
-            apply(::dirfd(frame.stream), QByteArray("."), frame.path, stack.size() > 1);
-            ::closedir(frame.stream);
-            stack.pop_back();
-            continue;
-        }
-        const QByteArray name(entry->d_name);
-        if (name == "." || name == "..") continue;
-        const QString display = QDir(frame.path).filePath(QFile::decodeName(name));
-        struct stat st {};
-        const int parent = ::dirfd(frame.stream);
-        if (::fstatat(parent, name.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
-            recordFailure(task, display, errno); continue;
-        }
-        if (S_ISLNK(st.st_mode)) continue;
-        if (S_ISDIR(st.st_mode)) {
-            const int fd = ::openat(parent, name.constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-            if (fd < 0) { recordFailure(task, display, errno); continue; }
-            DIR *stream = ::fdopendir(fd);
-            if (!stream) { const int error = errno; ::close(fd); recordFailure(task, display, error); continue; }
-            stack.push_back({stream, display});
-        } else {
-            apply(parent, name, display, true);
-        }
-    }
-    for (const auto &frame : stack) ::closedir(frame.stream);
-}
 }
 
 void FilePropertiesManager::initializeAccess()
@@ -139,7 +44,17 @@ void FilePropertiesManager::initializeAccess()
 
 FilePropertiesManager::~FilePropertiesManager() { cancelAccess(); }
 int FilePropertiesManager::accessCompleted() const { return m_accessTask ? m_accessTask->changed.load() : 0; }
+int FilePropertiesManager::accessSkipped() const { return m_accessTask ? m_accessTask->skipped.load() : 0; }
 int FilePropertiesManager::accessFailed() const { return m_accessTask ? m_accessTask->failed.load() : 0; }
+QString FilePropertiesManager::specialPermissionsHint() const
+{
+    return securityMessage("Special bits (setuid, setgid and sticky) cannot be edited here. Existing bits are preserved; ownership changes may clear setuid/setgid. Recursive local changes stay on the selected filesystem.",
+                           "Özel bitler (setuid, setgid ve sticky) burada değiştirilemez. Mevcut bitler korunur; sahiplik değişikliği setuid/setgid bitlerini silebilir. Yerel özyinelemeli değişiklikler seçilen dosya sistemiyle sınırlıdır.");
+}
+QString FilePropertiesManager::accessSkippedSummary() const
+{
+    return securityMessage(" · Skipped mount entries: %1", " · Atlanan bağlama öğeleri: %1").arg(accessSkipped());
+}
 bool FilePropertiesManager::administratorAvailable() const { return KProtocolInfo::isKnownProtocol(QStringLiteral("admin")); }
 
 QStringList FilePropertiesManager::availableOwners(bool administrator) const
@@ -203,7 +118,7 @@ bool FilePropertiesManager::applyAccess(int mode, const QString &owner, const QS
         watcher->deleteLater(); m_accessError = task->firstError; finishAccess(task->cancelled);
     });
     watcher->setFuture(QtConcurrent::run([path, mode, uid, gid, recursive, task]() {
-        applyLocalAccess(path, mode, uid, gid, recursive, task);
+        FileAccessSecurity::applyLocalAccess(path, mode, uid, gid, recursive, task);
     }));
     return true;
 }

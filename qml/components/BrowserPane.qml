@@ -3356,7 +3356,7 @@ Rectangle {
                       ? (lang.language === "tr" ? "Güncellenen: " : "Updated: ") + changed
                         + (lang.language === "tr" ? " · Başarısız: " : " · Failed: ") + failed
                       : (lang.language === "tr" ? "Erişim ayarları güncellendi: " : "Access settings updated: ") + changed
-            root.requestToast(message)
+            root.requestToast(message + (fileProperties.accessSkipped > 0 ? fileProperties.accessSkippedSummary() : ""))
         }
         onFolderIconChanged: function(path, iconName) {
             directory.requestRefresh()
@@ -7731,6 +7731,15 @@ Rectangle {
                                 wrapMode: Text.Wrap
                             }
 
+                            Text {
+                                objectName: "specialPermissionsHint"
+                                Layout.fillWidth: true
+                                text: fileProperties.specialPermissionsHint()
+                                color: AppTheme.textMuted
+                                font.pixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+
                             GCheckBox {
                                 objectName: "administratorAccessPermissions"
                                 Layout.fillWidth: true
@@ -7748,6 +7757,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     text: (lang.language === "tr" ? "Erişim ayarları uygulanıyor · " : "Applying access settings · ")
                                             + fileProperties.accessCompleted
+                                            + (fileProperties.accessSkipped > 0 ? fileProperties.accessSkippedSummary() : "")
                                     color: AppTheme.textMuted
                                     font.pixelSize: 10
                                 }

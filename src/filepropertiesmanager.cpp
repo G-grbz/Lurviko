@@ -240,6 +240,7 @@ bool FilePropertiesManager::setPermissionMode(int mode)
         emit error(tr("You do not own this item, or its permissions cannot be changed here."));
         return false;
     }
+    // Ordinary rwx editor only: deliberately preserve existing setuid/setgid/sticky.
     const mode_t requested = static_cast<mode_t>(mode) | (st.st_mode & (S_ISUID | S_ISGID | S_ISVTX));
     if (::fchmodat(AT_FDCWD, nativePath.constData(), requested, AT_SYMLINK_NOFOLLOW) != 0) {
         emit error(tr("Could not change file permissions: %1").arg(QString::fromLocal8Bit(std::strerror(errno))));
