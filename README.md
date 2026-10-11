@@ -40,7 +40,7 @@ The screenshots show the current application with a locally selected icon theme.
 - **Media:** cached previews, photo viewing, video playback with subtitles, a music player and DLNA browsing/playback. Supported codecs depend on the installed Qt Multimedia backend.
 - **Subtitles:** optional local AI translation and Whisper transcription, live translated cues and readable timing-aware splitting.
 - **Cloud:** Google Drive and OneDrive sign-in, browsing and transfers, including context-menu uploads when connected. OAuth application credentials are configured by the user.
-- **Private vault:** encrypted local storage using AES-256-GCM with Argon2id key derivation, optional KWallet quick unlock, configurable auto-lock and failed-password protection with persistent retry delays and temporary lockouts.
+- **Private vault:** encrypted local storage using AES-256-GCM with Argon2id key derivation, optional KWallet quick unlock, configurable auto-lock and failed-password protection. Optional recovery keys are shown once, are single-use for password resets in Lurviko, and can be revoked/replaced. Independent read-only exports do not consume the key. See the [recovery format and independent export tool](docs/vault-recovery.md); a recovery key grants full vault access and must be kept secret.
 - **Appearance:** light/dark application themes, adjustable icons, wheel-scroll speed and persisted window/view preferences. The video player keeps its dark presentation.
 - **Video chapters:** choose embedded chapter titles and timestamps from the **Chapters** control beside Audio. Chapter metadata is read asynchronously with `ffprobe`; selecting a chapter seeks to its start while preserving the playback state.
 

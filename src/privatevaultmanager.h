@@ -36,6 +36,7 @@ class PrivateVaultManager : public QAbstractListModel
     Q_PROPERTY(int failedPasswordAttempts READ failedPasswordAttempts NOTIFY authenticationStateChanged)
     Q_PROPERTY(int passwordWaitSeconds READ passwordWaitSeconds NOTIFY authenticationStateChanged)
     Q_PROPERTY(bool passwordLockedOut READ passwordLockedOut NOTIFY authenticationStateChanged)
+    Q_PROPERTY(bool recoveryEnabled READ recoveryEnabled NOTIFY securitySettingsChanged)
 
 public:
     enum Roles {
@@ -76,7 +77,15 @@ public:
     int passwordWaitSeconds() const;
     bool passwordLockedOut() const;
 
-    Q_INVOKABLE bool createVault(const QString &password);
+    bool recoveryEnabled() const { return m_recoveryEnabled; }
+    Q_INVOKABLE bool createVault(const QString &password, bool recovery = false);
+    Q_INVOKABLE bool regenerateRecoveryKey();
+    Q_INVOKABLE bool prepareRecoveryKey();
+    Q_INVOKABLE bool commitRecoveryKey();
+    Q_INVOKABLE void cancelRecoveryKey();
+    Q_INVOKABLE QString takeRecoveryKey();
+    Q_INVOKABLE bool disableRecoveryKey();
+    Q_INVOKABLE bool recoverVault(const QString &recoveryKey, const QString &newPassword);
     Q_INVOKABLE bool unlock(const QString &password);
     Q_INVOKABLE bool quickUnlock();
     Q_INVOKABLE void lock();
@@ -142,7 +151,7 @@ private:
     bool decryptBlobToFile(const QString &objectId, const QString &blobName, const QString &targetPath, const QByteArray &key) const;
 
     bool readHeader(QJsonObject *header) const;
-    bool writeHeader(const QJsonObject &header) const;
+    bool writeHeader(QJsonObject &header, const QJsonObject *expected = nullptr) const;
     bool saveManifest();
     bool loadManifest(const QJsonObject &header, const QByteArray &masterKey, QJsonObject *manifest) const;
     bool unwrapMasterKey(const QJsonObject &header, const QString &password, QByteArray *masterKey) const;
@@ -181,6 +190,10 @@ private:
     mutable std::unique_ptr<VaultSecurity::RuntimeDirectory> m_runtimeDirectory;
     bool m_busy = false;
     QByteArray m_masterKey;
+    QByteArray m_pendingRecoveryKey; // Never persisted; consumed once or wiped on lock.
+    QJsonObject m_pendingRecoveryHeader;
+    QJsonObject m_pendingRecoveryExpected;
+    bool m_recoveryEnabled = false;
     QJsonObject m_header;
     QJsonObject m_manifest;
     QList<QJsonObject> m_visibleItems;

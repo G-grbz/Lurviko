@@ -66,6 +66,12 @@ Popup {
     property bool viewerFullScreen: false
     property bool movingToWindow: false
     property bool playbackSessionOpen: false
+    property bool firstVideoFrameReady: false
+    readonly property bool videoLoading: visible && currentItem !== null
+        && player.error === MediaPlayer.NoError
+        && ((!firstVideoFrameReady && (player.hasVideo || player.mediaStatus === MediaPlayer.NoMedia))
+            || player.mediaStatus === MediaPlayer.LoadingMedia
+            || player.mediaStatus === MediaPlayer.BufferingMedia || player.mediaStatus === MediaPlayer.StalledMedia)
     readonly property var chapters: chapterReader.chapters
     readonly property int activeChapterIndex: chapters.length ? chapterReader.chapterAt(player.position) : -1
     property var normalOverlayParent: null
@@ -91,6 +97,7 @@ Popup {
     property int subtitleAiSourceIndex: 0
     property int subtitleAiExistingSourceIndex: 0
     property var subtitleAiExistingSources: []
+    property bool subtitleAiOpenAfterSources: false
     property int subtitleAiProfileIndex: 2
     property string subtitleAiTargetCode: "tr"
     property string subtitleAiJobPath: ""
@@ -108,6 +115,8 @@ Popup {
         })
     }
     property var selectedSubtitleSource: null
+    property var previousSubtitleSource: null
+    property int selectedAudioTrack: -1
     property var subtitleAiCacheState: ({ sourceReady: false, detectedLanguage: "", translationReady: false, translationProgress: 0, translationCompletedUnits: 0, translationTotalUnits: 0 })
     readonly property var subtitleAiTranslationTargets: [
         { code: "", label: "Çeviri yok" },
@@ -199,7 +208,7 @@ Popup {
     readonly property string sourceVideoResolution: sourceVideoWidth > 0 && sourceVideoHeight > 0
                                                     ? sourceVideoWidth + "×" + sourceVideoHeight : ""
 
-    function viewerIcon(name) { return "qrc:/qt/qml/Lurviko/App/assets/icons/" + name }
+    function viewerIcon(name) { return AppTheme.icon(name, videoTheme.viewerText) }
     function thumbSource(item) {
         if (!item) return ""
         if (item.thumbnailUrl && String(item.thumbnailUrl).length)
@@ -302,9 +311,8 @@ Popup {
     }
     function refreshSubtitleAiExistingSources() {
         const path = currentLocalPath()
-        subtitleAiExistingSources = path.length ? subtitleAiManager.subtitleSources(path) : []
-        if (subtitleAiExistingSourceIndex >= subtitleAiExistingSources.length)
-            subtitleAiExistingSourceIndex = Math.max(0, subtitleAiExistingSources.length - 1)
+        if (path.length) subtitleAiManager.requestSubtitleSources(path)
+        else subtitleAiExistingSources = []
     }
     function existingSubtitleLabel(item) {
         if (!item) return lang.language === "tr" ? "Altyazı bulunamadı" : "No subtitles found"
@@ -315,6 +323,8 @@ Popup {
         const fileName = String(item.fileName || "")
         let parts = []
         parts.push(kind === "external" ? (lang.language === "tr" ? "Dosya" : "File") : (lang.language === "tr" ? "Gömülü" : "Embedded"))
+        const tags = subtitleSourceTags(item)
+        if (tags.length) parts.push(tags.join(" + "))
         parts.push(language.length ? language : "und")
         if (fileName.length) parts.push(fileName)
         else if (title.length) parts.push(title)
@@ -370,7 +380,7 @@ Popup {
         subtitleAiPanelMinimized = false
         subtitleAiManager.resetResult()
         const sources = subtitleAiSourceOptions()
-        subtitleAiSourceIndex = Math.max(0, Math.min(player.activeAudioTrack >= 0 ? player.activeAudioTrack : 0, sources.length - 1))
+        subtitleAiSourceIndex = Math.max(0, Math.min(selectedAudioTrack >= 0 ? selectedAudioTrack : 0, sources.length - 1))
         ensureSubtitleAiTargetValid(sources[subtitleAiSourceIndex].code)
         refreshSubtitleAiCacheState()
         subtitleTrackPopup.close()
@@ -383,7 +393,11 @@ Popup {
         subtitleAiPanelMinimized = false
         subtitleAiManager.resetResult()
         refreshSubtitleAiExistingSources()
-        if (!subtitleAiExistingSources.length) return
+        if (!subtitleAiExistingSources.length) {
+            subtitleAiOpenAfterSources = true
+            return
+        }
+        subtitleAiOpenAfterSources = false
         // Prefer the currently selected embedded track when its ordinal exists.
         let preferred = 0
         if (selectedSubtitleSource) {
@@ -476,6 +490,70 @@ Popup {
         if (!parts.length) parts.push((lang.language === "tr" ? "Altyazı " : "Subtitle ") + (index + 1))
         return parts.join("  ·  ")
     }
+    function subtitleSourceForTrack(index) {
+        for (const item of subtitleAiExistingSources) {
+            if (String(item.kind || "") === "embedded" && Number(item.trackIndex) === index)
+                return item
+        }
+        return { title: subtitleTrackLabel(index) }
+    }
+    function subtitleSourceTags(item) {
+        if (!item) return []
+        const label = [item.title || "", item.fileName || ""].join(" ").toLocaleLowerCase()
+        const words = label.match(/[a-zçğıöşü]+/g) || []
+        const tags = []
+        if (Boolean(item.forced) || words.indexOf("forced") >= 0 || words.indexOf("zorunlu") >= 0)
+            tags.push("FORCED")
+        if (Boolean(item.hearingImpaired) || Boolean(item.captions)
+                || words.indexOf("sdh") >= 0 || words.indexOf("cc") >= 0
+                || label.indexOf("hearing") >= 0 || label.indexOf("işitme") >= 0)
+            tags.push("SDH")
+        return tags
+    }
+
+    component SubtitleTrackContent: RowLayout {
+        property string label: ""
+        property var tags: []
+        property bool selected: false
+        spacing: 6
+        Text {
+            Layout.fillWidth: true; Layout.leftMargin: 10
+            text: parent.label; color: videoTheme.viewerText; font.pixelSize: 11
+            font.weight: parent.selected ? Font.DemiBold : Font.Normal
+            elide: Text.ElideMiddle; verticalAlignment: Text.AlignVCenter
+        }
+        Repeater {
+            model: parent.tags
+            delegate: Rectangle {
+                required property string modelData
+                implicitWidth: badge.implicitWidth + 12; implicitHeight: 22; radius: 6
+                color: "#258B7CF6"; border.color: "#508B7CF6"; border.width: 1
+                Text { id: badge; anchors.centerIn: parent; text: modelData; color: "#CDC6FF"; font.pixelSize: 9; font.bold: true }
+            }
+        }
+    }
+
+    function subtitleShadowModeFor(kind) {
+        return kind === "forced" ? subtitleStyleManager.forcedShadowMode
+             : kind === "sdh" ? subtitleStyleManager.sdhShadowMode : subtitleStyleManager.subtitleShadowMode
+    }
+    function setSubtitleShadowMode(kind, mode) {
+        if (kind === "forced") subtitleStyleManager.forcedShadowMode = mode
+        else if (kind === "sdh") subtitleStyleManager.sdhShadowMode = mode
+        else subtitleStyleManager.subtitleShadowMode = mode
+    }
+    component SubtitleShadowPicker: GComboBox {
+        id: picker
+        colorTheme: videoTheme
+        required property string kind
+        implicitHeight: 36
+        model: viewer.lang.language === "tr"
+               ? ["Kapalı", "Kontur", "Hafif gölge", "Güçlü gölge", "Kontur + gölge"]
+               : ["Off", "Outline", "Soft shadow", "Strong shadow", "Outline + shadow"]
+        currentIndex: viewer.subtitleShadowModeFor(kind)
+        onActivated: viewer.setSubtitleShadowMode(kind, currentIndex)
+        palette: viewer.palette
+    }
     function subtitleExternalSources() {
         const result = []
         for (let i = 0; i < subtitleAiExistingSources.length; ++i) {
@@ -492,48 +570,89 @@ Popup {
         const prefix = generated ? (lang.language === "tr" ? "Hazır" : "Ready") : (lang.language === "tr" ? "Dosya" : "File")
         return prefix + "  ·  " + language + (fileName.length ? "  ·  " + fileName : "")
     }
-    function selectEmbeddedSubtitle(index) {
-        const path = currentLocalPath()
-        if (!path.length) return
-        refreshSubtitleAiExistingSources()
-        let source = null
-        for (let i = 0; i < subtitleAiExistingSources.length; ++i) {
-            const item = subtitleAiExistingSources[i]
-            if (String(item.kind || "") === "embedded" && Number(item.trackIndex) === index) { source = item; break }
-        }
-        player.activeSubtitleTrack = -1
-        if (subtitleAiManager.selectEmbeddedSubtitle(path, index)) {
-            selectedSubtitleSource = source || ({ kind: "embedded", trackIndex: index, language: "und" })
-            saveTrackPreferences()
+    function finishTrackPreferenceRestore() {
+        trackPreferenceRestoreTimer.stop()
+        trackPreferencesAppliedForSource = true
+        Qt.callLater(viewer.syncAudioSelection)
+    }
+    function syncAudioSelection() {
+        // Let the restore timer apply saved audio after initial decoder setup.
+        // Switching during LoadedMedia can discard the very first keyframe.
+        if (!playbackSessionOpen || !trackPreferencesAppliedForSource || player.mediaStatus === MediaPlayer.NoMedia
+                || player.mediaStatus === MediaPlayer.LoadingMedia || !player.audioTracks.length) return
+        if (selectedAudioTrack >= 0 && selectedAudioTrack < player.audioTracks.length) {
+            if (player.activeAudioTrack !== selectedAudioTrack)
+                player.activeAudioTrack = selectedAudioTrack
+        } else {
+            selectedAudioTrack = player.activeAudioTrack
         }
     }
-    function selectExternalSubtitle(item) {
+    function selectAudioTrack(index) {
+        if (index < 0 || index >= player.audioTracks.length) return
+        selectedAudioTrack = index
+        // Keep an explicit audio choice if CC restoration is still pending.
+        if (!trackPreferencesAppliedForSource)
+            pendingTrackPreferences = Object.assign({}, pendingTrackPreferences, { audioTrack: index })
+        player.activeAudioTrack = index
+        saveTrackPreferences()
+    }
+    function selectEmbeddedSubtitle(index) { applyEmbeddedSubtitleSelection(index, false) }
+    function applyEmbeddedSubtitleSelection(index, restoring) {
+        const path = currentLocalPath()
+        if (!path.length) return
+        if (!restoring) finishTrackPreferenceRestore()
+        refreshSubtitleAiExistingSources()
+        if (!subtitleAiManager.selectedSubtitleLoading)
+            previousSubtitleSource = selectedSubtitleSource
+        let source = null
+        for (const item of subtitleAiExistingSources) {
+            if (String(item.kind) === "embedded" && Number(item.trackIndex) === index) {
+                source = item
+                break
+            }
+        }
+        selectedSubtitleSource = source || ({ kind: "embedded", trackIndex: index, language: "und" })
+        player.activeSubtitleTrack = -1
+        if (subtitleAiManager.requestEmbeddedSubtitle(path, index)) {
+            saveTrackPreferences()
+        } else {
+            selectedSubtitleSource = previousSubtitleSource
+            previousSubtitleSource = null
+        }
+    }
+    function selectExternalSubtitle(item, restoring) {
         if (!item || !String(item.path || "").length) return
+        if (!restoring) finishTrackPreferenceRestore()
         player.activeSubtitleTrack = -1
         if (subtitleAiManager.selectSubtitleFile(String(item.path))) {
             selectedSubtitleSource = item
+            previousSubtitleSource = null
             saveTrackPreferences()
         }
     }
-    function clearSubtitleSelection() {
+    function clearSubtitleSelection(restoring) {
+        if (!restoring) finishTrackPreferenceRestore()
         player.activeSubtitleTrack = -1
         subtitleAiManager.clearSelectedSubtitle()
         selectedSubtitleSource = null
+        previousSubtitleSource = null
         saveTrackPreferences()
     }
-    function selectExternalSubtitleByPath(path) {
+    function selectExternalSubtitleByPath(path, restoring) {
+        if (!restoring) finishTrackPreferenceRestore()
         refreshSubtitleAiExistingSources()
         const wanted = String(path || "")
         for (let i = 0; i < subtitleAiExistingSources.length; ++i) {
             const item = subtitleAiExistingSources[i]
             if (String(item.kind || "") === "external" && String(item.path || "") === wanted) {
-                selectExternalSubtitle(item)
+                selectExternalSubtitle(item, restoring)
                 return true
             }
         }
         if (wanted.length && subtitleAiManager.selectSubtitleFile(wanted)) {
             player.activeSubtitleTrack = -1
             selectedSubtitleSource = ({ kind: "external", path: wanted, language: "und", fileName: wanted.split("/").pop() })
+            previousSubtitleSource = null
             saveTrackPreferences()
             return true
         }
@@ -591,8 +710,9 @@ Popup {
         return /^\s*\[[^\]]+\]\s*$/.test(text) || text.indexOf("♪") >= 0 || text.indexOf("♫") >= 0
     }
     function subtitleSemanticKind(value) {
-        if (activeSubtitleIsForcedTrack() || subtitleIsUppercaseForced(value)) return "forced"
+        if (activeSubtitleIsForcedTrack()) return "forced"
         if (activeSubtitleIsSdhTrack() || subtitleCueLooksSdh(value)) return "sdh"
+        if (subtitleIsUppercaseForced(value)) return "forced"
         return "normal"
     }
     function openSubtitleStyleColor(target, currentColor) {
@@ -707,10 +827,11 @@ Popup {
         const key = resumeKeyFor(currentItem)
         pendingResumePosition = key.length ? PlaybackResumeManager.positionFor(key) : -1
         pendingTrackPreferences = key.length ? PlaybackResumeManager.trackPreferencesFor(key) : ({})
+        selectedAudioTrack = Number(pendingTrackPreferences.audioTrack ?? -1)
         resumeAppliedForSource = false
         resumeRestoreAttempts = 0
         resumeConfirmTicks = 0
-        trackPreferencesAppliedForSource = false
+        trackPreferencesAppliedForSource = !Object.keys(pendingTrackPreferences || {}).length
         trackPreferenceRestoreAttempts = 0
         if (visible && pendingResumePosition >= 3000)
             resumeRestoreTimer.restart()
@@ -735,6 +856,9 @@ Popup {
         PlaybackResumeManager.save(key, player.position, player.duration)
     }
     function saveTrackPreferences() {
+        // A closed viewer has already released CC; never overwrite its saved
+        // selection during Application.aboutToQuit or component destruction.
+        if (!playbackSessionOpen || !trackPreferencesAppliedForSource) return
         const key = resumeKeyFor(currentItem)
         if (!key.length) return
         let subtitleKind = "off"
@@ -747,7 +871,7 @@ Popup {
             else if (subtitleKind === "external")
                 subtitlePath = String(selectedSubtitleSource.path || "")
         }
-        PlaybackResumeManager.saveTrackPreferences(key, Number(player.activeAudioTrack),
+        PlaybackResumeManager.saveTrackPreferences(key, selectedAudioTrack >= 0 ? selectedAudioTrack : Number(player.activeAudioTrack),
                                                    subtitleKind, subtitleTrack, subtitlePath)
     }
     function tryApplyTrackPreferences() {
@@ -762,6 +886,7 @@ Popup {
         if (wantedAudio >= 0) {
             if (player.audioTracks.length <= wantedAudio)
                 return false
+            selectedAudioTrack = wantedAudio
             if (player.activeAudioTrack !== wantedAudio)
                 player.activeAudioTrack = wantedAudio
         }
@@ -770,23 +895,24 @@ Popup {
         if (subtitleKind === "embedded") {
             const wantedSubtitle = Number(pref.subtitleTrack ?? -1)
             if (wantedSubtitle < 0) {
-                clearSubtitleSelection()
+                clearSubtitleSelection(true)
             } else {
                 if (player.subtitleTracks.length <= wantedSubtitle)
                     return false
-                selectEmbeddedSubtitle(wantedSubtitle)
+                applyEmbeddedSubtitleSelection(wantedSubtitle, true)
             }
         } else if (subtitleKind === "external") {
             const wantedPath = String(pref.subtitlePath || "")
             if (wantedPath.length)
-                selectExternalSubtitleByPath(wantedPath)
+                selectExternalSubtitleByPath(wantedPath, true)
             else
-                clearSubtitleSelection()
+                clearSubtitleSelection(true)
         } else {
-            clearSubtitleSelection()
+            clearSubtitleSelection(true)
         }
 
         trackPreferencesAppliedForSource = true
+        saveTrackPreferences()
         return true
     }
     function tryApplyResume() {
@@ -870,6 +996,7 @@ Popup {
     }
     function openAt(index) {
         if (index < 0 || index >= files.length) return
+        if (!visible) firstVideoFrameReady = false
         if (visible && currentIndex !== index) {
             saveResumePosition()
             saveTrackPreferences()
@@ -959,6 +1086,44 @@ Popup {
 
     Connections {
         target: subtitleAiManager
+        function onSubtitleSourcesReady(mediaPath, sources) {
+            if (String(mediaPath) !== viewer.currentLocalPath()) return
+            viewer.subtitleAiExistingSources = sources
+            if (viewer.subtitleAiExistingSourceIndex >= sources.length)
+                viewer.subtitleAiExistingSourceIndex = Math.max(0, sources.length - 1)
+            if (viewer.selectedSubtitleSource && String(viewer.selectedSubtitleSource.kind) === "embedded") {
+                const index = Number(viewer.selectedSubtitleSource.trackIndex)
+                for (const item of sources) {
+                    if (String(item.kind) === "embedded" && Number(item.trackIndex) === index) {
+                        viewer.selectedSubtitleSource = item
+                        break
+                    }
+                }
+            }
+            if (viewer.subtitleAiOpenAfterSources) {
+                viewer.subtitleAiOpenAfterSources = false
+                if (sources.length) viewer.openSubtitleAiTranslateDialog()
+            }
+        }
+        function onEmbeddedSubtitleReady(mediaPath, trackIndex, success) {
+            if (String(mediaPath) !== viewer.currentLocalPath()) return
+            if (!success) {
+                viewer.selectedSubtitleSource = viewer.previousSubtitleSource
+                viewer.previousSubtitleSource = null
+                viewer.saveTrackPreferences()
+                return
+            }
+            let source = null
+            for (const item of viewer.subtitleAiExistingSources) {
+                if (String(item.kind) === "embedded" && Number(item.trackIndex) === trackIndex) {
+                    source = item
+                    break
+                }
+            }
+            viewer.selectedSubtitleSource = source || ({ kind: "embedded", trackIndex: trackIndex, language: "und" })
+            viewer.previousSubtitleSource = null
+            viewer.saveTrackPreferences()
+        }
         function onCancelled() { Qt.callLater(viewer.refreshSubtitleAiCacheState) }
         function onCompleted(outputPath) {
             Qt.callLater(function() {
@@ -1099,6 +1264,7 @@ Popup {
         id: player
         objectName: "videoMediaPlayer"
         source: viewer.currentItem ? viewer.currentItem.url : ""
+        onSourceChanged: viewer.firstVideoFrameReady = false
         activeSubtitleTrack: -1
         function disableNativeSubtitleTrack() {
             if (activeSubtitleTrack !== -1)
@@ -1111,11 +1277,14 @@ Popup {
             // transition. Disabling it reentrantly can be overwritten by the
             // transition itself, so apply this after that transition returns.
             Qt.callLater(player.disableNativeSubtitleTrack)
+            Qt.callLater(viewer.syncAudioSelection)
         }
+        onTracksChanged: Qt.callLater(viewer.syncAudioSelection)
         audioOutput: AudioOutput { id: audioOutput; volume: 0.82 }
         videoOutput: videoOutput
         onMediaStatusChanged: {
             if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) {
+                Qt.callLater(viewer.syncAudioSelection)
                 // Lurviko renders every subtitle through its own styled overlay.
                 // Keep Qt Multimedia's native subtitle track disabled to avoid
                 // the same cue being rendered twice.
@@ -1184,6 +1353,7 @@ Popup {
         // Playback and the live AI stream already belong to this session.
         if (playbackSessionOpen) return
         playbackSessionOpen = true
+        refreshSubtitleAiExistingSources()
         prepareResumeForCurrent()
         refreshPauseMetadata()
         if (hostWindow) {
@@ -1198,10 +1368,14 @@ Popup {
             trackPreferenceRestoreTimer.restart()
     }
     onClosed: {
-        playbackSessionOpen = false
+        subtitleAiOpenAfterSources = false
         chapterPopup.close()
         saveResumePosition()
         saveTrackPreferences()
+        playbackSessionOpen = false
+        subtitleAiManager.clearSelectedSubtitle()
+        selectedSubtitleSource = null
+        previousSubtitleSource = null
         player.stop()
         viewerFullScreen = false
         viewerFullScreenWindow.hide()
@@ -1228,12 +1402,16 @@ Popup {
         }
     }
     onCurrentIndexChanged: {
+        firstVideoFrameReady = false
+        subtitleAiOpenAfterSources = false
+        subtitleAiExistingSources = []
         subtitleAiManager.clearSelectedSubtitle()
         selectedSubtitleSource = null
+        previousSubtitleSource = null
         prepareResumeForCurrent()
         refreshPauseMetadata()
         if (visible)
-            Qt.callLater(function() { player.play(); filmstrip.positionViewAtIndex(currentIndex, ListView.Center) })
+            Qt.callLater(function() { viewer.refreshSubtitleAiExistingSources(); player.play(); filmstrip.positionViewAtIndex(currentIndex, ListView.Center) })
     }
     onHostFullScreenChanged: {
         lastPointerSceneX = -1
@@ -1379,6 +1557,10 @@ Popup {
 
             Connections {
                 target: videoOutput.videoSink
+                function onVideoFrameChanged() {
+                    if (videoOutput.videoSink.videoSize.width > 0 && videoOutput.videoSink.videoSize.height > 0)
+                        viewer.firstVideoFrameReady = true
+                }
                 function onSubtitleTextChanged(text) {
                     // Flush late native cues as well as disabling the track;
                     // otherwise a buffered English cue can sit behind CC.
@@ -1440,7 +1622,8 @@ Popup {
                 }
                 // Keep translation ownership until the finished sidecar is
                 // selected, including the deferred completion handoff.
-                readonly property string displayText: liveJobActive && (subtitleAiManager.busy || subtitleAiManager.liveTranslationActive)
+                readonly property string displayText: subtitleAiManager.selectedSubtitleLoading ? ""
+                                                      : liveJobActive && (subtitleAiManager.busy || subtitleAiManager.liveTranslationActive)
                                                       ? liveText : (liveText.length > 0 ? liveText : selectedFileText)
                 readonly property string semanticKind: viewer.subtitleSemanticKind(displayText)
                 visible: displayText.length > 0 && (liveText.length > 0 || selectedFileText.length > 0)
@@ -1458,55 +1641,7 @@ Popup {
                     wrapMode: Text.NoWrap
                 }
 
-                // Capture the video only as an off-screen texture.  Drawing the
-                // ShaderEffectSource itself used to leave a second rectangular
-                // patch behind short subtitle backgrounds.
-                Loader {
-                    anchors.fill: subtitleBackground
-                    z: 0
-                    active: viewer.visible && !viewer.movingToWindow && subtitleStyleManager.backgroundBlur > 0
-                    sourceComponent: Item {
-                        ShaderEffectSource {
-                            id: subtitleBlurCapture
-                            anchors.fill: parent
-                            sourceItem: viewer.movingToWindow ? null : videoOutput
-                            sourceRect: {
-                                const point = subtitleBackground.mapToItem(videoOutput, 0, 0)
-                                return Qt.rect(point.x, point.y, Math.max(1, subtitleBackground.width),
-                                               Math.max(1, subtitleBackground.height))
-                            }
-                            live: subtitleOverlay.visible
-                            recursive: false
-                            hideSource: false
-                            visible: false
-                        }
-                        Rectangle {
-                            id: subtitleBlurMask
-                            anchors.fill: parent
-                            radius: subtitleStyleManager.backgroundRadius
-                            color: videoTheme.viewerText
-                            visible: false
-                            antialiasing: true
-                            layer.enabled: true
-                        }
-                        MultiEffect {
-                            anchors.fill: parent
-                            source: subtitleBlurCapture
-                            blurEnabled: true
-                            blur: Math.min(1.0, subtitleStyleManager.backgroundBlur / 48.0)
-                            blurMax: 48
-                            autoPaddingEnabled: false
-                            maskEnabled: true
-                            maskSource: subtitleBlurMask
-                            maskThresholdMin: 0.01
-                            maskThresholdMax: 1.0
-                            maskSpreadAtMin: 0.0
-                            maskSpreadAtMax: 0.0
-                        }
-                    }
-                }
-
-                Rectangle {
+                SubtitleBackdrop {
                     id: subtitleBackground
                     anchors.fill: subtitleText
                     anchors.leftMargin: -12
@@ -1514,15 +1649,15 @@ Popup {
                     anchors.topMargin: -6
                     anchors.bottomMargin: -6
                     z: 1
-                    radius: subtitleStyleManager.backgroundRadius
-                    antialiasing: true
-                    color: Qt.rgba(subtitleStyleManager.backgroundColor.r,
-                                   subtitleStyleManager.backgroundColor.g,
-                                   subtitleStyleManager.backgroundColor.b,
-                                   subtitleStyleManager.backgroundOpacity)
+                    sourceItem: viewer.movingToWindow ? null : videoOutput
+                    effectsEnabled: viewer.visible && !viewer.movingToWindow
+                    cornerRadius: subtitleStyleManager.backgroundRadius
+                    backgroundColor: subtitleStyleManager.backgroundColor
+                    backgroundOpacity: subtitleStyleManager.backgroundOpacity
+                    blurRadius: subtitleStyleManager.backgroundBlur
                 }
 
-                Text {
+                SubtitleLabel {
                     id: subtitleText
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
@@ -1537,8 +1672,7 @@ Popup {
                     font.pixelSize: subtitleOverlay.semanticKind === "forced" ? subtitleStyleManager.forcedFontSize
                                     : (subtitleOverlay.semanticKind === "sdh" ? subtitleStyleManager.sdhFontSize : subtitleStyleManager.subtitleFontSize)
                     font.weight: Font.Medium
-                    style: Text.Outline
-                    styleColor: "#D9000000"
+                    shadowMode: viewer.subtitleShadowModeFor(subtitleOverlay.semanticKind)
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                 }
@@ -1697,6 +1831,54 @@ Popup {
             wrapMode: Text.Wrap
             width: Math.min(parent.width * 0.7, 620)
             horizontalAlignment: Text.AlignHCenter
+        }
+
+        Item {
+            objectName: "videoLoadingOverlay"
+            anchors.fill: parent
+            visible: viewer.videoLoading
+            Rectangle { anchors.fill: parent; color: "#90080B11" }
+            Column {
+                anchors.centerIn: parent
+                spacing: 12
+                GBusyIndicator {
+                    objectName: "videoLoadingSpinner"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 48; height: 48
+                    running: viewer.videoLoading
+                }
+                Text {
+                    text: viewer.lang.language === "tr" ? "Video hazırlanıyor…" : "Preparing video…"
+                    color: videoTheme.viewerTextMuted
+                    font.pixelSize: 13
+                }
+            }
+        }
+
+        Rectangle {
+            objectName: "subtitleLoadingNotice"
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.max(90, parent.height * 0.2)
+            width: subtitleLoadingRow.implicitWidth + 32
+            height: subtitleLoadingRow.implicitHeight + 22
+            radius: 14
+            color: videoTheme.viewerGlassStrong
+            border.color: videoTheme.viewerGlassBorderSoft
+            visible: viewer.visible && !viewer.videoLoading && subtitleAiManager.selectedSubtitleLoading
+            RowLayout {
+                id: subtitleLoadingRow
+                anchors.centerIn: parent
+                spacing: 10
+                GBusyIndicator {
+                    Layout.preferredWidth: 24; Layout.preferredHeight: 24
+                    running: parent.parent.visible
+                }
+                Text {
+                    text: viewer.lang.language === "tr" ? "Altyazı hazırlanıyor…" : "Preparing subtitles…"
+                    color: videoTheme.viewerText
+                    font.pixelSize: 12
+                }
+            }
         }
 
         Item {
@@ -1882,7 +2064,7 @@ Popup {
                             enabled: player.audioTracks.length > 0
                             emphasized: audioTrackPopup.visible
                             toolTipText: player.audioTracks.length > 0
-                                         ? (viewer.lang.language === "tr" ? "Ses parçası: " : "Audio track: ") + viewer.audioTrackLabel(player.activeAudioTrack)
+                                         ? (viewer.lang.language === "tr" ? "Ses parçası: " : "Audio track: ") + viewer.audioTrackLabel(viewer.selectedAudioTrack)
                                          : (viewer.lang.language === "tr" ? "Ses parçası bulunamadı" : "No audio tracks")
                             onClicked: { chapterPopup.close(); subtitleTrackPopup.close(); audioTrackPopup.open() }
                         }
@@ -2092,6 +2274,13 @@ Popup {
             borderColor: videoTheme.viewerGlassBorder
             blurAmount: 0.66
         }
+        GPopupWheelScroll {
+            parent: audioTrackScroll
+            anchors.fill: parent
+            view: audioTrackScroll.contentItem
+            scrollbar: audioTrackScroll.ScrollBar.vertical
+            enabled: audioTrackPopup.visible
+        }
         contentItem: ScrollView {
             id: audioTrackScroll
             clip: true
@@ -2123,7 +2312,8 @@ Popup {
                         height: 42
                         hoverEnabled: true
                         text: viewer.audioTrackLabel(index)
-                        highlighted: player.activeAudioTrack === index
+                        objectName: "videoAudioTrack" + index
+                        highlighted: viewer.selectedAudioTrack === index
                         contentItem: Text {
                             text: parent.text
                             color: videoTheme.viewerText
@@ -2140,8 +2330,7 @@ Popup {
                             border.color: videoTheme.accent
                         }
                         onClicked: {
-                            player.activeAudioTrack = index
-                            viewer.saveTrackPreferences()
+                            viewer.selectAudioTrack(index)
                             audioTrackPopup.close()
                         }
                     }
@@ -2173,6 +2362,13 @@ Popup {
             borderColor: videoTheme.viewerGlassBorder
             blurAmount: 0.66
         }
+        GPopupWheelScroll {
+            parent: subtitleTrackScroll
+            anchors.fill: parent
+            view: subtitleTrackScroll.contentItem
+            scrollbar: subtitleTrackScroll.ScrollBar.vertical
+            enabled: subtitleTrackPopup.visible
+        }
         contentItem: ScrollView {
             id: subtitleTrackScroll
             clip: true
@@ -2201,7 +2397,8 @@ Popup {
                     height: 42
                     hoverEnabled: true
                     text: viewer.lang.language === "tr" ? "Kapalı" : "Off"
-                    highlighted: player.activeSubtitleTrack < 0 && !viewer.selectedSubtitleSource
+                    objectName: "videoSubtitleOff"
+                    highlighted: !viewer.selectedSubtitleSource
                     contentItem: Text {
                         text: parent.text
                         color: videoTheme.viewerText
@@ -2229,17 +2426,14 @@ Popup {
                         height: 42
                         hoverEnabled: true
                         text: viewer.subtitleTrackLabel(index)
+                        objectName: "videoSubtitleTrack" + index
                         highlighted: viewer.selectedSubtitleSource !== null
                                      && String(viewer.selectedSubtitleSource.kind || "") === "embedded"
                                      && Number(viewer.selectedSubtitleSource.trackIndex) === index
-                        contentItem: Text {
-                            text: parent.text
-                            color: videoTheme.viewerText
-                            font.pixelSize: 11
-                            font.weight: parent.highlighted ? Font.DemiBold : Font.Normal
-                            elide: Text.ElideRight
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: 10
+                        contentItem: SubtitleTrackContent {
+                            label: parent.text
+                            selected: parent.highlighted
+                            tags: viewer.subtitleSourceTags(viewer.subtitleSourceForTrack(index))
                         }
                         background: Rectangle {
                             radius: 8
@@ -2263,14 +2457,10 @@ Popup {
                         text: viewer.externalSubtitleLabel(modelData)
                         highlighted: viewer.selectedSubtitleSource !== null
                                      && String(viewer.selectedSubtitleSource.path || "") === String(modelData.path || "")
-                        contentItem: Text {
-                            text: parent.text
-                            color: videoTheme.viewerText
-                            font.pixelSize: 11
-                            font.weight: parent.highlighted ? Font.DemiBold : Font.Normal
-                            elide: Text.ElideMiddle
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: 10
+                        contentItem: SubtitleTrackContent {
+                            label: parent.text
+                            selected: parent.highlighted
+                            tags: viewer.subtitleSourceTags(modelData)
                         }
                         background: Rectangle {
                             radius: 8
@@ -2493,7 +2683,13 @@ Popup {
                 clip: true
                 spacing: 4
                 model: viewer.subtitleStyleFilteredFonts
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: ScrollBar { id: subtitleFontScrollBar; policy: ScrollBar.AsNeeded }
+                GPopupWheelScroll {
+                    anchors.fill: parent
+                    view: subtitleFontList
+                    scrollbar: subtitleFontScrollBar
+                    enabled: subtitleStyleFontPicker.visible
+                }
                 delegate: ItemDelegate {
                     required property var modelData
                     width: ListView.view.width
@@ -2540,6 +2736,13 @@ Popup {
         onOpened: viewer.revealControls()
         Overlay.modal: Rectangle { color: "#92000000" }
         background: GGlassPanel { sourceItem: videoScene; radius: 16; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.72 }
+        GPopupWheelScroll {
+            parent: subtitleStyleScroll
+            anchors.fill: parent
+            view: subtitleStyleScroll.contentItem
+            scrollbar: subtitleStyleScroll.ScrollBar.vertical
+            enabled: subtitleStylePopup.visible
+        }
 
         contentItem: ColumnLayout {
             spacing: 0
@@ -2561,6 +2764,7 @@ Popup {
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: videoTheme.viewerGlassBorderSoft }
 
             ScrollView {
+                id: subtitleStyleScroll
                 Layout.fillWidth: true; Layout.fillHeight: true
                 clip: true
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -2572,22 +2776,54 @@ Popup {
                     spacing: 16
 
                     Rectangle {
-                        Layout.fillWidth: true; Layout.preferredHeight: 132; radius: 12
-                        color: "#12000000"; border.width: 1; border.color: videoTheme.viewerGlassHover
+                        Layout.fillWidth: true; Layout.preferredHeight: 156; radius: 12
+                        color: "#18212E"; border.width: 1; border.color: videoTheme.viewerGlassHover
+                        Item {
+                            id: subtitlePreviewScene
+                            anchors.fill: parent; anchors.margins: 8
+                            Repeater {
+                                model: 192
+                                delegate: Rectangle {
+                                    required property int index
+                                    width: subtitlePreviewScene.width / 24; height: subtitlePreviewScene.height / 8
+                                    x: (index % 24) * width; y: Math.floor(index / 24) * height
+                                    color: ((index % 24) + Math.floor(index / 24)) % 2 ? "#354455" : "#223042"
+                                }
+                            }
+                        }
                         Column {
                             anchors.centerIn: parent
                             width: parent.width - 36
                             spacing: 8
-                            Rectangle {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: Math.min(parent.width, normalPreview.implicitWidth + 24)
-                                height: normalPreview.implicitHeight + 10
-                                radius: subtitleStyleManager.backgroundRadius
-                                color: Qt.rgba(subtitleStyleManager.backgroundColor.r, subtitleStyleManager.backgroundColor.g, subtitleStyleManager.backgroundColor.b, subtitleStyleManager.backgroundOpacity)
-                                Text { id: normalPreview; anchors.centerIn: parent; text: viewer.lang.language === "tr" ? "Normal altyazı" : "Normal subtitle"; color: subtitleStyleManager.subtitleColor; font.family: subtitleStyleManager.subtitleFontFamily; font.pixelSize: Math.min(28, subtitleStyleManager.subtitleFontSize); style: Text.Outline; styleColor: "#D9000000" }
+                            Repeater {
+                                model: ["normal", "sdh", "forced"]
+                                delegate: Item {
+                                    id: sample
+                                    required property string modelData
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: Math.min(parent.width, sampleText.implicitWidth + 24)
+                                    height: sampleText.implicitHeight + 12
+                                    SubtitleBackdrop {
+                                        anchors.fill: parent
+                                        sourceItem: viewer.movingToWindow ? null : subtitlePreviewScene
+                                        effectsEnabled: subtitleStylePopup.visible && !viewer.movingToWindow
+                                        backgroundColor: subtitleStyleManager.backgroundColor
+                                        backgroundOpacity: subtitleStyleManager.backgroundOpacity
+                                        cornerRadius: subtitleStyleManager.backgroundRadius
+                                        blurRadius: subtitleStyleManager.backgroundBlur
+                                    }
+                                    SubtitleLabel {
+                                        id: sampleText
+                                        anchors.centerIn: parent
+                                        text: sample.modelData === "normal" ? (viewer.lang.language === "tr" ? "Normal altyazı" : "Normal subtitle")
+                                              : sample.modelData === "sdh" ? (viewer.lang.language === "tr" ? "[KAPI ÇALAR] · SDH" : "[DOOR RINGS] · SDH") : "TEST 123 · FORCED"
+                                        color: sample.modelData === "forced" ? subtitleStyleManager.forcedColor : sample.modelData === "sdh" ? subtitleStyleManager.sdhColor : subtitleStyleManager.subtitleColor
+                                        font.family: sample.modelData === "forced" ? subtitleStyleManager.forcedFontFamily : sample.modelData === "sdh" ? subtitleStyleManager.sdhFontFamily : subtitleStyleManager.subtitleFontFamily
+                                        font.pixelSize: Math.min(26, viewer.subtitleStyleFontSizeFor(sample.modelData))
+                                        shadowMode: viewer.subtitleShadowModeFor(sample.modelData)
+                                    }
+                                }
                             }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "[KAPI ÇALAR]  ·  SDH"; color: subtitleStyleManager.sdhColor; font.family: subtitleStyleManager.sdhFontFamily; font.pixelSize: Math.min(26, subtitleStyleManager.sdhFontSize); style: Text.Outline; styleColor: "#D9000000" }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "TEST 123  ·  FORCED"; color: subtitleStyleManager.forcedColor; font.family: subtitleStyleManager.forcedFontFamily; font.pixelSize: Math.min(26, subtitleStyleManager.forcedFontSize); style: Text.Outline; styleColor: "#D9000000" }
                         }
                     }
 
@@ -2613,6 +2849,11 @@ Popup {
                             onClicked: viewer.openSubtitleStyleFont("subtitle", subtitleStyleManager.subtitleFontFamily)
                         }
                     }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 10
+                        Text { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; color: videoTheme.viewerTextMuted; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                        SubtitleShadowPicker { objectName: "normalSubtitleShadowPicker"; kind: "normal"; Layout.fillWidth: true }
+                    }
 
                     Text { text: viewer.lang.language === "tr" ? "ARKA PLAN" : "BACKGROUND"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
                     GButton { colorTheme: videoTheme;
@@ -2634,15 +2875,21 @@ Popup {
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: viewer.lang.language === "tr" ? "Saydamlık" : "Opacity"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; Layout.preferredWidth: 78 }
-                        GSlider { colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 1; stepSize: 0.01; value: 1.0 - subtitleStyleManager.backgroundOpacity; onMoved: subtitleStyleManager.backgroundOpacity = 1.0 - value }
+                        Text { text: viewer.lang.language === "tr" ? "Saydamlık" : "Transparency"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; Layout.preferredWidth: 78 }
+                        GSlider { objectName: "subtitleTransparencySlider"; colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 1; stepSize: 0.01; value: 1.0 - subtitleStyleManager.backgroundOpacity; onMoved: subtitleStyleManager.backgroundOpacity = 1.0 - value }
                         Text { text: Math.round((1.0 - subtitleStyleManager.backgroundOpacity) * 100) + "%"; color: videoTheme.viewerText; font.pixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
                         Text { text: "Blur"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; Layout.preferredWidth: 78 }
-                        GSlider { colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 48; stepSize: 1; value: subtitleStyleManager.backgroundBlur; onMoved: subtitleStyleManager.backgroundBlur = Math.round(value) }
+                        GSlider { objectName: "subtitleBlurSlider"; colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 48; stepSize: 1; value: subtitleStyleManager.backgroundBlur; onMoved: subtitleStyleManager.backgroundBlur = Math.round(value) }
                         Text { text: subtitleStyleManager.backgroundBlur + " px"; color: videoTheme.viewerText; font.pixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
+                    }
+                    Text {
+                        Layout.fillWidth: true; wrapMode: Text.WordWrap
+                        text: viewer.lang.language === "tr" ? "0% opak, 100% tamamen saydamdır. Blur, saydam arka planda görünür; 100% saydamlıkta arka plan efekti kapanır."
+                              : "0% is opaque; 100% is fully transparent. Blur is visible with a translucent background and is disabled at 100% transparency."
+                        color: videoTheme.viewerTextMuted; font.pixelSize: 10
                     }
 
                     Text { text: "SDH"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
@@ -2665,6 +2912,11 @@ Popup {
                             onClicked: viewer.openSubtitleStyleFont("sdh", subtitleStyleManager.sdhFontFamily)
                         }
                     }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 10
+                        Text { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; color: videoTheme.viewerTextMuted; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                        SubtitleShadowPicker { objectName: "sdhSubtitleShadowPicker"; kind: "sdh"; Layout.fillWidth: true }
+                    }
 
                     Text { text: viewer.lang.language === "tr" ? "ZORUNLU / FORCED" : "FORCED"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
                     RowLayout {
@@ -2685,6 +2937,11 @@ Popup {
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("forced", subtitleStyleManager.forcedFontFamily)
                         }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 10
+                        Text { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; color: videoTheme.viewerTextMuted; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                        SubtitleShadowPicker { objectName: "forcedSubtitleShadowPicker"; kind: "forced"; Layout.fillWidth: true }
                     }
                     Text {
                         Layout.fillWidth: true

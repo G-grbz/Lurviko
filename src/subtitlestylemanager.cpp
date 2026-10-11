@@ -33,6 +33,7 @@ void SubtitleStyleManager::load()
     m_subtitleColor = readColor(settings, QStringLiteral("subtitleColor"), QColor(QStringLiteral("#FFFFFFFF")));
     m_subtitleFontFamily = settings.value(QString::fromLatin1(kGroup) + QStringLiteral("subtitleFontFamily"), font).toString();
     m_subtitleFontSize = qBound(12, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("subtitleFontSize"), 30).toInt(), 72);
+    m_subtitleShadowMode = qBound(0, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("subtitleShadowMode"), 1).toInt(), 4);
     m_backgroundColor = readColor(settings, QStringLiteral("backgroundColor"), QColor(QStringLiteral("#FF000000")));
     m_backgroundRadius = qBound(0, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("backgroundRadius"), 8).toInt(), 32);
     m_backgroundOpacity = qBound<qreal>(0.0, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("backgroundOpacity"), 0.68).toDouble(), 1.0);
@@ -40,9 +41,11 @@ void SubtitleStyleManager::load()
     m_sdhColor = readColor(settings, QStringLiteral("sdhColor"), QColor(QStringLiteral("#FFFFD166")));
     m_sdhFontFamily = settings.value(QString::fromLatin1(kGroup) + QStringLiteral("sdhFontFamily"), font).toString();
     m_sdhFontSize = qBound(12, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("sdhFontSize"), 30).toInt(), 72);
+    m_sdhShadowMode = qBound(0, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("sdhShadowMode"), 1).toInt(), 4);
     m_forcedColor = readColor(settings, QStringLiteral("forcedColor"), QColor(QStringLiteral("#FF7FDBFF")));
     m_forcedFontFamily = settings.value(QString::fromLatin1(kGroup) + QStringLiteral("forcedFontFamily"), font).toString();
     m_forcedFontSize = qBound(12, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("forcedFontSize"), 30).toInt(), 72);
+    m_forcedShadowMode = qBound(0, settings.value(QString::fromLatin1(kGroup) + QStringLiteral("forcedShadowMode"), 1).toInt(), 4);
 }
 
 void SubtitleStyleManager::saveValue(const QString &key, const QVariant &value)
@@ -129,4 +132,22 @@ void SubtitleStyleManager::resetDefaults()
     settings.sync();
     load();
     emit styleChanged();
+}
+
+void SubtitleStyleManager::setSubtitleShadowMode(int value)
+{
+    value = qBound(0, value, 4); if (value == m_subtitleShadowMode) return;
+    m_subtitleShadowMode = value; saveValue(QStringLiteral("subtitleShadowMode"), value); emit styleChanged();
+}
+
+void SubtitleStyleManager::setSdhShadowMode(int value)
+{
+    value = qBound(0, value, 4); if (value == m_sdhShadowMode) return;
+    m_sdhShadowMode = value; saveValue(QStringLiteral("sdhShadowMode"), value); emit styleChanged();
+}
+
+void SubtitleStyleManager::setForcedShadowMode(int value)
+{
+    value = qBound(0, value, 4); if (value == m_forcedShadowMode) return;
+    m_forcedShadowMode = value; saveValue(QStringLiteral("forcedShadowMode"), value); emit styleChanged();
 }

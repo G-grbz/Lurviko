@@ -26,6 +26,8 @@ bash .github/scripts/run-headless-tests.sh
 
 Build the application with Ninja into `build/` first. QML checks use Qt Quick Test and the application's real native objects/resources; `LURVIKO_TEST_BUILD_DIR` can select an external build tree. Icon checks need CMake, Qt Test, KDE IconThemes/Archive and the Breeze icon theme. These checks use isolated settings and the offscreen/software Qt backend and do not need a running desktop or AI models.
 
+`python3 tests/run-index-tests.py` checks category-specific hidden-file settings, pruning of excluded/unrelated subtrees, extension/name/path filters, file-size limits, root boundaries, automatic add/delete updates and idle CPU use. It needs a C++17 compiler, Qt Core/Concurrent development files and Qt's moc. `--baseline /path/contentindexmodel.cpp` compares the same fixtures against a saved source version; `--home-settings /path/Lurviko.conf` additionally performs a read-only home scan without updating personal settings or caches.
+
 ## Native integration harnesses
 
 Build the application into `build/` first. These harnesses link the application's native objects and are intended for a development machine with the corresponding runtime services. They are retained separately from headless CI because media, pointer interaction and window behavior depend on the session.

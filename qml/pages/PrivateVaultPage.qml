@@ -25,6 +25,17 @@ Rectangle {
     property string renameId: ""
     property string renameOriginal: ""
     property string vaultMusicUrl: ""
+    readonly property string recoveryWarning: lang.language === "tr"
+        ? "Kurtarma anahtarı parola kadar hassastır: kim ele geçirirse kasayı açabilir. İsteğe bağlıdır ve yalnızca bir kez gösterilir. Lurviko’da parola sıfırlamak için tek kullanımlıktır; başarılı sıfırlama sonrası Güvenlik’ten yenisini oluştur. Güvenli, ayrı bir yerde sakla; panoya kopyalarsan pano geçmişinde kalabilir."
+        : "The recovery key is as sensitive as your password: anyone who obtains it can open the vault. It is optional and shown only once. It is single-use for password resets in Lurviko; generate another in Security after a successful reset. Store it securely, separately; copying it may leave it in clipboard history."
+
+    function showRecoveryKey() {
+        securityPopup.close()
+        recoveryDisplay.text = vault.takeRecoveryKey()
+        recoverySaved.checked = false
+        if (recoveryDisplay.text.length)
+            recoveryKeyPopup.open()
+    }
 
     function suffixOf(name) {
         const value = String(name || "")
@@ -180,6 +191,9 @@ Rectangle {
                 currentPassword.text = ""
                 newPassword.text = ""
                 newPasswordAgain.text = ""
+                recoveryKeyPopup.close()
+                recoveryDisplay.text = ""
+                recoveryConfirm.close()
             }
         }
     }
@@ -351,6 +365,138 @@ Rectangle {
 
 
     GModalPopup {
+        id: recoveryKeyPopup
+        objectName: "vaultRecoveryKeyPopup"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(640, page.width - 40)
+        height: Math.min(490, page.height - 30)
+        closePolicy: Popup.CloseOnEscape
+        // Discard immediately; the exit animation must not leave a commit window.
+        onAboutToHide: vault.cancelRecoveryKey()
+        onClosed: {
+            vault.cancelRecoveryKey()
+            recoveryDisplay.text = ""
+            recoverySaved.checked = false
+            recoverySwitch.checked = vault.recoveryEnabled
+        }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 14
+            Text { Layout.fillWidth: true; text: lang.language === "tr" ? "Kurtarma anahtarını güvenle sakla" : "Keep your recovery key safe"; color: AppTheme.text; font.pixelSize: 18; font.bold: true; wrapMode: Text.Wrap }
+            Text { Layout.fillWidth: true; text: page.recoveryWarning; color: AppTheme.textMuted; font.pixelSize: 11; wrapMode: Text.Wrap }
+            TextArea {
+                id: recoveryDisplay
+                objectName: "vaultRecoveryKeyDisplay"
+                readonly property alias applicationContextMenu: recoveryTextMenu
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                readOnly: true
+                selectByMouse: true
+                wrapMode: TextEdit.WrapAnywhere
+                textFormat: TextEdit.PlainText
+                font.family: "monospace"
+                font.pixelSize: 15
+                color: AppTheme.text
+                padding: 14
+                background: Rectangle { color: AppTheme.workspace; radius: 12; border.color: AppTheme.border }
+                ContextMenu.menu: TextEditMenu {
+                    id: recoveryTextMenu
+                    maximumPopupHeight: Math.min(620, page.height - 24)
+                    objectName: "vaultRecoveryTextMenu"
+                    editor: recoveryDisplay
+                    langManager: page.lang
+                }
+            }
+            Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.textMuted; font.pixelSize: 11; text: lang.language === "tr" ? "Tamam diyene kadar bu anahtar etkinleşmez. İptal edersen mevcut kurtarma ayarların korunur." : "This key is not active until you choose Done. Cancel keeps your existing recovery settings." }
+            Text { Layout.fillWidth: true; visible: text.length > 0; wrapMode: Text.Wrap; color: AppTheme.danger; font.pixelSize: 10; text: vault.lastError }
+            GCheckBox { id: recoverySaved; objectName: "vaultRecoveryKeySaved"; Layout.fillWidth: true; text: lang.language === "tr" ? "Anahtarı güvenli bir yere kaydettim" : "I saved the key somewhere safe" }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                GModalButton { objectName: "vaultRecoveryKeyCancel"; text: lang.language === "tr" ? "İptal" : "Cancel"; onClicked: recoveryKeyPopup.close() }
+                GModalButton { objectName: "vaultRecoveryKeyDone"; primary: true; enabled: recoverySaved.checked && vault.unlocked && !vault.busy; text: lang.language === "tr" ? "Tamam" : "Done"; onClicked: if (vault.commitRecoveryKey()) recoveryKeyPopup.close() }
+            }
+        }
+    }
+
+    GModalPopup {
+        id: recoveryConfirm
+        objectName: "vaultRecoveryConfirm"
+        property bool disabling: false
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(560, page.width - 40)
+        height: Math.min(340, page.height - 30)
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 14
+            Text { Layout.fillWidth: true; text: recoveryConfirm.disabling ? (lang.language === "tr" ? "Kurtarmayı kapat?" : "Disable recovery?") : (lang.language === "tr" ? "Yeni kurtarma anahtarı oluştur?" : "Create a new recovery key?"); color: AppTheme.text; font.bold: true; font.pixelSize: 18; wrapMode: Text.Wrap }
+            Text { Layout.fillWidth: true; Layout.fillHeight: true; wrapMode: Text.Wrap; color: AppTheme.textMuted; font.pixelSize: 11; text: page.recoveryWarning + "\n\n" + (lang.language === "tr" ? "Mevcut anahtar bu kasa için geçersiz olacak. Eski kasa yedekleri eski anahtarlarını hâlâ kabul edebilir." : "The existing key will be invalid for this vault. Older vault backups may still accept their older keys.") }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                GModalButton { text: lang.language === "tr" ? "İptal" : "Cancel"; onClicked: recoveryConfirm.close() }
+                GModalButton {
+                    objectName: "vaultConfirmRecoveryChange"
+                    primary: true
+                    text: recoveryConfirm.disabling ? (lang.language === "tr" ? "Kapat" : "Disable") : (lang.language === "tr" ? "Oluştur" : "Generate")
+                    enabled: vault.unlocked && !vault.busy
+                    onClicked: {
+                        const disabling = recoveryConfirm.disabling
+                        recoveryConfirm.close()
+                        if (disabling)
+                            vault.disableRecoveryKey()
+                        else if (vault.prepareRecoveryKey())
+                            page.showRecoveryKey()
+                        recoverySwitch.checked = vault.recoveryEnabled
+                    }
+                }
+            }
+        }
+    }
+
+    GModalPopup {
+        id: recoveryUnlockPopup
+        objectName: "vaultRecoveryUnlockPopup"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(560, page.width - 40)
+        height: Math.min(520, page.height - 30)
+        onOpened: { vault.clearStatus(); recoveryInput.forceActiveFocus() }
+        onClosed: { recoveryInput.text = ""; recoveryPassword.text = ""; recoveryPasswordAgain.text = ""; recoveryMismatch.visible = false }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+            Text { Layout.fillWidth: true; text: lang.language === "tr" ? "Kurtarma anahtarıyla parolayı sıfırla" : "Reset your password with a recovery key"; color: AppTheme.text; font.pixelSize: 18; font.bold: true; wrapMode: Text.Wrap }
+            Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.textMuted; font.pixelSize: 10; text: lang.language === "tr" ? "Kayıtlı anahtarını ve yeni parolanı gir. Parola sıfırlama için anahtar tek kullanımlıktır: başarılı işlemden sonra devre dışı kalır. Yeniden kurtarma için Güvenlik ayarlarından yeni bir anahtar oluştur." : "Enter your saved key and a new password. The key is single-use for password resets: a successful reset disables it. Generate a new key in Security to restore recovery access." }
+            GTextField { id: recoveryInput; objectName: "vaultRecoveryInput"; Layout.fillWidth: true; maximumLength: 256; echoMode: TextInput.Password; placeholderText: "LRK1-…"; onAccepted: recoveryPassword.forceActiveFocus() }
+            GTextField { id: recoveryPassword; objectName: "vaultRecoveryNewPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; onAccepted: recoveryPasswordAgain.forceActiveFocus() }
+            GTextField { id: recoveryPasswordAgain; objectName: "vaultRecoveryNewPasswordAgain"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; onAccepted: recoverButton.clicked() }
+            Text { id: recoveryMismatch; visible: false; color: AppTheme.danger; text: lang.language === "tr" ? "Yeni parolalar eşleşmiyor." : "New passwords do not match."; font.pixelSize: 10 }
+            VaultAttemptStatus { Layout.fillWidth: true; vault: page.vault; lang: page.lang }
+            Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.danger; text: vault.lastError; font.pixelSize: 10 }
+            Item { Layout.fillHeight: true }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                GModalButton { text: lang.language === "tr" ? "İptal" : "Cancel"; onClicked: recoveryUnlockPopup.close() }
+                GModalButton {
+                    id: recoverButton
+                    objectName: "vaultRecoverButton"
+                    primary: true
+                    text: lang.language === "tr" ? "Parolayı sıfırla ve aç" : "Reset password and unlock"
+                    enabled: !vault.busy && !vault.unlocked && vault.passwordWaitSeconds === 0 && recoveryInput.text.length > 0 && recoveryPassword.text.length >= 8
+                    onClicked: {
+                        recoveryMismatch.visible = recoveryPassword.text !== recoveryPasswordAgain.text
+                        if (!recoveryMismatch.visible && vault.recoverVault(recoveryInput.text, recoveryPassword.text)) {
+                            unlockPassword.text = ""
+                            recoveryUnlockPopup.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    GModalPopup {
         id: securityPopup
         objectName: "vaultSecurityPopup"
         parent: Overlay.overlay
@@ -362,6 +508,7 @@ Rectangle {
         background: GModalSurface { }
         onOpened: {
             currentPassword.text = ""
+            recoverySwitch.checked = vault.recoveryEnabled
             newPassword.text = ""
             newPasswordAgain.text = ""
             passwordMismatch.visible = false
@@ -371,6 +518,7 @@ Rectangle {
             passwordLockoutDuration.value = vault.passwordLockoutSeconds
             passwordRetryDelay.value = vault.passwordRetrySeconds
         }
+        onClosed: { currentPassword.text = ""; newPassword.text = ""; newPasswordAgain.text = "" }
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 24
@@ -383,6 +531,13 @@ Rectangle {
             }
             Flickable {
                 id: securityScroll
+                GPopupWheelScroll {
+                    parent: securityScroll
+                    anchors.fill: parent
+                    view: securityScroll
+                    scrollbar: securityScroll.ScrollBar.vertical
+                    enabled: securityPopup.visible
+                }
                 objectName: "vaultSecurityScroll"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -402,6 +557,31 @@ Rectangle {
                         text: lang.language === "tr"
                               ? "Kasa kapanınca ana anahtar RAM'den temizlenir. KWallet etkinse bu cihazda parolayı tekrar yazmadan güvenli hızlı açma kullanılabilir."
                               : "The master key is cleared from RAM when the vault locks. With KWallet enabled, this device can securely quick-unlock without retyping the vault password."
+                    }
+
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text { Layout.fillWidth: true; text: lang.language === "tr" ? "Kurtarma anahtarı" : "Recovery key"; color: AppTheme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
+                        GSwitch {
+                            id: recoverySwitch
+                            objectName: "vaultRecoverySwitch"
+                            checked: vault.recoveryEnabled
+                            enabled: vault.unlocked && !vault.busy
+                            onClicked: {
+                                recoveryConfirm.disabling = !checked
+                                checked = vault.recoveryEnabled
+                                recoveryConfirm.open()
+                            }
+                        }
+                    }
+                    Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.textMuted; font.pixelSize: 10; text: page.recoveryWarning }
+                    GModalButton {
+                        objectName: "vaultRotateRecoveryKey"
+                        visible: vault.recoveryEnabled
+                        text: lang.language === "tr" ? "Eski anahtarı iptal et ve yenisini oluştur" : "Revoke the old key and generate a new one"
+                        enabled: vault.unlocked && !vault.busy
+                        onClicked: { recoveryConfirm.disabling = false; recoveryConfirm.open() }
                     }
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
@@ -621,6 +801,12 @@ Rectangle {
                 }
                 GTextField { id: createPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "En az 8 karakter parola" : "Password, at least 8 characters"; color: AppTheme.text }
                 GTextField { id: createPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Parolayı tekrar yaz" : "Repeat password"; color: AppTheme.text }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { Layout.fillWidth: true; text: lang.language === "tr" ? "Kurtarma anahtarı oluştur · isteğe bağlı" : "Generate a recovery key · optional"; color: AppTheme.text; font.pixelSize: 11; wrapMode: Text.Wrap }
+                    GSwitch { id: createRecoverySwitch; objectName: "vaultCreateRecoverySwitch"; checked: false }
+                }
+                Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.textMuted; font.pixelSize: 10; text: createRecoverySwitch.checked ? page.recoveryWarning : (lang.language === "tr" ? "Kurtarma anahtarı kapalı. Parolanı unutursan ve başka bir açma yöntemin yoksa verilerin kurtarılamaz." : "Recovery is off. If you forget your password and have no other unlock method, your data cannot be recovered.") }
                 Text { visible: vault.lastError.length > 0; Layout.fillWidth: true; wrapMode: Text.Wrap; color: AppTheme.danger; text: vault.lastError; font.pixelSize: 10 }
                 GModalButton {
                     Layout.alignment: Qt.AlignHCenter
@@ -634,9 +820,12 @@ Rectangle {
                             return
                         }
                         mismatchText.visible = false
-                        if (vault.createVault(createPassword.text)) {
+                        if (vault.createVault(createPassword.text, false)) {
                             createPassword.text = ""
                             createPasswordAgain.text = ""
+                            if (createRecoverySwitch.checked && vault.prepareRecoveryKey())
+                                page.showRecoveryKey()
+                            createRecoverySwitch.checked = false
                         }
                     }
                 }
@@ -679,6 +868,14 @@ Rectangle {
                     text: lang.language === "tr" ? "KWallet ile Hızlı Aç" : "Quick Unlock with KWallet"
                     enabled: !vault.busy && vault.passwordWaitSeconds === 0
                     onClicked: vault.quickUnlock()
+                }
+                GModalButton {
+                    objectName: "vaultOpenRecovery"
+                    visible: vault.recoveryEnabled
+                    Layout.alignment: Qt.AlignHCenter
+                    text: lang.language === "tr" ? "Parolamı unuttum · Kurtarma anahtarı" : "Forgot password · Recovery key"
+                    enabled: !vault.busy && vault.passwordWaitSeconds === 0
+                    onClicked: recoveryUnlockPopup.open()
                 }
             }
         }

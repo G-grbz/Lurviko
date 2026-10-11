@@ -974,6 +974,8 @@ Rectangle {
             return lang.language === "tr" ? "Duraklatıldı" : "Paused"
         if (operation.kind === "clipboard")
             return lang.language === "tr" ? "Dosya listesi hazırlanıyor" : "Preparing file list"
+        if (operation.kind === "trash" && Number(operation.speed || 0) <= 0)
+            return lang.language === "tr" ? "Dosya ve klasörler çöpe taşınmak için hazırlanıyor…" : "Preparing files and folders for Trash…"
         const speed = Number(operation.speed || 0)
         const remainingBytes = Number(operation.totalBytes || 0) - Number(operation.processedBytes || 0)
         if (speed <= 0 || remainingBytes <= 0)
@@ -3602,7 +3604,7 @@ Rectangle {
                 display: AbstractButton.IconOnly
                 icon.source: AppTheme.icon("nav-up.svg")
                 icon.width: 16; icon.height: 16
-                implicitWidth: 38
+                implicitWidth: 34
                 implicitHeight: 38
                 onClicked: root.handleUpNavigation()
                 background: Rectangle { radius: 10; color: parent.hovered ? AppTheme.surfaceHover : AppTheme.surface; border.color: AppTheme.border }
@@ -3611,7 +3613,7 @@ Rectangle {
             GButton {
                 id: recentLocationsButton
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                implicitWidth: 42
+                implicitWidth: 34
                 implicitHeight: 38
                 enabled: root.quickAccessModel !== null
                 onClicked: root.openRecentLocationsMenu()
@@ -3620,8 +3622,8 @@ Rectangle {
                 }
                 contentItem: CrispIcon {
                     anchors.centerIn: parent
-                    width: 22
-                    height: 22
+                    width: 16
+                    height: 16
                     source: AppTheme.icon("history.svg")
                     opacity: recentLocationsButton.enabled ? 0.92 : 0.42
                 }
@@ -3827,7 +3829,7 @@ Rectangle {
                 id: searchButton
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 text: ""
-                implicitWidth: 38
+                implicitWidth: 34
                 implicitHeight: 38
                 GToolTip {
                     text: (lang.language === "tr" ? "Ara" : "Search") + root.shortcutSuffix("find")
@@ -3835,8 +3837,8 @@ Rectangle {
                 onClicked: root.searchVisible ? root.closeSearch() : root.showSearch()
                 contentItem: CrispIcon {
                     anchors.centerIn: parent
-                    width: 22
-                    height: 22
+                    width: 16
+                    height: 16
                     source: AppTheme.icon("search.svg")
                     opacity: root.searchVisible ? 1.0 : 0.90
                 }
@@ -6230,6 +6232,13 @@ Rectangle {
 
             ScrollView {
                 id: categorySettingsScroll
+
+                GPopupWheelScroll {
+                    parent: categorySettingsScroll
+                    anchors.fill: parent
+                    view: categorySettingsScroll.contentItem
+                    scrollbar: categorySettingsScroll.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -7240,6 +7249,13 @@ Rectangle {
 
             ListView {
                 id: openWithList
+
+                GPopupWheelScroll {
+                    parent: openWithList
+                    anchors.fill: parent
+                    view: openWithList
+                    scrollbar: openWithList.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 model: openWithModel
@@ -8495,6 +8511,13 @@ Rectangle {
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
             ListView {
                 id: driveFolderList
+
+                GPopupWheelScroll {
+                    parent: driveFolderList
+                    anchors.fill: parent
+                    view: driveFolderList
+                    scrollbar: driveFolderList.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 model: driveFolderPickerModel
@@ -8979,7 +9002,7 @@ Rectangle {
 
     Column {
         id: operationCards
-        visible: !AppTheme.kioProgressEnabled
+        visible: fileOps.operations.length > 0
         z: 30000
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -9076,6 +9099,7 @@ Rectangle {
                                      ? (operation.kind === "copy" ? (lang.language === "tr" ? "Kopyalama tamamlandı" : "Copy complete")
                                         : operation.kind === "clipboard" ? (lang.language === "tr" ? "Panoya hazırlandı" : "Clipboard ready")
                                         : operation.kind === "move" ? (lang.language === "tr" ? "Taşıma tamamlandı" : "Move complete")
+                                        : operation.kind === "trash" ? (lang.language === "tr" ? "Çöpe taşıma tamamlandı" : "Moved to Trash")
                                         : operation.kind === "duplicate" ? (lang.language === "tr" ? "Klonlama tamamlandı" : "Duplication complete")
                                         : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuldu" : "Archive created")
                                         : (lang.language === "tr" ? "Arşiv çıkarıldı" : "Extraction complete"))
@@ -9083,6 +9107,7 @@ Rectangle {
                                   : operation.kind === "copy" ? (lang.language === "tr" ? "Kopyalanıyor" : "Copying")
                                   : operation.kind === "clipboard" ? (lang.language === "tr" ? "Pano hazırlanıyor" : "Preparing clipboard")
                                   : operation.kind === "move" ? (lang.language === "tr" ? "Taşınıyor" : "Moving")
+                                  : operation.kind === "trash" ? (lang.language === "tr" ? "Çöpe taşınıyor" : "Moving to Trash")
                                   : operation.kind === "duplicate" ? (lang.language === "tr" ? "Klonlanıyor" : "Duplicating")
                                   : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuluyor" : "Creating archive")
                                   : (lang.language === "tr" ? "Arşiv çıkarılıyor" : "Extracting archive")

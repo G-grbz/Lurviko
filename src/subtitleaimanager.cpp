@@ -17,6 +17,9 @@
 #include <QTimer>
 #include <QTemporaryFile>
 #include <QUrl>
+#include <QDateTime>
+#include <QFutureWatcher>
+#include <QtConcurrentRun>
 #include <QtMath>
 
 #include <algorithm>
@@ -45,7 +48,7 @@ SubtitleAiManager::~SubtitleAiManager()
     }
 }
 
-QString SubtitleAiManager::normalizeLocalPath(const QString &filePath) const
+QString SubtitleAiManager::normalizeLocalPath(const QString &filePath)
 {
     const QString value = filePath.trimmed();
     if (value.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
@@ -199,7 +202,7 @@ QVariantMap SubtitleAiManager::subtitleTranslationCacheInfo(const QString &media
     return cacheInfoFromDirectory(subtitleCacheJobDirectory(mediaPath, sourceKind, subtitlePath, subtitleTrackIndex, sourceLanguage), translateTo);
 }
 
-QString SubtitleAiManager::normalizedLanguageCode(const QString &value) const
+QString SubtitleAiManager::normalizedLanguageCode(const QString &value)
 {
     QString raw = value.trimmed().toLower();
     if (raw.contains(QLatin1Char('-')))
@@ -226,6 +229,43 @@ QString SubtitleAiManager::normalizedLanguageCode(const QString &value) const
 }
 
 QVariantList SubtitleAiManager::subtitleSources(const QString &filePath) const
+{
+    return discoverSubtitleSources(filePath);
+}
+
+QString SubtitleAiManager::mediaCacheKey(const QString &filePath)
+{
+    const QFileInfo info(normalizeLocalPath(filePath));
+    return info.absoluteFilePath() + QLatin1Char('|') + QString::number(info.size())
+        + QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+}
+
+void SubtitleAiManager::requestSubtitleSources(const QString &filePath)
+{
+    const QString path = normalizeLocalPath(filePath);
+    const QString key = mediaCacheKey(path) + QLatin1Char('|')
+        + QString::number(QFileInfo(QFileInfo(path).absolutePath()).lastModified().toMSecsSinceEpoch());
+    if (m_sourcesPendingKey == key) return;
+    const auto request = ++m_sourcesRequest;
+    m_sourcesPendingKey.clear();
+    if (const auto *cached = m_sourcesCache.object(key)) {
+        emit subtitleSourcesReady(path, *cached);
+        return;
+    }
+    m_sourcesPendingKey = key;
+    auto *watcher = new QFutureWatcher<QVariantList>(this);
+    connect(watcher, &QFutureWatcher<QVariantList>::finished, this, [this, watcher, request, key, path] {
+        const auto sources = watcher->result();
+        watcher->deleteLater();
+        if (request != m_sourcesRequest) return;
+        m_sourcesPendingKey.clear();
+        m_sourcesCache.insert(key, new QVariantList(sources));
+        emit subtitleSourcesReady(path, sources);
+    });
+    watcher->setFuture(QtConcurrent::run([path] { return discoverSubtitleSources(path); }));
+}
+
+QVariantList SubtitleAiManager::discoverSubtitleSources(const QString &filePath)
 {
     QVariantList result;
     const QString inputPath = normalizeLocalPath(filePath);
@@ -347,6 +387,7 @@ QString SubtitleAiManager::pythonExecutable() const
 
 bool SubtitleAiManager::startWorker(const QStringList &arguments, const QString &initialStatus)
 {
+    cancelSubtitleSelection();
     const QString worker = workerPath();
     if (worker.isEmpty()) {
         finishWithError(tr("Lurviko Subtitle AI motoru bulunamadı. Kurulumdaki subtitle-ai dosyalarını kontrol edin."));
@@ -502,7 +543,7 @@ QString SubtitleAiManager::liveSubtitleAt(qint64 positionMs) const
 }
 
 
-qint64 SubtitleAiManager::parseSubtitleTimestamp(const QString &value) const
+qint64 SubtitleAiManager::parseSubtitleTimestamp(const QString &value)
 {
     const QString text = value.trimmed();
     QRegularExpression re(QStringLiteral(R"(^\s*(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})\s*$)"));
@@ -521,7 +562,7 @@ qint64 SubtitleAiManager::parseSubtitleTimestamp(const QString &value) const
     return ((hours * 60 + minutes) * 60 + seconds) * 1000 + millis;
 }
 
-QVector<SubtitleAiManager::LiveCue> SubtitleAiManager::loadSubtitleFile(const QString &subtitlePath) const
+QVector<SubtitleAiManager::LiveCue> SubtitleAiManager::loadSubtitleFile(const QString &subtitlePath)
 {
     QVector<LiveCue> result;
     const QFileInfo info(normalizeLocalPath(subtitlePath));
@@ -614,6 +655,7 @@ bool SubtitleAiManager::selectSubtitleFile(const QString &subtitlePath)
     const QVector<LiveCue> cues = loadSubtitleFile(info.absoluteFilePath());
     if (cues.isEmpty())
         return false;
+    cancelSubtitleSelection();
     m_selectedSubtitleCues = cues;
     m_selectedSubtitlePath = info.absoluteFilePath();
     // Publish the new selection before releasing live translation ownership.
@@ -626,12 +668,64 @@ bool SubtitleAiManager::selectSubtitleFile(const QString &subtitlePath)
 
 bool SubtitleAiManager::selectEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex)
 {
+    const auto cues = extractEmbeddedSubtitle(mediaPath, subtitleTrackIndex);
+    if (cues.isEmpty()) return false;
+    cancelSubtitleSelection();
+    applyEmbeddedSubtitle(mediaPath, subtitleTrackIndex, cues);
+    return true;
+}
+
+void SubtitleAiManager::cancelSubtitleSelection()
+{
+    ++m_selectionRequest;
+    if (!m_selectedSubtitleLoading) return;
+    m_selectedSubtitleLoading = false;
+    emit selectedSubtitleLoadingChanged();
+}
+
+bool SubtitleAiManager::requestEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex)
+{
+    const QString path = normalizeLocalPath(mediaPath);
+    if (subtitleTrackIndex < 0 || !QFileInfo(path).isFile()) return false;
+    cancelSubtitleSelection();
+    const auto request = m_selectionRequest;
+    const QString key = mediaCacheKey(path) + QLatin1Char('#') + QString::number(subtitleTrackIndex);
+    if (const auto *cached = m_embeddedCache.object(key)) {
+        applyEmbeddedSubtitle(path, subtitleTrackIndex, *cached);
+        emit embeddedSubtitleReady(path, subtitleTrackIndex, true);
+        return true;
+    }
+    m_selectedSubtitleLoading = true;
+    emit selectedSubtitleLoadingChanged();
+    auto *watcher = new QFutureWatcher<QVector<LiveCue>>(this);
+    connect(watcher, &QFutureWatcher<QVector<LiveCue>>::finished, this,
+        [this, watcher, request, key, path, subtitleTrackIndex] {
+            const auto cues = watcher->result();
+            watcher->deleteLater();
+            if (request != m_selectionRequest) return;
+            m_selectedSubtitleLoading = false;
+            if (!cues.isEmpty()) {
+                // Bound the cache by cue count; failed or stale reads are never cached.
+                m_embeddedCache.insert(key, new QVector<LiveCue>(cues), cues.size());
+                applyEmbeddedSubtitle(path, subtitleTrackIndex, cues);
+            }
+            emit selectedSubtitleLoadingChanged();
+            emit embeddedSubtitleReady(path, subtitleTrackIndex, !cues.isEmpty());
+        });
+    watcher->setFuture(QtConcurrent::run([path, subtitleTrackIndex] {
+        return extractEmbeddedSubtitle(path, subtitleTrackIndex);
+    }));
+    return true;
+}
+
+QVector<SubtitleAiManager::LiveCue> SubtitleAiManager::extractEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex)
+{
     const QFileInfo mediaInfo(normalizeLocalPath(mediaPath));
     if (!mediaInfo.exists() || !mediaInfo.isFile())
-        return false;
+        return {};
     const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     if (ffmpeg.isEmpty())
-        return false;
+        return {};
 
     QProcess extractor;
     extractor.setProgram(ffmpeg);
@@ -644,25 +738,27 @@ bool SubtitleAiManager::selectEmbeddedSubtitle(const QString &mediaPath, int sub
     if (!extractor.waitForStarted(1500) || !extractor.waitForFinished(15000)) {
         extractor.kill();
         extractor.waitForFinished(500);
-        return false;
+        return {};
     }
     if (extractor.exitStatus() != QProcess::NormalExit || extractor.exitCode() != 0)
-        return false;
+        return {};
     const QByteArray data = extractor.readAllStandardOutput();
     if (data.trimmed().isEmpty())
-        return false;
+        return {};
 
     QTemporaryFile temporary(QDir(QDir::tempPath()).absoluteFilePath(QStringLiteral("lurviko-subtitle-XXXXXX.srt")));
     temporary.setAutoRemove(true);
     if (!temporary.open())
-        return false;
+        return {};
     if (temporary.write(data) != data.size())
-        return false;
+        return {};
     temporary.flush();
-    const QVector<LiveCue> cues = loadSubtitleFile(temporary.fileName());
-    if (cues.isEmpty())
-        return false;
+    return loadSubtitleFile(temporary.fileName());
+}
 
+void SubtitleAiManager::applyEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex, const QVector<LiveCue> &cues)
+{
+    const QFileInfo mediaInfo(normalizeLocalPath(mediaPath));
     clearLiveCues();
     m_selectedSubtitleCues = cues;
     QString canonical = mediaInfo.canonicalFilePath();
@@ -672,11 +768,11 @@ bool SubtitleAiManager::selectEmbeddedSubtitle(const QString &mediaPath, int sub
     ++m_liveRevision;
     emit liveRevisionChanged();
     emit selectedSubtitleChanged();
-    return true;
 }
 
 void SubtitleAiManager::clearSelectedSubtitle()
 {
+    cancelSubtitleSelection();
     if (m_selectedSubtitleCues.isEmpty() && m_selectedSubtitlePath.isEmpty())
         return;
     m_selectedSubtitleCues.clear();

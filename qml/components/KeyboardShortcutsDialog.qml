@@ -140,6 +140,13 @@ GModalPopup {
                     Layout.fillWidth: true; Layout.fillHeight: true
                     ListView {
                         id: actionList; objectName: "shortcutActionsList"
+
+                        GPopupWheelScroll {
+                            parent: actionList
+                            anchors.fill: parent
+                            view: actionList
+                            scrollbar: actionScrollBar
+                        }
                         anchors.fill: parent; anchors.rightMargin: 14
                         clip: true; spacing: 6; boundsBehavior: Flickable.StopAtBounds
                         model: dialog.filteredActions
@@ -178,6 +185,7 @@ GModalPopup {
                         }
                     }
                     ScrollBar {
+                        id: actionScrollBar
                         anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
                         width: 7; orientation: Qt.Vertical
                         size: actionList.visibleArea.heightRatio; position: actionList.visibleArea.yPosition
@@ -202,6 +210,13 @@ GModalPopup {
                     Layout.fillWidth: true; Layout.fillHeight: true
                     Flickable {
                         id: editorScroll
+
+                        GPopupWheelScroll {
+                            parent: editorScroll
+                            anchors.fill: parent
+                            view: editorScroll
+                            scrollbar: editorScrollBar
+                        }
                         anchors.fill: parent; anchors.rightMargin: 12
                         contentHeight: editorColumn.implicitHeight + 8
                         clip: true; boundsBehavior: Flickable.StopAtBounds
@@ -302,6 +317,7 @@ GModalPopup {
                         }
                     }
                     ScrollBar {
+                        id: editorScrollBar
                         anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
                         width: 7; orientation: Qt.Vertical
                         visible: editorScroll.contentHeight > editorScroll.height

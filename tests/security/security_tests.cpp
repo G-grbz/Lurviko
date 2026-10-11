@@ -3,6 +3,7 @@
 #include <QProcess>
 #include <QTemporaryDir>
 #include "vaultsecurity.h"
+#include "vaultrecovery.h"
 #include "archivearguments.h"
 #include "fileaccesssecurity.h"
 #include <sys/stat.h>
@@ -14,6 +15,47 @@
 class SecurityTests : public QObject {
     Q_OBJECT
 private slots:
+    void recoveryKeyEncoding() {
+        const QByteArray key = VaultRecovery::generateKey(), other = VaultRecovery::generateKey();
+        QCOMPARE(key.size(), 32); QCOMPARE(other.size(), 32); QVERIFY(key != other);
+        QString encoded = VaultRecovery::encodeKey(key);
+        QVERIFY(encoded.startsWith("LRK1-")); QCOMPARE(encoded.size(), 85);
+        QByteArray decoded;
+        QVERIFY(VaultRecovery::decodeKey(encoded, &decoded)); QCOMPARE(decoded, key);
+        QVERIFY(VaultRecovery::decodeKey(" \n" + encoded.toLower() + "\t", &decoded)); QCOMPARE(decoded, key);
+        encoded[5] = encoded[5] == 'A' ? 'B' : 'A';
+        QVERIFY(!VaultRecovery::decodeKey(encoded, &decoded));
+        for (const auto &bad : {QString("LRK2-"), QString(257, 'A'), QString("ＬＲＫ１"), QString("LRK1-" + QString(72, 'G'))})
+            QVERIFY(!VaultRecovery::decodeKey(bad, &decoded));
+        QVERIFY(VaultRecovery::encodeKey({}).isEmpty());
+    }
+    void recoveryAuthenticatedEnvelope() {
+        const QByteArray key = VaultRecovery::generateKey(), master = VaultRecovery::generateKey();
+        QJsonObject header{{"vaultId", "11223344-5566-7788-99aa-bbccddeeff00"}};
+        QVERIFY(VaultRecovery::wrap(&header, master, key)); QVERIFY(VaultRecovery::hasEnvelope(header));
+        QByteArray result;
+        QVERIFY(VaultRecovery::unwrap(header, key, &result)); QCOMPARE(result, master);
+        QVERIFY(!VaultRecovery::unwrap(header, VaultRecovery::generateKey(), &result));
+        auto corrupt = header; corrupt["vaultId"] = "11223344-5566-7788-99aa-bbccddeeff01";
+        QVERIFY(!VaultRecovery::unwrap(corrupt, key, &result));
+        const QJsonObject original = header["recovery"].toObject();
+        for (const QString &name : {QString("iv"), QString("tag"), QString("wrappedKey"), QString("id")}) {
+            corrupt = header; auto envelope = original;
+            QString value = envelope[name].toString(); value[0] = value[0] == 'a' ? 'b' : 'a'; envelope[name] = value;
+            corrupt["recovery"] = envelope;
+            QVERIFY2(!VaultRecovery::unwrap(corrupt, key, &result), qPrintable(name));
+        }
+        for (const QJsonValue &bad : {QJsonValue(true), QJsonValue(1.5), QJsonValue("1"), QJsonValue(2)}) {
+            corrupt = header; auto envelope = original; envelope["version"] = bad; corrupt["recovery"] = envelope;
+            QVERIFY(!VaultRecovery::hasEnvelope(corrupt));
+        }
+        auto replacement = header;
+        const QByteArray newKey = VaultRecovery::generateKey();
+        QVERIFY(VaultRecovery::wrap(&replacement, master, newKey));
+        QVERIFY(!VaultRecovery::unwrap(replacement, key, &result));
+        QVERIFY(VaultRecovery::unwrap(replacement, newKey, &result)); QCOMPARE(result, master);
+        replacement.remove("recovery"); QVERIFY(!VaultRecovery::unwrap(replacement, newKey, &result));
+    }
     void kdfBounds() {
         QJsonObject header{{"iterations", 3}, {"memCostKiB", 65536}, {"lanes", 1}, {"threads", 1}};
         VaultSecurity::Argon2Parameters parsed;

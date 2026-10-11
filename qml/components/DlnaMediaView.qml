@@ -1444,6 +1444,13 @@ Item {
             }
             ListView {
                 id: serverList
+
+                GPopupWheelScroll {
+                    parent: serverList
+                    anchors.fill: parent
+                    view: serverList
+                    scrollbar: serverList.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true

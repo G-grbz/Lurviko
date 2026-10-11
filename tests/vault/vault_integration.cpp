@@ -13,6 +13,9 @@
 #include <QQuickWindow>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QWheelEvent>
+#include <QMouseEvent>
+#include <QContextMenuEvent>
 #include <QUrl>
 #include <cstdio>
 #include <functional>
@@ -20,6 +23,8 @@
 #include "vaultsecurity.h"
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QLockFile>
+#include "vaultrecovery.h"
 #include <unistd.h>
 
 static void require(bool ok, const char *message) {
@@ -69,6 +74,7 @@ int main(int argc, char **argv) {
     const QString changedPassword = QStringLiteral("Changed-password-ğ-2026");
     std::fprintf(stderr, "Vault test: encrypted fixture and retry policy\n");
     require(vault.createVault(password), "real encrypted fixture vault is created");
+    require(!vault.recoveryEnabled(), "recovery is opt-in and disabled by default");
     require(vault.createFolder("Kept encrypted folder"), "fixture manifest contains a real item");
     const QByteArray payload = QStringLiteral("Private test payload: İşler güçler, şarkılar.\n").toUtf8();
     const QString payloadPath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)).filePath("payload.txt");
@@ -209,6 +215,105 @@ int main(int argc, char **argv) {
                                  .filePath(".private-vault/authentication.json");
     require((QFile::permissions(authFile) & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
              | QFileDevice::ReadOther | QFileDevice::WriteOther)) == 0, "attempt metadata is private to the owner");
+
+    const auto readRecoveryHeader = [&] {
+        QFile file(privateRoot + "/vault.json"); require(file.open(QIODevice::ReadOnly), "recovery header opens");
+        return file.readAll();
+    };
+    const QByteArray disabledHeader = readRecoveryHeader();
+    require(vault.prepareRecoveryKey(), "prepare optional recovery without activating it");
+    const QString cancelledInitial = vault.takeRecoveryKey();
+    require(!cancelledInitial.isEmpty() && !vault.recoveryEnabled() && readRecoveryHeader() == disabledHeader,
+            "displaying an unconfirmed key leaves the disk and disabled state unchanged");
+    vault.cancelRecoveryKey();
+    require(!vault.commitRecoveryKey() && readRecoveryHeader() == disabledHeader,
+            "cancelled initial key cannot later be activated");
+    require(vault.regenerateRecoveryKey() && vault.recoveryEnabled(), "unlocked vault enables recovery");
+    const QString firstKey = vault.takeRecoveryKey();
+    require(!firstKey.isEmpty() && vault.takeRecoveryKey().isEmpty(), "generated key can be retrieved exactly once");
+    require(!readRecoveryHeader().contains(firstKey.toUtf8()), "display key is never stored in the header");
+    const QByteArray activeHeader = readRecoveryHeader();
+    require(vault.prepareRecoveryKey(), "prepare replacement without revoking existing key");
+    require(vault.takeRecoveryKey() != firstKey, "staged replacement is independent");
+    vault.cancelRecoveryKey();
+    require(readRecoveryHeader() == activeHeader && vault.recoveryEnabled(), "cancelled rotation preserves existing key and exact header");
+    require(vault.prepareRecoveryKey(), "prepare rotation for concurrency check");
+    vault.takeRecoveryKey();
+    require(vault.setAutoLockEnabled(!vault.autoLockEnabled()), "change header while replacement is staged");
+    const QByteArray newerHeader = readRecoveryHeader();
+    require(!vault.commitRecoveryKey() && readRecoveryHeader() == newerHeader,
+            "confirmation cannot overwrite intervening vault changes");
+    vault.cancelRecoveryKey();
+    PrivateVaultManager stale;
+    require(stale.unlock(changedPassword), "another instance holds the old envelope");
+    {
+        const QByteArray before = readRecoveryHeader();
+        QLockFile held(privateRoot + "/header-write.lock"); require(held.tryLock(), "hold write lock without root");
+        require(!vault.regenerateRecoveryKey() && vault.takeRecoveryKey().isEmpty(), "failed replacement exposes no key");
+        require(readRecoveryHeader() == before, "failed replacement preserves the previous envelope");
+    }
+    require(vault.regenerateRecoveryKey(), "replacement succeeds atomically");
+    const QString rotatedKey = vault.takeRecoveryKey(); require(rotatedKey != firstKey, "replacement uses an independent random key");
+    require(stale.setAutoLockEnabled(false), "stale instance saves ordinary preferences");
+    QByteArray rawFirst, rawRotated, masterProbe;
+    require(VaultRecovery::decodeKey(firstKey, &rawFirst) && VaultRecovery::decodeKey(rotatedKey, &rawRotated), "display keys parse");
+    require(!VaultRecovery::unwrap(QJsonDocument::fromJson(readRecoveryHeader()).object(), rawFirst, &masterProbe), "stale writes cannot resurrect a revoked key");
+    require(VaultRecovery::unwrap(QJsonDocument::fromJson(readRecoveryHeader()).object(), rawRotated, &masterProbe), "stale writes retain the current envelope");
+    require(vault.disableRecoveryKey(), "unlocked vault disables recovery");
+    require(stale.setAutoLockEnabled(false), "stale instance writes after disable");
+    require(!QJsonDocument::fromJson(readRecoveryHeader()).object().contains("recovery"), "stale writes cannot resurrect disabled recovery");
+    stale.lock();
+    vault.lock(); require(!vault.regenerateRecoveryKey() && !vault.disableRecoveryKey(), "locked users cannot manage recovery");
+    require(!vault.recoverVault(rotatedKey, password), "disabled key is rejected");
+    require(vault.unlock(changedPassword), "disabling recovery preserves the password");
+    require(vault.regenerateRecoveryKey(), "enable a new recovery envelope for offline export");
+    const QString exportKey = vault.takeRecoveryKey();
+    const QByteArray beforeExport = readRecoveryHeader();
+    QProcess offline;
+    const QString output = QString::fromLocal8Bit(qgetenv("LURVIKO_VAULT_TEST_ROOT")) + "/offline-export";
+    offline.start("python3", {"-c", "import importlib.util,sys; s=importlib.util.spec_from_file_location('recovery',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.recover(sys.argv[2],sys.stdin.readline().strip(),sys.argv[3])",
+        QStringLiteral(LURVIKO_SOURCE_DIR) + "/tools/recover-vault.py", privateRoot, output});
+    require(offline.waitForStarted(), "independent Python recovery tool starts");
+    offline.write(exportKey.toUtf8() + '\n'); offline.closeWriteChannel();
+    require(offline.waitForFinished(15000) && offline.exitCode() == 0, "independent Python code decrypts actual C++ vault");
+    QFile exported(output + "/payload.txt");
+    require(exported.open(QIODevice::ReadOnly) && exported.readAll() == payload, "offline recovered file matches original bytes");
+    require(readRecoveryHeader() == beforeExport, "offline export leaves vault header untouched");
+    require(vault.setPasswordProtection(true, 2, 1, 0), "recovery shares retry protection");
+    vault.lock();
+    require(!vault.recoverVault(firstKey, password) && vault.failedPasswordAttempts() == 1, "revoked recovery counts as a failed attempt");
+    require(!vault.recoverVault("LRK1-invalid", password) && vault.passwordLockedOut(), "bad keys trigger the same lockout");
+    require(!vault.recoverVault(exportKey, password), "valid recovery cannot bypass active lockout");
+    require(until([&] { return vault.passwordWaitSeconds() == 0; }), "recovery lockout expires");
+    const QString recoveredPassword = "Recovered-password-2026";
+    const QByteArray beforeRecovery = readRecoveryHeader();
+    {
+        QLockFile held(privateRoot + "/header-write.lock"); require(held.tryLock(), "hold recovery write lock");
+        require(!vault.recoverVault(exportKey, recoveredPassword), "recovery fails closed when atomic update is blocked");
+        require(readRecoveryHeader() == beforeRecovery && !vault.unlocked(), "failed recovery preserves header and locked state");
+    }
+    require(vault.recoverVault(exportKey, recoveredPassword), "saved recovery key resets forgotten password");
+    require(vault.unlocked() && !vault.recoveryEnabled() && vault.failedPasswordAttempts() == 0, "successful recovery resets attempts and revokes used key");
+    const QString restored = vault.materializeForOpen(payloadId);
+    QFile restoredFile(QUrl(restored).toLocalFile()); require(restoredFile.open(QIODevice::ReadOnly) && restoredFile.readAll() == payload, "recovery preserves encrypted content");
+    restoredFile.close(); vault.releaseMaterialized(restored);
+    require(vault.setPasswordProtection(false, 2, 1, 0), "disable delays for final credential checks");
+    vault.lock();
+    require(!vault.recoverVault(exportKey, password) && !vault.unlock(changedPassword), "consumed key and forgotten password are both rejected");
+    require(vault.unlock(recoveredPassword), "replacement password opens the unchanged encrypted files");
+    require(vault.changePassword(recoveredPassword, changedPassword), "restore fixture password for existing UI tests");
+    require(vault.regenerateRecoveryKey(), "generate pending key for memory lifecycle check"); vault.lock();
+    require(vault.takeRecoveryKey().isEmpty(), "locking wipes an undisplayed pending key");
+    require(vault.unlock(changedPassword) && vault.disableRecoveryKey(), "fixture remains usable after wiping pending key");
+    app.setApplicationName("RecoveryCreation");
+    {
+        PrivateVaultManager created;
+        require(created.createVault(password, true) && created.recoveryEnabled(), "new vault can opt into recovery during creation");
+        const QString initial = created.takeRecoveryKey(); require(!initial.isEmpty() && created.takeRecoveryKey().isEmpty(), "creation key is displayed only once");
+        created.lock(); require(created.recoverVault(initial, changedPassword), "creation recovery key works without the original password");
+    }
+    app.setApplicationName("Vault");
+    std::puts("PASS: optional recovery, one-time display, rotation, disable, stale-instance protection, failed-write rollback, lockout and independent offline export");
     if (arguments.contains("--backend-only")) {
         std::puts("PASS: vault authentication and encrypted file preservation without desktop/media services");
         return 0;
@@ -241,6 +346,7 @@ ApplicationWindow {
     auto delay = child(window, "vaultPasswordRetryDelay");
     auto save = child(window, "vaultSavePasswordProtection");
     auto language = child(window, "language");
+    require(!child(window, "vaultCreateRecoverySwitch")->property("checked").toBool(), "creation switch defaults off in real QML");
     for (bool dark : {false, true}) {
         QQmlExpression theme(qmlContext(window), window, dark
             ? "(function(){if(!AppTheme.dark)AppTheme.toggle()})()"
@@ -250,6 +356,17 @@ ApplicationWindow {
         require(QMetaObject::invokeMethod(popup, "open"), "security popup opens");
         pause(180);
         require(scroll->property("contentHeight").toReal() > scroll->property("height").toReal(), "security options have a scrollable viewport");
+        scroll->setProperty("contentY", 0);
+        auto scrollItem = qobject_cast<QQuickItem *>(scroll);
+        require(scrollItem, "security viewport is a real quick item");
+        const QPointF wheelPoint = scrollItem->mapToScene(QPointF(scrollItem->width() / 2, 80));
+        QWheelEvent wheel(wheelPoint, window->mapToGlobal(wheelPoint.toPoint()), QPoint(), QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QApplication::sendEvent(window, &wheel);
+        pause(200);
+        const qreal maxScroll = scroll->property("contentHeight").toReal() - scroll->property("height").toReal();
+        require(scroll->property("contentY").toReal() >= qMin(qreal(240), maxScroll) - 2,
+                "one real mouse notch uses the application wheel distance in Security");
         scroll->setProperty("contentY", scroll->property("contentHeight").toReal() - scroll->property("height").toReal());
         attempts->setProperty("value", 3); lockout->setProperty("value", 20); delay->setProperty("value", 1);
         enabled->setProperty("checked", true);
@@ -271,6 +388,76 @@ ApplicationWindow {
     require(window->grabWindow().save("/tmp/gfile-vault-locked.png"), "locked state and countdown screenshot saves");
     require(until([&] { return unlockButton->property("enabled").toBool(); }), "unlock control re-enables automatically when countdown expires");
     require(QMetaObject::invokeMethod(unlockButton, "clicked") && vault.unlocked(), "unlock works again without reopening the page");
+    require(QMetaObject::invokeMethod(popup, "open"), "open Security to enable recovery");
+    auto recoveryToggle = child(window, "vaultRecoverySwitch");
+    recoveryToggle->setProperty("checked", true);
+    require(QMetaObject::invokeMethod(recoveryToggle, "clicked"), "recovery toggle asks for confirmation");
+    require(!vault.recoveryEnabled(), "toggle alone does not enable recovery before consent");
+    auto confirmation = child(window, "vaultConfirmRecoveryChange");
+    require(QMetaObject::invokeMethod(confirmation, "clicked"), "confirm recovery generation");
+    auto shownKey = child(window, "vaultRecoveryKeyDisplay");
+    auto keyPopup = child(window, "vaultRecoveryKeyPopup");
+    QString uiKey = shownKey->property("text").toString();
+    require(!vault.recoveryEnabled() && uiKey.startsWith("LRK1-") && vault.takeRecoveryKey().isEmpty(), "actual UI displays key once without activating before Done");
+    auto keyTextItem = qobject_cast<QQuickItem *>(shownKey);
+    require(keyTextItem, "key display is a real quick item");
+    pause(200); // Let the popup transition and ColumnLayout establish the hit area.
+    const QPointF menuPoint = keyTextItem->mapToScene(QPointF(keyTextItem->width() / 2, keyTextItem->height() / 2));
+    QMouseEvent press(QEvent::MouseButtonPress, menuPoint, window->mapToGlobal(menuPoint.toPoint()),
+                      Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease, menuPoint, window->mapToGlobal(menuPoint.toPoint()),
+                        Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &press); QApplication::sendEvent(window, &release);
+    // Native platform right-click dispatch also delivers QContextMenuEvent;
+    // sending QMouseEvent directly does not synthesize that platform event.
+    QContextMenuEvent contextEvent(QContextMenuEvent::Mouse, menuPoint.toPoint(), window->mapToGlobal(menuPoint.toPoint()));
+    QApplication::sendEvent(window, &contextEvent);
+    auto keyMenu = shownKey->property("applicationContextMenu").value<QObject *>();
+    require(keyMenu, "recovery TextArea owns its custom context menu");
+    require(until([&] { return keyMenu->property("visible").toBool(); }), "right click opens the application text menu");
+    QQmlExpression copyLabel(qmlContext(keyMenu), keyMenu, "itemAt(4).text");
+    require(copyLabel.evaluate().toString().contains(QString::fromUtf8("Kopyala")), "key context menu uses the selected Turkish language");
+    QQmlExpression readOnlyActions(qmlContext(keyMenu), keyMenu, "!itemAt(0).enabled && !itemAt(1).enabled && !itemAt(3).enabled && !itemAt(5).enabled && !itemAt(6).enabled");
+    require(readOnlyActions.evaluate().toBool(), "read-only recovery field disables editing actions");
+    require(QMetaObject::invokeMethod(keyMenu, "close"), "close text menu");
+    require(QMetaObject::invokeMethod(child(window, "vaultRecoveryKeyCancel"), "clicked"), "cancel recovery before initial activation");
+    require(!vault.commitRecoveryKey() && !vault.recoveryEnabled(), "Cancel discards pending activation before the exit animation finishes");
+    require(until([&] { return shownKey->property("text").toString().isEmpty(); }) && !vault.recoveryEnabled(),
+            "cancel clears the key and leaves recovery off");
+    require(QMetaObject::invokeMethod(popup, "open"), "reopen Security after cancellation");
+    recoveryToggle->setProperty("checked", true);
+    require(QMetaObject::invokeMethod(recoveryToggle, "clicked") && QMetaObject::invokeMethod(confirmation, "clicked"), "generate after cancellation");
+    uiKey = shownKey->property("text").toString();
+    // This screenshot contains only a disposable isolated test-vault key.
+    pause(180); require(window->grabWindow().save("/tmp/lurviko-recovery-key-ui.png"), "recovery warning and key preview render");
+    child(window, "vaultRecoveryKeySaved")->setProperty("checked", true);
+    require(QMetaObject::invokeMethod(child(window, "vaultRecoveryKeyDone"), "clicked"), "acknowledge safe storage");
+    require(until([&] { return shownKey->property("text").toString().isEmpty(); }) && vault.recoveryEnabled(), "Done activates and clears the UI text");
+    require(QMetaObject::invokeMethod(popup, "open"), "open settings to cancel rotation");
+    require(QMetaObject::invokeMethod(child(window, "vaultRotateRecoveryKey"), "clicked")
+            && QMetaObject::invokeMethod(confirmation, "clicked"), "preview replacement in UI");
+    require(QMetaObject::invokeMethod(child(window, "vaultRecoveryKeyCancel"), "clicked"), "cancel UI rotation");
+    require(until([&] { return shownKey->property("text").toString().isEmpty(); }), "cancel clears replacement text");
+    QByteArray savedRaw, savedMaster;
+    require(VaultRecovery::decodeKey(uiKey, &savedRaw)
+            && VaultRecovery::unwrap(QJsonDocument::fromJson(readRecoveryHeader()).object(), savedRaw, &savedMaster),
+            "cancelled UI rotation keeps the saved previous key valid");
+    require(QMetaObject::invokeMethod(popup, "open"), "open settings to rotate key");
+    require(QMetaObject::invokeMethod(child(window, "vaultRotateRecoveryKey"), "clicked")
+            && QMetaObject::invokeMethod(confirmation, "clicked"), "rotate through the actual settings UI");
+    const QString nextUiKey = shownKey->property("text").toString();
+    require(!nextUiKey.isEmpty() && nextUiKey != uiKey, "rotation shows a new independent key");
+    child(window, "vaultRecoveryKeySaved")->setProperty("checked", true);
+    require(QMetaObject::invokeMethod(child(window, "vaultRecoveryKeyDone"), "clicked"), "confirm UI rotation before locking");
+    vault.lock();
+    require(until([&] { return !keyPopup->property("visible").toBool() && shownKey->property("text").toString().isEmpty(); }), "locking closes and clears the key display");
+    require(QMetaObject::invokeMethod(child(window, "vaultOpenRecovery"), "clicked"), "forgot-password action opens recovery UI");
+    child(window, "vaultRecoveryInput")->setProperty("text", nextUiKey);
+    auto recoveryPopup = child(window, "vaultRecoveryUnlockPopup");
+    child(window, "vaultRecoveryNewPassword")->setProperty("text", password);
+    child(window, "vaultRecoveryNewPasswordAgain")->setProperty("text", password);
+    require(QMetaObject::invokeMethod(child(window, "vaultRecoverButton"), "clicked") && vault.unlocked() && !vault.recoveryEnabled(), "actual recovery UI resets the password and disables used key");
+    require(until([&] { return !recoveryPopup->property("visible").toBool() && child(window, "vaultRecoveryInput")->property("text").toString().isEmpty(); }), "recovery inputs clear on closure");
     std::puts("PASS: vault retry delay, limits, restart persistence, success/expiry reset, disabled mode, encrypted data and security modal");
     return 0;
 }

@@ -4,6 +4,7 @@ Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 rev
 
 | Report | Finding/action |
 | --- | --- |
+| Optional recovery keys | Opt-in 256-bit random bearer keys wrap the existing master key with AES-256-GCM and vault/envelope-bound AAD. Keys are shown once, never persisted plaintext, and can be replaced/disabled while unlocked. UI previews require explicit safe-storage confirmation; Cancel/Escape preserves the old envelope or disabled state. Successful in-app password reset removes the used envelope (single-use for the current header); the read-only offline export tool deliberately keeps it and allows repeated exports. UI notices and the tool help distinguish single-use from one-time display. Atomic locked compare-and-swap protects replacement; ordinary updated-instance writes preserve current revocation. Native, actual-vault and independent Python export tests cover invalid/tampered keys, one-time display, rotation, failed-write rollback and path safety. See [format and limits](vault-recovery.md). |
 | Recursive local filesystem boundary | Confirmed: local traversal did not check st_dev. Check the selected root's device and each entry/opened child; skip other devices without modifying their contents or mount root. Report the skipped count in progress/completion. Native fd/syscall doubles exercise a device change between path stat and open without requiring a real mount/root. No cross-filesystem opt-in is added in this version. |
 | Special permission bits | Confirmed intentional preservation of existing setuid/setgid/sticky bits; ordinary rwx controls cannot set/clear them. Added code comments and a bilingual Properties hint. Existing ownership changes may clear privilege bits and they are not restored. Native regression verifies unchanged special bits without ownership changes and unchanged file content. |
 | Unauthenticated Argon2id header parameters | Confirmed in derivePasswordKey: parameter validation precedes derivation and GCM verification, and the legacy wrapping AAD omits the header parameters. No format/code change; documented a future versioned unlock/rewrap/rollback design in [vault-kdf-upgrade-design.md](vault-kdf-upgrade-design.md). Bounds still limit unauthenticated resource requests. |
@@ -23,6 +24,17 @@ Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 rev
 | Retagging | Previous v1.0.0 rebuild was explicitly requested and AUR's checksum/pkgrel was updated. Published tags should remain immutable: new source version/tag for fixes; pkgrel for packaging-only changes. No tags/releases are changed by this review. |
 
 ## Limits
+
+- Recovery previews are staged in memory. Cancel/Escape/lock retain the previous
+  on-disk recovery settings; activation requires confirming safe storage. A
+  compare-and-swap header write prevents overwriting intervening changes. The
+  displayed preview is not valid until confirmation succeeds.
+
+- Recovery keys grant access equivalent to the master key. Revocation applies to
+  the current header; copied old headers/keys retain access to their master key,
+  including later objects encrypted with that same master. Qt/QML/Python strings,
+  clipboard managers, swap and crash dumps cannot be guaranteed securely erased.
+  The UI is opt-in and displays keys only once; see [the recovery contract](vault-recovery.md).
 
 - Recursive administrator operations still use path-based KIO after a conservative
   preflight. Trusted-owner mutations, mutable ancestor paths, non-POSIX ACLs,
@@ -81,6 +93,21 @@ References: [NIST GCM](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpu
 - Compared vault magic and legacy AAD expressions against v1.1.0: unchanged.
   `makepkg --printsrcinfo` matches the prepared metadata (apart from its checksum
   reminder comment), and neither published tag was modified.
+
+## Recovery follow-up validation (2026-10-11)
+
+- Security runner: 12 passed, zero failures/skips, including recovery key encoding
+  and authenticated envelope tampering.
+- Actual-vault backend and Wayland UI harnesses passed recovery creation, consent,
+  one-time display, rotation, disable, failed-write rollback, retry protection,
+  stale-instance writes and password reset with byte-identical decrypted data.
+- Independent Python recovery exported the real C++ fixture successfully without
+  modifying its header. Five Python tool tests passed permissions, traversal,
+  source symlinks, existing destinations and damaged authentication tags.
+- All headless commands passed, including 42 QML cases, 10 system-icon cases and
+  86 translation-quality cases. Test dependency setup includes python-cryptography.
+- Legacy magic/AAD values and header version remain unchanged; recovery is an
+  optional header extension with its own authenticated envelope version.
 
 ## v1.1.1 release preparation
 

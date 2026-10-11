@@ -1662,6 +1662,13 @@ Item {
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
 
             ScrollView {
+                id: cloudManagerScroll
+                GPopupWheelScroll {
+                    parent: cloudManagerScroll
+                    anchors.fill: parent
+                    view: cloudManagerScroll.contentItem
+                    scrollbar: cloudManagerScroll.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true

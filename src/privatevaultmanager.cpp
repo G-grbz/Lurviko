@@ -1,5 +1,6 @@
 #include "privatevaultmanager.h"
 #include "vaultsecurity.h"
+#include "vaultrecovery.h"
 
 #include <QCoreApplication>
 #include <QBuffer>
@@ -16,6 +17,7 @@
 #include <QMimeDatabase>
 #include <QSet>
 #include <QSaveFile>
+#include <QLockFile>
 #include <QSettings>
 #include "appmigration.h"
 #include <QLocale>
@@ -447,11 +449,30 @@ bool PrivateVaultManager::readHeader(QJsonObject *header) const
     return true;
 }
 
-bool PrivateVaultManager::writeHeader(const QJsonObject &header) const
+bool PrivateVaultManager::writeHeader(QJsonObject &header, const QJsonObject *expected) const
 {
+    // Serialize replacement and prevent ordinary writes from resurrecting a
+    // revoked recovery envelope held in another instance's stale header.
+    QLockFile lockFile(QDir(vaultRoot()).filePath(QStringLiteral("header-write.lock")));
+    if (!lockFile.tryLock(0)) return false;
+    if (QFileInfo::exists(headerPath())) {
+        QJsonObject current;
+        if (!readHeader(&current)) return false;
+        if (expected) {
+            if (current != *expected) return false; // Compare-and-swap, fail closed.
+        } else {
+            if (current.contains(QStringLiteral("recovery")))
+                header.insert(QStringLiteral("recovery"), current.value(QStringLiteral("recovery")));
+            else
+                header.remove(QStringLiteral("recovery"));
+        }
+    } else if (expected) {
+        return false;
+    }
     QSaveFile file(headerPath());
     if (!file.open(QIODevice::WriteOnly))
         return false;
+    if (!file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) return false;
     const QByteArray bytes = QJsonDocument(header).toJson(QJsonDocument::Compact);
     if (file.write(bytes) != bytes.size())
         return false;
@@ -489,6 +510,7 @@ void PrivateVaultManager::loadSecurityPreferences()
 {
     QJsonObject header;
     if (!readHeader(&header)) {
+        m_recoveryEnabled = false;
         m_kwalletEnabled = false;
         m_autoLockEnabled = false;
         m_autoLockMinutes = 15;
@@ -498,6 +520,7 @@ void PrivateVaultManager::loadSecurityPreferences()
         m_passwordRetrySeconds = 2;
         return;
     }
+    m_recoveryEnabled = VaultRecovery::hasEnvelope(header);
     m_kwalletEnabled = header.value(QStringLiteral("kwalletEnabled")).toBool(false);
     m_autoLockEnabled = header.value(QStringLiteral("autoLockEnabled")).toBool(false);
     const int minutes = header.value(QStringLiteral("autoLockMinutes")).toInt(15);
@@ -851,6 +874,158 @@ bool PrivateVaultManager::changePassword(const QString &currentPassword, const Q
     return true;
 }
 
+bool PrivateVaultManager::regenerateRecoveryKey()
+{
+    if (!prepareRecoveryKey()) return false;
+    if (commitRecoveryKey()) return true;
+    cancelRecoveryKey();
+    return false;
+}
+
+void PrivateVaultManager::cancelRecoveryKey()
+{
+    secureClear(m_pendingRecoveryKey);
+    m_pendingRecoveryHeader = {};
+    m_pendingRecoveryExpected = {};
+}
+
+bool PrivateVaultManager::prepareRecoveryKey()
+{
+    clearStatus();
+    cancelRecoveryKey();
+    if (!m_unlocked || m_busy || m_masterKey.size() != KeySize) {
+        setError(securityMessage("Unlock the vault before changing recovery settings.", "Kurtarma ayarlarını değiştirmeden önce kasanın kilidini aç."));
+        return false;
+    }
+    QJsonObject current, manifest;
+    if (!readHeader(&current) || !loadManifest(current, m_masterKey, &manifest)) {
+        setError(securityMessage("The vault changed. Lock and unlock it before trying again.", "Kasa değişti. Yeniden denemeden önce kilitleyip aç."));
+        return false;
+    }
+    const QJsonObject expected = current;
+    if (!current.contains(QStringLiteral("vaultId")))
+        current.insert(QStringLiteral("vaultId"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QByteArray key = VaultRecovery::generateKey();
+    if (!VaultRecovery::wrap(&current, m_masterKey, key)) {
+        secureClear(key);
+        setError(securityMessage("Could not prepare a recovery key. Existing recovery settings were kept.", "Kurtarma anahtarı hazırlanamadı. Mevcut kurtarma ayarları korundu."));
+        return false;
+    }
+    // No disk changes until the user confirms safe storage. Cancellation must
+    // retain the existing envelope, including during key rotation.
+    m_pendingRecoveryHeader = current;
+    m_pendingRecoveryExpected = expected;
+    m_pendingRecoveryKey = std::move(key);
+    return true;
+}
+
+bool PrivateVaultManager::commitRecoveryKey()
+{
+    clearStatus();
+    if (!m_unlocked || m_busy || m_masterKey.size() != KeySize || m_pendingRecoveryHeader.isEmpty()) {
+        setError(securityMessage("Generate a recovery key before confirming it.", "Onaylamadan önce bir kurtarma anahtarı oluştur."));
+        return false;
+    }
+    if (!writeHeader(m_pendingRecoveryHeader, &m_pendingRecoveryExpected)) {
+        setError(securityMessage("Could not save the recovery key. Existing settings were kept. Cancel and generate another key if the vault changed.", "Kurtarma anahtarı kaydedilemedi. Mevcut ayarlar korundu. Kasa değiştiyse iptal edip yeni anahtar oluştur."));
+        return false;
+    }
+    m_header = m_pendingRecoveryHeader;
+    m_pendingRecoveryHeader = {};
+    m_pendingRecoveryExpected = {};
+    loadSecurityPreferences();
+    emit securitySettingsChanged();
+    setStatus(securityMessage("A new recovery key was created. The previous key no longer opens this vault header.", "Yeni kurtarma anahtarı oluşturuldu. Önceki anahtar artık bu kasa başlığını açmaz."));
+    return true;
+}
+
+QString PrivateVaultManager::takeRecoveryKey()
+{
+    if (!m_unlocked) { secureClear(m_pendingRecoveryKey); return {}; }
+    const QString text = VaultRecovery::encodeKey(m_pendingRecoveryKey);
+    secureClear(m_pendingRecoveryKey);
+    return text;
+}
+
+bool PrivateVaultManager::disableRecoveryKey()
+{
+    clearStatus();
+    if (!m_unlocked || m_busy || m_masterKey.size() != KeySize) {
+        setError(securityMessage("Unlock the vault before changing recovery settings.", "Kurtarma ayarlarını değiştirmeden önce kasanın kilidini aç."));
+        return false;
+    }
+    QJsonObject current, manifest;
+    if (!readHeader(&current) || !loadManifest(current, m_masterKey, &manifest)) {
+        setError(securityMessage("The vault changed. Lock and unlock it before trying again.", "Kasa değişti. Yeniden denemeden önce kilitleyip aç."));
+        return false;
+    }
+    const QJsonObject expected = current;
+    current.remove(QStringLiteral("recovery"));
+    if (!writeHeader(current, &expected)) {
+        setError(securityMessage("Could not disable recovery. Existing recovery settings were kept.", "Kurtarma kapatılamadı. Mevcut kurtarma ayarları korundu."));
+        return false;
+    }
+    cancelRecoveryKey();
+    m_header = current;
+    loadSecurityPreferences();
+    emit securitySettingsChanged();
+    setStatus(securityMessage("Recovery is disabled. Saved older vault backups may still accept their older recovery keys.", "Kurtarma kapatıldı. Eski kasa yedekleri kendi eski kurtarma anahtarlarını hâlâ kabul edebilir."));
+    return true;
+}
+
+bool PrivateVaultManager::recoverVault(const QString &recoveryKey, const QString &newPassword)
+{
+    clearStatus();
+    if (m_unlocked || m_busy) return false;
+    if (newPassword.size() < 8) {
+        setError(securityMessage("The new password must contain at least 8 characters.", "Yeni parola en az 8 karakter olmalı."));
+        return false;
+    }
+    if (!allowPasswordAttempt()) return false;
+    QJsonObject header, manifest;
+    QByteArray key, master;
+    if (!readHeader(&header) || !VaultRecovery::decodeKey(recoveryKey, &key)
+        || !VaultRecovery::unwrap(header, key, &master) || !loadManifest(header, master, &manifest)) {
+        secureClear(key); secureClear(master);
+        recordPasswordFailure();
+        setError(securityMessage("Recovery failed. The key may be incorrect, disabled or the vault data damaged.", "Kurtarma başarısız. Anahtar yanlış, devre dışı veya kasa verisi bozulmuş olabilir."));
+        return false;
+    }
+    secureClear(key);
+    const QJsonObject expected = header;
+    setBusy(true);
+    QByteArray salt(SaltSize, Qt::Uninitialized), passwordKey, iv, wrapped, tag;
+    const bool prepared = RAND_bytes(reinterpret_cast<unsigned char *>(salt.data()), SaltSize) == 1
+        && derivePasswordKey(newPassword, salt, &passwordKey, &header)
+        && aesGcmEncrypt(master, passwordKey, QByteArrayLiteral("g-file-private/master-v1"), &iv, &wrapped, &tag);
+    secureClear(passwordKey);
+    if (prepared) {
+        header.insert(QStringLiteral("salt"), QString::fromUtf8(b64(salt)));
+        header.insert(QStringLiteral("wrapIv"), QString::fromUtf8(b64(iv)));
+        header.insert(QStringLiteral("wrappedKey"), QString::fromUtf8(b64(wrapped)));
+        header.insert(QStringLiteral("wrapTag"), QString::fromUtf8(b64(tag)));
+        // Successful recovery resets the password and revokes the used key.
+        header.remove(QStringLiteral("recovery"));
+    }
+    if (!prepared || !resetPasswordFailures() || !writeHeader(header, &expected)) {
+        secureClear(master); setBusy(false);
+        setError(securityMessage("Could not save recovery changes. The previous password and recovery key were kept.", "Kurtarma değişiklikleri kaydedilemedi. Önceki parola ve kurtarma anahtarı korundu."));
+        return false;
+    }
+    lock();
+    m_masterKey = master; m_masterKey.detach(); secureClear(master);
+    m_header = header; m_manifest = manifest; m_unlocked = true;
+    m_currentFolderId = QStringLiteral("root");
+    loadSecurityPreferences();
+    if (m_kwalletEnabled) storeMasterKeyInWallet();
+    cleanupOrphanBlobs(); cleanupOrphanThumbnails();
+    setBusy(false); refreshVisibleItems(); startAutoLockCountdown();
+    setStatus(securityMessage("Password reset and vault unlocked. The used recovery key was disabled; create a new one in Security.", "Parola sıfırlandı ve kasa açıldı. Kullanılan kurtarma anahtarı kapatıldı; Güvenlik'ten yenisini oluştur."));
+    emit stateChanged(); emit currentFolderChanged(); emit securitySettingsChanged();
+    emit operationFinished(true, m_statusMessage);
+    return true;
+}
+
 bool PrivateVaultManager::quickUnlock()
 {
     clearStatus();
@@ -941,7 +1116,7 @@ bool PrivateVaultManager::saveManifest()
     return writeHeader(m_header);
 }
 
-bool PrivateVaultManager::createVault(const QString &password)
+bool PrivateVaultManager::createVault(const QString &password, bool recovery)
 {
     clearStatus();
     if (exists()) {
@@ -1003,6 +1178,18 @@ bool PrivateVaultManager::createVault(const QString &password)
     header.insert(QStringLiteral("wrappedKey"), QString::fromUtf8(b64(wrapped)));
     header.insert(QStringLiteral("wrapTag"), QString::fromUtf8(b64(wrapTag)));
 
+    secureClear(m_pendingRecoveryKey);
+    if (recovery) {
+        m_pendingRecoveryKey = VaultRecovery::generateKey();
+        if (!VaultRecovery::wrap(&header, master, m_pendingRecoveryKey)) {
+            secureClear(m_pendingRecoveryKey);
+            secureClear(master);
+            setBusy(false);
+            setError(securityMessage("Could not securely generate a recovery key.", "Güvenli kurtarma anahtarı üretilemedi."));
+            return false;
+        }
+    }
+
     m_masterKey = master;
     m_masterKey.detach();
     secureClear(master);
@@ -1013,6 +1200,7 @@ bool PrivateVaultManager::createVault(const QString &password)
         { QStringLiteral("items"), QJsonArray() }
     };
     m_unlocked = true;
+    m_recoveryEnabled = recovery;
     m_kwalletEnabled = false;
     m_autoLockEnabled = false;
     m_autoLockMinutes = 15;
@@ -1114,6 +1302,7 @@ void PrivateVaultManager::lock()
     m_visibleItems.clear();
     endResetModel();
     secureClear(m_masterKey);
+    cancelRecoveryKey();
     m_header = {};
     m_manifest = {};
     m_currentFolderId = QStringLiteral("root");

@@ -173,6 +173,7 @@ QtObject {
             "pdf.svg": "application-pdf",
             "drive.svg": "drive-harddisk",
             "trash.svg": "user-trash",
+            "trashfull.svg": "user-trash-full",
             "network.svg": "network-workgroup",
             "root.svg": "folder-root",
             "favorite.svg": "rating",
@@ -352,7 +353,8 @@ QtObject {
             "viewer-external.svg", "viewer-fit.svg", "viewer-folder.svg",
             "viewer-forward.svg", "viewer-next.svg", "viewer-pause.svg", "viewer-play.svg",
             "viewer-prev.svg", "viewer-rewind.svg", "viewer-rotate-left.svg", "viewer-rotate-right.svg",
-            "viewer-fullscreen-exit.svg", "viewer-zoom-in.svg", "viewer-zoom-out.svg"]
+            "viewer-fullscreen.svg", "viewer-fullscreen-exit.svg", "viewer-volume.svg", "viewer-volume-muted.svg",
+            "viewer-zoom-in.svg", "viewer-zoom-out.svg"]
         if (monochrome.indexOf(raw) !== -1)
             return "image://bundledicon/" + raw + "|" + encodeURIComponent(String(foreground === undefined ? text : foreground))
         return "qrc:/qt/qml/Lurviko/App/assets/icons/" + raw

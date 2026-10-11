@@ -248,9 +248,9 @@ Rectangle {
             if (!AppTheme.useSystemIcons)
                 return AppTheme.icon(sidebar.trashHasItems ? "trashfull.svg" : "trash.svg")
             const trashCustom = savedSidebarIcon(item.key)
-            return trashCustom && trashCustom.length
-                    ? AppTheme.systemIcon(trashCustom)
-                    : AppTheme.systemIcon(sidebar.trashHasItems ? "user-trash-full" : "user-trash")
+            // Pass the observable property so the URL binding refreshes when
+            // full/empty changes; reading it only inside C++ hides that dependency.
+            return AppTheme.systemIcon(trashMonitor.iconName(trashCustom, sidebar.trashHasItems))
         }
         const custom = savedSidebarIcon(item.key)
         return sidebarModeIcon(item.icon, custom)

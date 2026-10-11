@@ -101,67 +101,94 @@ bool isKnownExtensionRule(const QString &category, const QString &rule)
     return extensions.value(category).contains(rule);
 }
 
-bool matchesPathIgnoreRule(const QString &path, QString rule)
-{
-    rule = rule.trimmed().toLower();
-    if (!rule.startsWith(QStringLiteral("path:")))
-        return false;
-    QString token = rule.mid(5).trimmed();
-    if (token.isEmpty())
-        return false;
-    const QString fullPath = QDir::cleanPath(path).toLower();
-    if (token.contains(QLatin1Char('/')))
-        return fullPath.contains(token);
-    const bool wildcard = token.startsWith(QLatin1Char('*')) || token.endsWith(QLatin1Char('*'));
-    token.remove(QLatin1Char('*'));
-    for (const QString &part : fullPath.split(QLatin1Char('/'), Qt::SkipEmptyParts)) {
-        if ((!wildcard && part == token) || (wildcard && !token.isEmpty() && part.contains(token)))
-            return true;
-    }
-    return false;
-}
+// Normalize rules once per scan. Matching thousands of paths must not repeatedly
+// lowercase/split the same rule and allocate every component of the same path.
+struct PreparedIgnoreRules {
+    struct PathRule { QString token; bool wildcard; bool substring; };
+    QVector<PathRule> paths;
+    QStringList extensions;
+    QStringList names;
 
-bool matchesIgnoreRules(const QFileInfo &info, const QString &category, const QStringList &rules)
-{
-    const QString fileName = info.fileName().toLower();
-    const QString suffix = info.suffix().toLower();
-    const QString fullPath = QDir::cleanPath(info.absoluteFilePath()).toLower();
-    for (QString rule : rules) {
-        rule = rule.trimmed().toLower();
-        if (rule.isEmpty())
-            continue;
-        if (rule.startsWith(QStringLiteral("path:"))) {
-            if (matchesPathIgnoreRule(fullPath, rule))
-                return true;
-            continue;
-        }
-        bool forceExtension = false;
-        if (rule.startsWith(QStringLiteral("ext:"))) {
-            rule = rule.mid(4).trimmed();
-            forceExtension = true;
-        } else if (rule.startsWith(QStringLiteral("name:"))) {
-            const QString token = rule.mid(5).trimmed();
-            if (!token.isEmpty() && fileName.contains(token))
-                return true;
-            continue;
-        }
-        if (rule.startsWith(QStringLiteral("*."))) {
-            rule.remove(0, 2);
-            forceExtension = true;
-        } else if (rule.startsWith(QLatin1Char('.'))) {
-            rule.remove(0, 1);
-            forceExtension = true;
-        }
-        if (rule.isEmpty())
-            continue;
-        if (forceExtension || isKnownExtensionRule(category, rule)) {
-            if (suffix == rule || fileName.endsWith(QStringLiteral(".") + rule))
-                return true;
-        } else if (fileName.contains(rule)) {
-            return true;
+    PreparedIgnoreRules() = default;
+    PreparedIgnoreRules(const QString &category, const QStringList &rules) {
+        for (QString rule : rules) {
+            rule = rule.trimmed().toLower();
+            if (rule.isEmpty())
+                continue;
+            if (rule.startsWith(QStringLiteral("path:"))) {
+                QString token = rule.mid(5).trimmed();
+                if (token.isEmpty())
+                    continue;
+                const bool substring = token.contains(QLatin1Char('/'));
+                const bool wildcard = !substring && (token.startsWith(QLatin1Char('*'))
+                                                      || token.endsWith(QLatin1Char('*')));
+                if (!substring)
+                    token.remove(QLatin1Char('*'));
+                if (!token.isEmpty())
+                    paths.push_back({token, wildcard, substring});
+                continue;
+            }
+            bool extension = false;
+            if (rule.startsWith(QStringLiteral("ext:"))) {
+                rule = rule.mid(4).trimmed();
+                extension = true;
+            } else if (rule.startsWith(QStringLiteral("name:"))) {
+                const QString token = rule.mid(5).trimmed();
+                if (!token.isEmpty())
+                    names.push_back(token);
+                continue;
+            }
+            if (rule.startsWith(QStringLiteral("*."))) {
+                rule.remove(0, 2);
+                extension = true;
+            } else if (rule.startsWith(QLatin1Char('.'))) {
+                rule.remove(0, 1);
+                extension = true;
+            }
+            if (rule.isEmpty())
+                continue;
+            if (extension || isKnownExtensionRule(category, rule))
+                extensions.push_back(QLatin1Char('.') + rule);
+            else
+                names.push_back(rule);
         }
     }
-    return false;
+
+    bool matchesPath(const QString &lowerPath) const {
+        for (const PathRule &rule : paths) {
+            if (rule.substring && lowerPath.contains(rule.token))
+                return true;
+        }
+        for (QStringView part : QStringView(lowerPath).tokenize(QLatin1Char('/'), Qt::SkipEmptyParts)) {
+            for (const PathRule &rule : paths) {
+                if (!rule.substring && (rule.wildcard ? part.contains(rule.token) : part == rule.token))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    bool matchesFile(const QFileInfo &info) const {
+        if (matchesPath(info.absoluteFilePath().toLower()))
+            return true;
+        const QString name = info.fileName().toLower();
+        for (const QString &extension : extensions) {
+            if (name.endsWith(extension))
+                return true;
+        }
+        for (const QString &token : names) {
+            if (name.contains(token))
+                return true;
+        }
+        return false;
+    }
+};
+
+// Scan roots and QDir entries are already absolute, clean paths.
+bool withinCleanRoot(const QString &path, const QString &root)
+{
+    return path == root || (path.startsWith(root) &&
+        (root == QStringLiteral("/") || (path.size() > root.size() && path.at(root.size()) == QLatin1Char('/'))));
 }
 
 QString normalizedPath(const QString &path)
@@ -197,9 +224,9 @@ bool isAppStateRoot(const QString &path)
 
 
 
-bool shouldIncludeIndexedFile(const QFileInfo &info, const QString &category, const QStringList &ignoreRules)
+bool shouldIncludeIndexedFile(const QFileInfo &info, const QString &category, const PreparedIgnoreRules &ignoreRules)
 {
-    if (matchesIgnoreRules(info, category, ignoreRules))
+    if (ignoreRules.matchesFile(info))
         return false;
     const QString name = info.fileName();
     const int conflictMarker = name.indexOf(QStringLiteral(".sync-conflict-"), 0, Qt::CaseInsensitive);
@@ -841,12 +868,50 @@ ContentIndexModel::ScanResult ContentIndexModel::scanTree(const QString &rootPat
     if (root.isEmpty() || !QFileInfo(root).isDir() || shouldSkipDirectory(root))
         return result;
 
-    struct PendingDirectory { QString path; bool hidden; };
+    struct ScanCategory {
+        QString key;
+        QStringList roots;
+        PreparedIgnoreRules ignored;
+        bool hidden;
+    };
+    QVector<ScanCategory> categories;
+    for (auto it = categoryRoots.constBegin(); it != categoryRoots.constEnd(); ++it) {
+        if (!categoryFilter.isEmpty() && !categoryFilter.contains(it.key()))
+            continue;
+        categories.push_back({it.key(), it.value(), PreparedIgnoreRules(it.key(), ignoreRules.value(it.key())),
+                              hiddenCategories.contains(it.key())});
+    }
+    // Carry only categories still eligible in this subtree. A visible-only
+    // category cannot keep a hidden npm/build tree alive for another category
+    // that explicitly excludes that tree.
+    const auto eligibleCategories = [&](const QString &path, bool hidden, quint64 parentMask) {
+        quint64 mask = 0;
+        const QString lowerPath = path.toLower();
+        for (int i = 0; i < categories.size(); ++i) {
+            const quint64 bit = quint64(1) << i;
+            const ScanCategory &category = categories.at(i);
+            if (!(parentMask & bit) || (hidden && !category.hidden))
+                continue;
+            for (const QString &configuredRoot : category.roots) {
+                const bool inside = withinCleanRoot(path, configuredRoot);
+                const bool ancestor = withinCleanRoot(configuredRoot, path);
+                if ((!inside && !ancestor) || (inside && category.ignored.matchesPath(lowerPath)))
+                    continue;
+                mask |= bit;
+                break;
+            }
+        }
+        return mask;
+    };
+    struct PendingDirectory { QString path; bool hidden; quint64 categories; };
     QVector<PendingDirectory> stack;
     const bool rootHidden = isHiddenWithinHome(root);
     if (rootHidden && hiddenCategories.isEmpty())
         return result;
-    stack.push_back({root, rootHidden});
+    const quint64 rootCategories = eligibleCategories(root, rootHidden, (quint64(1) << categories.size()) - 1);
+    if (!rootCategories)
+        return result;
+    stack.push_back({root, rootHidden, rootCategories});
     int processedDirectories = 0;
     int visitedEntries = 0;
     int matchedFiles = 0;
@@ -899,63 +964,40 @@ ContentIndexModel::ScanResult ContentIndexModel::scanTree(const QString &rootPat
                 continue;
             if (info.isDir()) {
                 const bool childHidden = pending.hidden || info.isHidden();
-                const QString childPath = normalizedPath(info.absoluteFilePath());
-                bool relevantCategory = false;
-                bool neededByAnyCategory = false;
-                for (auto rootsIt = categoryRoots.constBegin(); rootsIt != categoryRoots.constEnd() && !neededByAnyCategory; ++rootsIt) {
-                    const QString &candidateCategory = rootsIt.key();
-                    if (!categoryFilter.isEmpty() && !categoryFilter.contains(candidateCategory))
-                        continue;
-                    for (const QString &configuredRoot : rootsIt.value()) {
-                        const bool childWithinRoot = ContentIndexModel::pathWithinRoot(childPath, configuredRoot);
-                        const bool rootWithinChild = ContentIndexModel::pathWithinRoot(configuredRoot, childPath);
-                        if (!childWithinRoot && !rootWithinChild)
-                            continue;
-                        relevantCategory = true;
-                        if (rootWithinChild && !childWithinRoot) {
-                            neededByAnyCategory = true;
-                            break;
-                        }
-                        bool ignoredForCategory = false;
-                        for (const QString &rule : ignoreRules.value(candidateCategory)) {
-                            if (matchesPathIgnoreRule(childPath, rule)) {
-                                ignoredForCategory = true;
-                                break;
-                            }
-                        }
-                        if (!ignoredForCategory) {
-                            neededByAnyCategory = true;
-                            break;
-                        }
-                    }
+                const QString childPath = info.absoluteFilePath();
+                if (!shouldSkipDirectory(childPath)) {
+                    const quint64 childCategories = eligibleCategories(childPath, childHidden, pending.categories);
+                    if (childCategories)
+                        stack.push_back({childPath, childHidden, childCategories});
                 }
-                if ((!childHidden || !hiddenCategories.isEmpty())
-                        && !shouldSkipDirectory(childPath)
-                        && (!relevantCategory || neededByAnyCategory))
-                    stack.push_back({childPath, childHidden});
                 continue;
             }
             if (!info.isFile())
                 continue;
-            const QString category = categoryForPath(info.absoluteFilePath());
-            if (category.isEmpty() || (!categoryFilter.isEmpty() && !categoryFilter.contains(category))
-                    || !shouldIncludeIndexedFile(info, category, ignoreRules.value(category))
-                    || ((pending.hidden || info.isHidden()) && !hiddenCategories.contains(category)))
+            const QString filePath = info.absoluteFilePath();
+            const QString category = categoryForPath(filePath);
+            if (category.isEmpty())
                 continue;
-
+            const ScanCategory *selected = nullptr;
+            for (int i = 0; i < categories.size(); ++i) {
+                if ((pending.categories & (quint64(1) << i)) && categories.at(i).key == category) {
+                    selected = &categories.at(i);
+                    break;
+                }
+            }
+            if (!selected || ((pending.hidden || info.isHidden()) && !selected->hidden))
+                continue;
             bool allowed = false;
-            const QString filePath = normalizedPath(info.absoluteFilePath());
-            const QStringList roots = categoryRoots.value(category);
-            for (const QString &categoryRoot : roots) {
-                if (ContentIndexModel::pathWithinRoot(filePath, categoryRoot)) {
+            for (const QString &categoryRoot : selected->roots) {
+                if (withinCleanRoot(filePath, categoryRoot)) {
                     allowed = true;
                     break;
                 }
             }
-            if (!allowed)
+            if (!allowed || !shouldIncludeIndexedFile(info, category, selected->ignored))
                 continue;
             IndexedFile item;
-            item.path = normalizedPath(info.absoluteFilePath());
+            item.path = filePath;
             item.category = category;
             item.size = info.size();
             item.modifiedMs = info.lastModified().toMSecsSinceEpoch();
@@ -1351,7 +1393,7 @@ void ContentIndexModel::startFullScan(bool showProgress)
                 }, Qt::QueuedConnection);
             };
             mergeResult(aggregate, ContentIndexModel::scanTree(rootPath, enabledHidden, categoryRoots,
-                                                                ignoreRules, {}, progress, cancel, !showProgress));
+                                                                ignoreRules, {}, showProgress ? progress : ProgressCallback{}, cancel, !showProgress));
             ++completedRoots;
         }
         return aggregate;

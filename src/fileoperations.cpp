@@ -387,9 +387,10 @@ QVariantList FileOperations::operations() const
 {
     QVariantList items;
     for (const Operation &operation : m_operations) {
-        // Clipboard preparation is not a KIO job, so keep its lightweight
-        // in-app status visible even when Plasma handles KIO transfer progress.
-        if (m_kioProgressEnabled && operation.kind != QStringLiteral("clipboard"))
+        // Clipboard preparation and trash feedback stay visible in-app even
+        // when Plasma handles other transfer progress.
+        if (m_kioProgressEnabled && operation.kind != QStringLiteral("clipboard")
+            && operation.kind != QStringLiteral("trash"))
             continue;
         QVariantMap item;
         item.insert(QStringLiteral("id"), operation.id);
@@ -423,7 +424,7 @@ void FileOperations::setKioProgressEnabled(bool enabled)
     // Move active operations to the selected presentation immediately.
     for (const Operation &operation : std::as_const(m_operations)) {
         if (!operation.finished && operation.job) {
-            if (enabled)
+            if (enabled && !operation.job->property("lurvikoIntegratedProgress").toBool())
                 KIO::getJobTracker()->registerJob(operation.job);
             else
                 KIO::getJobTracker()->unregisterJob(operation.job);
@@ -437,7 +438,7 @@ void FileOperations::configureProgressJob(KJob *job, bool needsManualRegistratio
 {
     if (!job)
         return;
-    if (m_kioProgressEnabled) {
+    if (m_kioProgressEnabled && !job->property("lurvikoIntegratedProgress").toBool()) {
         if (needsManualRegistration)
             KIO::getJobTracker()->registerJob(job);
     } else {
@@ -718,6 +719,8 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
     connect(job, &KJob::suspended, this, [this, operationId] { setOperationPaused(operationId, true); });
     connect(job, &KJob::resumed, this, [this, operationId] { setOperationPaused(operationId, false); });
     connect(job, &KJob::result, this, [this, job, operationId] {
+        if (job->error())
+            setOperationDetail(operationId, job->errorString());
         finishOperation(operationId, !job->error());
         m_cancelledOperations.remove(operationId);
     });
@@ -727,12 +730,19 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
         sourceKeys->insert(source.adjusted(QUrl::StripTrailingSlash).toString(QUrl::FullyEncoded));
 
     connect(job, &KIO::CopyJob::copyingDone, this,
-            [completed, sourceKeys](KIO::Job *, const QUrl &from, const QUrl &to,
+            [this, operationId, kind, completed, sourceKeys](KIO::Job *, const QUrl &from, const QUrl &to,
                                     const QDateTime &, bool, bool) {
         const QString key = from.adjusted(QUrl::StripTrailingSlash).toString(QUrl::FullyEncoded);
-        if (sourceKeys->contains(key))
+        if (sourceKeys->contains(key)) {
             completed->insert(key, to);
+            if (kind == QStringLiteral("trash"))
+                setOperationAmount(operationId, int(KJob::Items), completed->size(), false);
+        }
     });
+    // Trashing is a rename into KDE's trash, not a copy into the current view.
+    // Keep its real completion count without selecting trash URLs in a tab.
+    if (kind == QStringLiteral("trash"))
+        return;
     connect(job, &KJob::result, this, [this, job, sources, destination, completed] {
         if (job->error())
             return;
@@ -1466,11 +1476,7 @@ void FileOperations::duplicateMany(const QStringList &sourceUrls, const QString 
 
 void FileOperations::trashItem(const QString &itemUrl)
 {
-    const QUrl source = toUrl(itemUrl);
-    auto *job = KIO::trash(source);
-    KIO::FileUndoManager::self()->recordJob(KIO::FileUndoManager::Trash, {source},
-                                            QUrl(QStringLiteral("trash:/")), job);
-    finishJob(job, QStringLiteral("Moved to trash"));
+    trashMany({itemUrl});
 }
 
 void FileOperations::trashMany(const QStringList &itemUrls)
@@ -1482,8 +1488,12 @@ void FileOperations::trashMany(const QStringList &itemUrls)
     if (urls.isEmpty())
         return;
     auto *job = KIO::trash(urls);
+    // Show preparation immediately, including the first cold KIO folder-size
+    // scan. Preserve KDE's trash limits, metadata and Undo support.
+    job->setProperty("lurvikoIntegratedProgress", true);
     KIO::FileUndoManager::self()->recordJob(KIO::FileUndoManager::Trash, urls,
                                             QUrl(QStringLiteral("trash:/")), job);
+    trackTransferJob(job, urls, QUrl(QStringLiteral("trash:/")), QStringLiteral("trash"));
     finishJob(job, QStringLiteral("Moved to trash"));
 }
 

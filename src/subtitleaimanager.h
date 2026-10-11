@@ -7,6 +7,7 @@
 #include <QVector>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QCache>
 
 class SubtitleAiManager : public QObject
 {
@@ -21,6 +22,7 @@ class SubtitleAiManager : public QObject
     Q_PROPERTY(bool liveTranslationActive READ liveTranslationActive NOTIFY liveRevisionChanged)
     Q_PROPERTY(QString selectedSubtitlePath READ selectedSubtitlePath NOTIFY selectedSubtitleChanged)
     Q_PROPERTY(bool downloadsAllowed READ downloadsAllowed WRITE setDownloadsAllowed NOTIFY downloadsAllowedChanged)
+    Q_PROPERTY(bool selectedSubtitleLoading READ selectedSubtitleLoading NOTIFY selectedSubtitleLoadingChanged)
 
 public:
     explicit SubtitleAiManager(QObject *parent = nullptr);
@@ -36,6 +38,7 @@ public:
     bool liveTranslationActive() const { return m_liveTranslationActive; }
     QString selectedSubtitlePath() const { return m_selectedSubtitlePath; }
     bool downloadsAllowed() const { return m_downloadsAllowed; }
+    bool selectedSubtitleLoading() const { return m_selectedSubtitleLoading; }
     void setDownloadsAllowed(bool allowed);
 
     Q_INVOKABLE bool startTranscription(const QString &filePath,
@@ -50,9 +53,11 @@ public:
                                               const QString &sourceLanguage,
                                               const QString &translateTo);
     Q_INVOKABLE QVariantList subtitleSources(const QString &filePath) const;
+    Q_INVOKABLE void requestSubtitleSources(const QString &filePath);
     Q_INVOKABLE QString liveSubtitleAt(qint64 positionMs) const;
     Q_INVOKABLE bool selectSubtitleFile(const QString &subtitlePath);
     Q_INVOKABLE bool selectEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex);
+    Q_INVOKABLE bool requestEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex);
     Q_INVOKABLE void clearSelectedSubtitle();
     Q_INVOKABLE QString selectedSubtitleAt(qint64 positionMs) const;
     Q_INVOKABLE QVariantMap cacheInfo(const QString &filePath,
@@ -79,6 +84,9 @@ signals:
     void liveRevisionChanged();
     void selectedSubtitleChanged();
     void downloadsAllowedChanged();
+    void selectedSubtitleLoadingChanged();
+    void subtitleSourcesReady(const QString &mediaPath, const QVariantList &sources);
+    void embeddedSubtitleReady(const QString &mediaPath, int trackIndex, bool success);
     void completed(const QString &outputPath);
     void failed(const QString &message);
     void cancelled();
@@ -97,7 +105,7 @@ private:
 
     QString workerPath() const;
     QString pythonExecutable() const;
-    QString normalizeLocalPath(const QString &filePath) const;
+    static QString normalizeLocalPath(const QString &filePath);
     QString cacheRoot() const;
     QString cacheJobDirectory(const QString &filePath,
                               const QString &language,
@@ -110,7 +118,12 @@ private:
                                       const QString &sourceLanguage) const;
     QVariantMap cacheInfoFromDirectory(const QString &directory,
                                        const QString &translateTo) const;
-    QString normalizedLanguageCode(const QString &value) const;
+    static QString normalizedLanguageCode(const QString &value);
+    static QVariantList discoverSubtitleSources(const QString &filePath);
+    static QString mediaCacheKey(const QString &filePath);
+    static QVector<LiveCue> extractEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex);
+    void applyEmbeddedSubtitle(const QString &mediaPath, int subtitleTrackIndex, const QVector<LiveCue> &cues);
+    void cancelSubtitleSelection();
     bool startWorker(const QStringList &arguments, const QString &initialStatus);
     void consumeLine(const QByteArray &line);
     void setBusy(bool value);
@@ -122,8 +135,8 @@ private:
     void finishWithError(const QString &message);
     void clearLiveCues();
     void addLiveCues(const QJsonObject &object);
-    QVector<LiveCue> loadSubtitleFile(const QString &subtitlePath) const;
-    qint64 parseSubtitleTimestamp(const QString &value) const;
+    static QVector<LiveCue> loadSubtitleFile(const QString &subtitlePath);
+    static qint64 parseSubtitleTimestamp(const QString &value);
 
     QProcess m_process;
     QByteArray m_stdoutBuffer;
@@ -143,4 +156,10 @@ private:
     QVector<LiveCue> m_selectedSubtitleCues;
     QString m_selectedSubtitlePath;
     int m_liveRevision = 0;
+    bool m_selectedSubtitleLoading = false;
+    quint64 m_selectionRequest = 0;
+    quint64 m_sourcesRequest = 0;
+    QString m_sourcesPendingKey;
+    QCache<QString, QVariantList> m_sourcesCache{16};
+    QCache<QString, QVector<LiveCue>> m_embeddedCache{32000};
 };

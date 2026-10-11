@@ -153,6 +153,8 @@ qt_add_executable(lurviko
     src/privatevaultmanager.cpp
     src/vaultsecurity.cpp
     src/vaultsecurity.h
+    src/vaultrecovery.cpp
+    src/vaultrecovery.h
     src/archivearguments.h
     src/privatevaultmanager.h
 )
@@ -216,6 +218,8 @@ qt_add_qml_module(lurviko
         qml/components/CategoryGroupedView.qml
         qml/components/PhotoViewer.qml
         qml/components/VideoViewer.qml
+        qml/components/SubtitleBackdrop.qml
+        qml/components/SubtitleLabel.qml
         qml/components/MusicPlayer.qml
         qml/components/MediaSession.qml
         qml/components/MusicLibraryView.qml
@@ -336,6 +340,8 @@ install(FILES packaging/org.freedesktop.FileManager1.service DESTINATION ${CMAKE
 install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
 install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
 install(FILES assets/LICENSE-FontAwesome.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
+install(FILES tools/recover-vault.py DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/tools)
+install(FILES docs/vault-recovery.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Lurviko)
 install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/subtitle-ai
     FILES_MATCHING
         PATTERN "*.py"

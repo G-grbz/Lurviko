@@ -1157,6 +1157,13 @@ Item {
 
             ScrollView {
                 id: imageSettingsScroll
+
+                GPopupWheelScroll {
+                    parent: imageSettingsScroll
+                    anchors.fill: parent
+                    view: imageSettingsScroll.contentItem
+                    scrollbar: imageSettingsScroll.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -1344,6 +1351,13 @@ Item {
 
             ScrollView {
                 id: videoSettingsScroll
+
+                GPopupWheelScroll {
+                    parent: videoSettingsScroll
+                    anchors.fill: parent
+                    view: videoSettingsScroll.contentItem
+                    scrollbar: videoSettingsScroll.ScrollBar.vertical
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true

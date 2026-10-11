@@ -16,6 +16,7 @@ public:
     bool hasItems() const { return m_hasItems; }
 
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE QString iconName(const QString &customName, bool full) const;
 
 signals:
     void hasItemsChanged();

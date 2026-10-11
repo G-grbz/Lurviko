@@ -10,16 +10,20 @@
 #include <QJsonObject>
 #include <QEventLoop>
 #include <QMediaPlayer>
+#include <QMediaMetaData>
 #include <QMouseEvent>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlExpression>
 #include <QQuickImageProvider>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QTimer>
 #include <QVideoSink>
+#include <QWheelEvent>
 #include <cstdio>
 #include <functional>
 #include "backend_test_types.h"
@@ -132,8 +136,95 @@ ApplicationWindow {
     auto manager = viewer->findChild<SubtitleAiManager *>("videoSubtitleAiManager");
     auto player = viewer->findChild<QMediaPlayer *>("videoMediaPlayer");
     require(manager && player, "real subtitle manager and media player available");
+    auto trackRow = [&](const QString &popupName, const QString &rowName) {
+        QQmlExpression expression(qmlContext(player), viewer, popupName + ".open(); " + popupName + ".contentItem");
+        auto container = qobject_cast<QQuickItem *>(expression.evaluate().value<QObject *>());
+        pause(40);
+        require(container && !expression.hasError(), "track selection popup available");
+        auto row = visualItem(container, rowName);
+        require(row, "track row available");
+        return row;
+    };
+    if (qEnvironmentVariableIsSet("LURVIKO_SUBTITLE_RESTART_ONLY")) {
+        QMetaObject::invokeMethod(window, "openVideo");
+        require(until([&] { return player->activeAudioTrack() == 2
+            && manager->selectedSubtitlePath().endsWith("#2") && !manager->selectedSubtitleLoading(); }),
+            "fresh application process restores the chosen audio and embedded subtitle");
+        require(trackRow("audioTrackPopup", "videoAudioTrack2")->property("highlighted").toBool(),
+                "fresh process audio list highlights the actual restored track");
+        require(trackRow("subtitleTrackPopup", "videoSubtitleTrack2")->property("highlighted").toBool(),
+                "fresh process CC list highlights the restored subtitle");
+        require(!trackRow("subtitleTrackPopup", "videoSubtitleOff")->property("highlighted").toBool(),
+                "restored subtitle is not marked off");
+        QMetaObject::invokeMethod(viewer, "close"); pause(80);
+        std::fprintf(stderr, "PASS: audio/CC selection and list highlights survive a real application restart\n");
+        return 0;
+    }
+    // Reproduce a cold opening with saved CC and deliberately slow external
+    // tools. Playback preparation must leave the event loop free to animate.
+    PlaybackResumeManager bookmarks;
+    bookmarks.saveTrackPreferences(path, 2, "embedded", 0, "");
+    const QByteArray originalPath = qgetenv("PATH");
+    qputenv("PATH", qgetenv("LURVIKO_SLOW_PROBE_DIR") + ':' + originalPath);
+    QElapsedTimer opening, pulseClock; opening.start(); pulseClock.start();
+    qint64 longestGap = 0;
+    int pulses = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(10);
+    QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] {
+        longestGap = qMax(longestGap, pulseClock.restart()); ++pulses;
+    });
+    heartbeat.start();
+    bool sawSavedCcLoading = false;
+    bool savedCcHighlightedImmediately = false;
+    auto loadingConnection = QObject::connect(manager, &SubtitleAiManager::selectedSubtitleLoadingChanged, &app, [&] {
+        if (!manager->selectedSubtitleLoading() || sawSavedCcLoading) return;
+        sawSavedCcLoading = true;
+        QQmlExpression selection(qmlContext(player), viewer, "Number(selectedSubtitleSource ? selectedSubtitleSource.trackIndex : -1)");
+        savedCcHighlightedImmediately = selection.evaluate().toInt() == 0;
+    });
     QMetaObject::invokeMethod(window, "openVideo");
+    require(viewer->property("videoLoading").toBool(), "loading indicator starts before the first frame");
     require(until([&] { return player->duration() > 0 && player->isSeekable(); }), "embedded fixture loads");
+    require(until([&] { return viewer->property("firstVideoFrameReady").toBool(); }), "first decoded video frame arrives");
+    const auto firstFrameMs = opening.elapsed();
+    require(!viewer->property("videoLoading").toBool(), "loading indicator stops once video is ready");
+    require(until([&] { return sawSavedCcLoading; }) && savedCcHighlightedImmediately,
+            "saved CC starts preparing with its selection already highlighted");
+    QObject::disconnect(loadingConnection);
+    auto notice = visualItem(window->contentItem(), "subtitleLoadingNotice");
+    require(notice, "subtitle preparation notice available");
+    require(trackRow("subtitleTrackPopup", "videoSubtitleTrack0")->property("highlighted").toBool(),
+            "requested subtitle is highlighted before extraction completes");
+    require(until([&] { return !manager->selectedSubtitleLoading() && manager->selectedSubtitlePath().startsWith("embedded:"); }),
+            "saved embedded CC restored asynchronously");
+    QQmlExpression loadedSources(qmlContext(player), viewer, "subtitleAiExistingSources.length");
+    require(until([&] { return loadedSources.evaluate().toInt() == 3; }), "subtitle discovery completes asynchronously");
+    require(player->activeAudioTrack() == 2
+            && trackRow("audioTrackPopup", "videoAudioTrack2")->property("highlighted").toBool()
+            && !trackRow("audioTrackPopup", "videoAudioTrack0")->property("highlighted").toBool(),
+            "restored audio selection matches the track actually playing");
+    QMetaObject::invokeMethod(viewer, "selectEmbeddedSubtitle", Q_ARG(QVariant, QVariant(1)));
+    require(manager->selectedSubtitleLoading() && notice->isVisible(), "new subtitle shows preparing notice immediately");
+    require(trackRow("subtitleTrackPopup", "videoSubtitleTrack1")->property("highlighted").toBool()
+            && !trackRow("subtitleTrackPopup", "videoSubtitleTrack0")->property("highlighted").toBool(),
+            "CC highlight switches immediately rather than returning to the old selection");
+    QQmlExpression pendingText(qmlContext(player), viewer, "subtitleOverlay.displayText");
+    require(pendingText.evaluate().toString().isEmpty(), "old CC is hidden while the new subtitle prepares");
+    require(until([&] { return !manager->selectedSubtitleLoading() && manager->selectedSubtitlePath().endsWith("#1"); }),
+            "requested subtitle finishes loading");
+    require(!notice->isVisible(), "preparation notice disappears when the subtitle is ready");
+    QQmlExpression closeTracks(qmlContext(player), viewer, "audioTrackPopup.close(); subtitleTrackPopup.close()");
+    closeTracks.evaluate();
+    heartbeat.stop(); qputenv("PATH", originalPath);
+    std::fprintf(stderr, "Cold video opening: first frame %lld ms, longest UI gap %lld ms, %d heartbeat ticks with delayed probes\n",
+                 firstFrameMs, longestGap, pulses);
+    require(pulses > 25 && longestGap < 500, "slow probing and saved subtitle extraction do not freeze the UI");
+    // An obsolete track request must not restore CC after the user turns it off.
+    require(manager->requestEmbeddedSubtitle(path, 2), "new embedded selection starts");
+    manager->clearSelectedSubtitle(); pause(300);
+    require(!manager->selectedSubtitleLoading() && manager->selectedSubtitlePath().isEmpty(),
+            "cancelled embedded selection cannot return stale subtitles");
     player->pause(); player->setPosition(1000); pause(80);
     auto overlay = visualItem(window->contentItem(), "videoSubtitleOverlay");
     auto output = visualItem(window->contentItem(), "videoOutput");
@@ -144,10 +235,173 @@ ApplicationWindow {
     const auto english = [&] {
         QMetaObject::invokeMethod(window, "selectEnglish");
         player->setPosition(1000); pause(30);
-        require(text().startsWith("EN"), "CC embedded English selection works before translation");
+        require(until([&] { return text().startsWith("EN"); }), "CC embedded English selection works before translation");
     };
     auto style = viewer->findChild<SubtitleStyleManager *>();
     require(style, "subtitle style manager available");
+    // A high-contrast scene makes blur and alpha measurable rather than relying
+    // on a uniform video frame. Exercise the exact components used by the player.
+    if (window->rendererInterface()->graphicsApi() != QSGRendererInterface::Software) {
+        QQmlComponent renderComponent(&engine);
+        renderComponent.setData(R"qml(
+import QtQuick
+import Lurviko.App
+Window {
+    width: 480; height: 240; visible: true; color: "#303030"
+    Item {
+        id: pattern; anchors.fill: parent
+        Repeater {
+            model: 1200
+            delegate: Rectangle {
+                required property int index
+                width: 8; height: 12; x: (index % 60) * width; y: Math.floor(index / 60) * height
+                color: ((index % 60) + Math.floor(index / 60)) % 2 ? "#EEEEEE" : "#222222"
+            }
+        }
+    }
+    SubtitleBackdrop {
+        objectName: "background"; x: 40; y: 40; width: 400; height: 160
+        sourceItem: pattern; backgroundOpacity: 0; backgroundColor: "black"; blurRadius: 48
+    }
+    SubtitleLabel {
+        objectName: "label"; x: 80; y: 92; text: "Shadow test"; font.pixelSize: 30; color: "white"; shadowMode: 0
+    }
+}
+)qml", QUrl());
+        auto renderWindow = qobject_cast<QQuickWindow *>(renderComponent.create());
+        require(renderWindow, qPrintable(renderComponent.errorString()));
+        auto background = renderWindow->findChild<QQuickItem *>("background");
+        auto label = renderWindow->findChild<QQuickItem *>("label");
+        pause(150);
+        const auto transparent = renderWindow->grabWindow();
+        require(!transparent.isNull(), "GPU render snapshot available");
+        background->setProperty("blurRadius", 0); pause(80);
+        const auto noEffect = renderWindow->grabWindow();
+        require(noEffect == transparent, "100% transparency leaves no blur rectangle");
+        background->setProperty("backgroundOpacity", 0.5); pause(80);
+        const auto halfTint = renderWindow->grabWindow();
+        background->setProperty("backgroundOpacity", 1); pause(80);
+        const auto opaque = renderWindow->grabWindow();
+        const QColor clearPixel = transparent.pixelColor(50, 50);
+        const QColor tintedPixel = halfTint.pixelColor(50, 50);
+        require(qAbs(tintedPixel.red() - clearPixel.red() / 2.0) < 4
+                && opaque.pixelColor(50, 50).red() < 3, "rendered tint honors opacity");
+        background->setProperty("backgroundOpacity", 0.5);
+        background->setProperty("blurRadius", 48); pause(150);
+        const auto blurred = renderWindow->grabWindow();
+        double sharpContrast = 0, blurContrast = 0;
+        for (int y = 60; y < 80; ++y) for (int x = 60; x < 400; ++x) {
+            sharpContrast += qAbs(halfTint.pixelColor(x, y).red() - halfTint.pixelColor(x + 1, y).red());
+            blurContrast += qAbs(blurred.pixelColor(x, y).red() - blurred.pixelColor(x + 1, y).red());
+        }
+        std::fprintf(stderr, "GPU blur contrast %.1f -> %.1f\n", sharpContrast, blurContrast);
+        require(blurContrast < sharpContrast * 0.8 && blurContrast > sharpContrast * 0.2,
+                "blur visibly softens backdrop without an opaque patch");
+        background->setProperty("backgroundOpacity", 0); pause(80);
+        const auto plain = renderWindow->grabWindow();
+        label->setProperty("shadowMode", 3); pause(150);
+        require(renderWindow->grabWindow() != plain, "shadow mode changes rendered pixels");
+        renderWindow->close(); delete renderWindow;
+        std::fprintf(stderr, "PASS: GPU-rendered transparency, blur and shadow\n");
+    }
+    english();
+    // Deliver actual wheel events to overflowing audio/CC popups, including
+    // their track delegates, rather than calling the scroll helper directly.
+    QQmlExpression wheelStep(qmlContext(player), viewer, "AppTheme.setWheelScrollStep(250)");
+    wheelStep.evaluate();
+    auto checkWheel = [&](QQuickItem *scroll) {
+        require(scroll, "popup scroll viewport available");
+        auto flick = qobject_cast<QQuickItem *>(scroll->property("contentItem").value<QObject *>());
+        require(flick, "popup flickable available");
+        flick->setProperty("contentY", 0);
+        const qreal maximum = flick->property("contentHeight").toDouble() - flick->height();
+        require(maximum > 30, "popup has enough tracks/settings to scroll");
+        const QPointF point = scroll->mapToScene(QPointF(scroll->width() / 2, scroll->height() / 2));
+        QWheelEvent wheel(point, window->mapToGlobal(point.toPoint()), QPoint(), QPoint(0, -120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QApplication::sendEvent(window, &wheel); pause(220);
+        require(qAbs(flick->property("contentY").toDouble() - qMin<qreal>(250, maximum)) < 2,
+                "one popup wheel notch uses the configured step and respects the bottom boundary");
+        flick->setProperty("contentY", 0);
+    };
+    require(player->audioTracks().size() == 3, "multiple audio tracks loaded for scrolling");
+    for (const QString &name : {QStringLiteral("audioTrack"), QStringLiteral("subtitleTrack")}) {
+        QQmlExpression open(qmlContext(player), viewer,
+            name + "Popup.height = 100; " + name + "Popup.open(); " + name + "Scroll");
+        auto scroll = qobject_cast<QQuickItem *>(open.evaluate().value<QObject *>());
+        pause(150); require(!open.hasError(), "track popup opens");
+        checkWheel(scroll);
+        QQmlExpression close(qmlContext(player), viewer, name + "Popup.close()"); close.evaluate();
+    }
+    {
+        QQmlExpression openStyle(qmlContext(player), viewer, "subtitleStylePopup.open(); subtitleStylePopup.contentItem");
+        auto container = qobject_cast<QQuickItem *>(openStyle.evaluate().value<QObject *>());
+        pause(180);
+        require(container && !openStyle.hasError(), "appearance popup opens");
+        QQmlExpression styleScroll(qmlContext(player), viewer, "subtitleStyleScroll");
+        checkWheel(qobject_cast<QQuickItem *>(styleScroll.evaluate().value<QObject *>()));
+        std::fprintf(stderr, "PASS: real wheel events scroll audio, CC and subtitle appearance by the configured step\n");
+        auto slider = visualItem(container, "subtitleTransparencySlider");
+        require(slider, "transparency slider found");
+        auto scrollIntoView = [&](QQuickItem *item) {
+            for (auto parent = item->parentItem(); parent; parent = parent->parentItem()) {
+                if (!parent->property("contentY").isValid()) continue;
+                const qreal delta = item->mapToItem(parent, QPointF()).y() + item->height() / 2 - parent->height() / 2;
+                parent->setProperty("contentY", qBound<qreal>(0, parent->property("contentY").toDouble() + delta,
+                    qMax<qreal>(0, parent->property("contentHeight").toDouble() - parent->height())));
+                break;
+            }
+            pause(80);
+        };
+        scrollIntoView(slider);
+        style->setBackgroundOpacity(1.0);
+        const QPointF point = slider->mapToScene(QPointF(slider->width() - 5, slider->height() / 2));
+        const QPointF global = window->mapToGlobal(point.toPoint());
+        QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(window, &press); QApplication::sendEvent(window, &release); pause(80);
+        std::fprintf(stderr, "Transparency pointer: slider %.3f backend %.3f\n", slider->property("value").toDouble(), style->backgroundOpacity());
+        QQmlExpression background(qmlContext(player), viewer, "subtitleBackground.tintOpacity");
+        require(style->backgroundOpacity() < 0.05, "pointer controls background transparency");
+        style->setBackgroundOpacity(0);
+        style->setBackgroundBlur(48);
+        QQmlExpression blurEnabled(qmlContext(player), viewer, "subtitleBackground.blurActive");
+        require(background.evaluate().toDouble() == 0 && !blurEnabled.evaluate().toBool(),
+                "full transparency removes tint and blur patch");
+        style->setBackgroundColor(QColor("#806AF8BE")); style->setBackgroundOpacity(0.5);
+        require(qAbs(background.evaluate().toDouble() - 0.25) < 0.005, "color alpha and background opacity compose");
+        auto blurSlider = visualItem(container, "subtitleBlurSlider");
+        require(blurSlider, "blur slider found"); scrollIntoView(blurSlider);
+        const QPointF blurPoint = blurSlider->mapToScene(QPointF(blurSlider->width() - 5, blurSlider->height() / 2));
+        const QPointF blurGlobal = window->mapToGlobal(blurPoint.toPoint());
+        QMouseEvent blurPress(QEvent::MouseButtonPress, blurPoint, blurGlobal, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent blurRelease(QEvent::MouseButtonRelease, blurPoint, blurGlobal, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        style->setBackgroundBlur(0);
+        QApplication::sendEvent(window, &blurPress); QApplication::sendEvent(window, &blurRelease); pause(50);
+        require(style->backgroundBlur() >= 46, "pointer controls blur amount");
+        // Select independent modes through the same actions as the dropdowns.
+        style->setSubtitleShadowMode(2); style->setSdhShadowMode(0); style->setForcedShadowMode(4);
+        for (const auto name : {"normalSubtitleShadowPicker", "sdhSubtitleShadowPicker", "forcedSubtitleShadowPicker"})
+            require(visualItem(container, name), "per-kind shadow selector exists");
+        SubtitleStyleManager saved;
+        require(saved.subtitleShadowMode() == 2 && saved.sdhShadowMode() == 0 && saved.forcedShadowMode() == 4
+                && saved.backgroundBlur() == style->backgroundBlur() && qAbs(saved.backgroundOpacity() - 0.5) < 0.001,
+                "separate shadows and background settings persist");
+        QQmlExpression closeStyle(qmlContext(player), viewer, "subtitleStylePopup.close()"); closeStyle.evaluate();
+    }
+    QQmlExpression tags(qmlContext(player), viewer,
+        "JSON.stringify([subtitleSourceTags(subtitleSourceForTrack(0)), subtitleSourceTags(subtitleSourceForTrack(1)), subtitleSourceTags(subtitleSourceForTrack(2))])");
+    require(tags.evaluate().toString() == "[[],[\"FORCED\"],[\"SDH\"]]" && !tags.hasError(), "embedded disposition labels remain distinct");
+    QMetaObject::invokeMethod(viewer, "selectEmbeddedSubtitle", Q_ARG(QVariant, QVariant(1)));
+    require(until([&] { return overlay->property("semanticKind").toString() == "forced"; }), "forced track uses forced appearance");
+    QQmlExpression shadow(qmlContext(player), viewer, "subtitleText.shadowMode");
+    require(shadow.evaluate().toInt() == 4, "forced shadow applied to live text");
+    QMetaObject::invokeMethod(viewer, "selectEmbeddedSubtitle", Q_ARG(QVariant, QVariant(2)));
+    require(until([&] { return overlay->property("semanticKind").toString() == "sdh"; }), "SDH track uses SDH appearance");
+    require(shadow.evaluate().toInt() == 0, "SDH shadow independent from forced");
+    english();
+    require(shadow.evaluate().toInt() == 2, "normal shadow independent from other tracks");
+    std::fprintf(stderr, "PASS: transparency, blur controls, persistent per-kind shadows and track labels\n");
     style->setBackgroundBlur(24);
     require(!manager->downloadsAllowed(), "AI downloads default to disabled in a clean profile");
     english();
@@ -298,10 +552,21 @@ ApplicationWindow {
     if (!realPath.isEmpty()) {
         player->stop();
         player->setSource(QUrl());
+        longestGap = 0; pulses = 0; pulseClock.restart(); opening.restart(); heartbeat.start();
         viewer->setProperty("files", QVariantList{QVariantMap{{"path", realPath},
             {"url", QUrl::fromLocalFile(realPath)}, {"name", "Real playback fixture"}}});
         require(until([&] { return player->source() == QUrl::fromLocalFile(realPath) && player->duration() > 20000; }),
                 "real video fixture loads");
+        player->play();
+        require(until([&] { return viewer->property("firstVideoFrameReady").toBool(); }), "real film first frame arrives");
+        const auto realFirstFrame = opening.elapsed();
+        QMetaObject::invokeMethod(viewer, "selectEmbeddedSubtitle", Q_ARG(QVariant, QVariant(1)));
+        require(until([&] { return !manager->selectedSubtitleLoading(); }), "real film embedded CC extraction completes");
+        heartbeat.stop();
+        std::fprintf(stderr, "Real film opening: first frame %lld ms, longest UI gap %lld ms, %d heartbeat ticks\n",
+                     realFirstFrame, longestGap, pulses);
+        require(longestGap < 500 && !viewer->property("videoLoading").toBool(),
+                "real film playback and embedded extraction leave UI responsive and spinner stops");
         require(manager->selectSubtitleFile(path.left(path.lastIndexOf('/')) + "/source.srt"),
                 "controlled subtitle loaded over real video");
     }
@@ -342,6 +607,24 @@ ApplicationWindow {
         require(frames > 30, "video rendered throughout soak");
         std::fprintf(stderr, "PASS: %d seconds playback soak, %d rendered frames\n", soakMs / 1000, frames);
     }
-    QMetaObject::invokeMethod(viewer, "close");
+    QMetaObject::invokeMethod(viewer, "close"); pause(80);
+    viewer->setProperty("files", QVariantList{QVariantMap{{"path", path}, {"url", QUrl::fromLocalFile(path)}, {"name", "fixture.mkv"}}});
+    QMetaObject::invokeMethod(window, "openVideo");
+    require(until([&] { return player->source() == QUrl::fromLocalFile(path) && player->audioTracks().size() == 3; }),
+            "restart fixture ready");
+    QMetaObject::invokeMethod(viewer, "selectAudioTrack", Q_ARG(QVariant, QVariant(2)));
+    QMetaObject::invokeMethod(viewer, "selectEmbeddedSubtitle", Q_ARG(QVariant, QVariant(2)));
+    require(until([&] { return !manager->selectedSubtitleLoading() && manager->selectedSubtitlePath().endsWith("#2"); }),
+            "restart subtitle selected");
+    QMetaObject::invokeMethod(viewer, "close"); pause(80);
+    auto saved = bookmarks.trackPreferencesFor(path);
+    require(saved.value("audioTrack").toInt() == 2 && saved.value("subtitleKind").toString() == "embedded"
+            && saved.value("subtitleTrack").toInt() == 2, "closing saves the last chosen audio and subtitle");
+    require(QMetaObject::invokeMethod(&app, "aboutToQuit", Qt::DirectConnection), "application quit notification delivered");
+    delete window; engine.collectGarbage();
+    saved = bookmarks.trackPreferencesFor(path);
+    require(saved.value("audioTrack").toInt() == 2 && saved.value("subtitleKind").toString() == "embedded"
+            && saved.value("subtitleTrack").toInt() == 2, "quit and destruction cannot overwrite the saved CC with off");
+    std::fprintf(stderr, "PASS: last track preferences survive close, quit notification and component destruction\n");
     return 0;
 }

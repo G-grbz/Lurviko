@@ -18,13 +18,13 @@ GMenu {
 
     GMenuItem {
         text: control.label("undo", "Undo") + "    Ctrl+Z"
-        enabled: control.editor && control.editor.canUndo
+        enabled: control.editor && !control.editor.readOnly && control.editor.canUndo
         onTriggered: if (control.editor) control.editor.undo()
     }
 
     GMenuItem {
         text: control.label("redo", "Redo") + "    Ctrl+Shift+Z"
-        enabled: control.editor && control.editor.canRedo
+        enabled: control.editor && !control.editor.readOnly && control.editor.canRedo
         onTriggered: if (control.editor) control.editor.redo()
     }
 
