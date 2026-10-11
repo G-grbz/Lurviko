@@ -1,6 +1,6 @@
 # Local security review
 
-Checked against the source prepared for Lurviko v1.1.1 (including the v1.1.0 review).
+Checked against the source prepared for Lurviko v1.2.0 (including the v1.1.0 review and fixes initially prepared for v1.1.1).
 
 | Report | Finding/action |
 | --- | --- |
@@ -109,9 +109,9 @@ References: [NIST GCM](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpu
 - Legacy magic/AAD values and header version remain unchanged; recovery is an
   optional header extension with its own authenticated envelope version.
 
-## v1.1.1 release preparation
+## v1.2.0 release preparation
 
-The source and AUR version fields are prepared for 1.1.1. Published v1.0.0 and
+The source and AUR version fields are prepared for 1.2.0. Published v1.0.0 and
 v1.1.0 tags remain unchanged. AUR source checksums are intentionally absent:
 **release sonrası güncellenecek** (update after the real release archive exists).
 Do not publish/build the AUR update until the actual archive's SHA-256 is recorded

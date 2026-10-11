@@ -1,7 +1,7 @@
-# release sonrası güncellenecek: add the real v1.1.1 archive SHA-256 before publishing.
+# Update after release: add the real v1.2.0 archive SHA-256 before publishing.
 pkgbase = lurviko
 	pkgdesc = Qt Quick file manager with media libraries, cloud storage and an encrypted vault
-	pkgver = 1.1.1
+	pkgver = 1.2.0
 	pkgrel = 1
 	url = https://github.com/G-grbz/Lurviko
 	install = lurviko.install
@@ -51,6 +51,6 @@ pkgbase = lurviko
 	optdepends = breeze-icons: fallback icon theme
 	optdepends = kio-extras: additional network and filesystem protocols
 	optdepends = kio-admin: administrator authentication for file ownership and permissions
-	source = Lurviko-1.1.1-1.tar.gz::https://github.com/G-grbz/Lurviko/releases/download/v1.1.1/Lurviko-1.1.1.tar.gz
+	source = Lurviko-1.2.0-1.tar.gz::https://github.com/G-grbz/Lurviko/releases/download/v1.2.0/Lurviko-1.2.0.tar.gz
 
 pkgname = lurviko

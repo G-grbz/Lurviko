@@ -2,7 +2,7 @@
 # Maintainer: G-grbz <gkhn.gurbuz@hotmail.com>
 
 pkgname=lurviko
-pkgver=1.1.1
+pkgver=1.2.0
 pkgrel=1
 pkgdesc='Qt Quick file manager with media libraries, cloud storage and an encrypted vault'
 arch=('x86_64')
@@ -38,7 +38,7 @@ optdepends=(
 )
 install=lurviko.install
 source=("Lurviko-${pkgver}-${pkgrel}.tar.gz::${url}/releases/download/v${pkgver}/Lurviko-${pkgver}.tar.gz")
-# release sonrası güncellenecek: record the real v1.1.1 archive SHA-256 before publishing.
+# Update after release: record the real v1.2.0 archive SHA-256 before publishing.
 # Deliberately fail checksum validation until that archive exists; never use SKIP.
 sha256sums=()
 

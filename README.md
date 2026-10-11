@@ -232,10 +232,15 @@ executable. Cancellation stops further changes; changes already applied remain.
 
 ### Cloud accounts
 
-See [Google Drive client setup and scope requirements](docs/google-drive-setup.md)
-before connecting an account or publishing a shared OAuth client.
+Follow [Connect Google Drive and OneDrive](docs/cloud-accounts.md) for account
+setup, browser sign-in, uploads, KWallet storage and troubleshooting.
 
-Configure a Google desktop OAuth client or a Microsoft public-client application in the cloud settings, then connect your account. Environment defaults are also supported: `LURVIKO_GOOGLE_CLIENT_ID`, `LURVIKO_GOOGLE_CLIENT_SECRET`, `LURVIKO_ONEDRIVE_CLIENT_ID` and `LURVIKO_ONEDRIVE_TENANT`. Tokens/secrets are handled through KWallet. No shared OAuth or TMDB credentials are included in this repository.
+- [Google Drive: create a Desktop OAuth client](docs/google-drive-setup.md)
+- [OneDrive: register a Microsoft desktop application](docs/onedrive-setup.md)
+
+Lurviko includes no shared OAuth credentials. The guides explain the required
+permissions, provider policies and optional environment defaults. No shared TMDB
+credentials are included either.
 
 ### Local AI subtitles
 
@@ -312,7 +317,7 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 Published tags are immutable: source fixes need a new version/tag rather than
 replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
 
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.1.0`** (or `Lurviko-v1.1.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.1.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.2.0`** (or `Lurviko-v1.2.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.2.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
 
 The workflow publishes source code; it does not produce distribution packages. See [GitHub tag triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push) and [release creation](https://cli.github.com/manual/gh_release_create).
 
