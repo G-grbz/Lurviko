@@ -38,6 +38,7 @@ Rectangle {
     // overlaid the title on top of PreserveAspectFit images, which became
     // especially visible for portrait/square media with letterboxing.
     readonly property int metadataHeight: card.compact ? 0 : Math.max(40, Math.round(44 * card.textScale))
+        + AppTheme.fileLabelExtraHeight(Math.round(11 * card.textScale), Math.round(8 * card.textScale))
 
     Item {
         id: roundedContent
@@ -102,7 +103,8 @@ Rectangle {
         Column {
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.top: parent.top
+            anchors.topMargin: Math.max(5, Math.round(7 * card.textScale))
             spacing: 2
             Text {
                 width: parent.width
@@ -110,8 +112,9 @@ Rectangle {
                 color: AppTheme.text
                 font.pixelSize: Math.round(11 * card.textScale)
                 font.weight: Font.DemiBold
-                elide: Text.ElideMiddle
-                maximumLineCount: 1
+                wrapMode: Text.Wrap
+                elide: Text.ElideRight
+                maximumLineCount: AppTheme.fileTitleLines
             }
             Text {
                 width: parent.width
@@ -119,7 +122,8 @@ Rectangle {
                 color: AppTheme.textMuted
                 font.pixelSize: Math.round(8 * card.textScale)
                 elide: Text.ElideRight
-                maximumLineCount: 1
+                wrapMode: Text.Wrap
+                maximumLineCount: AppTheme.fileSubtitleLines
             }
         }
     }

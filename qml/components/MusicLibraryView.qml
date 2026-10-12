@@ -68,7 +68,10 @@ Item {
         const gap = isTrack ? 8 : 14
         const art = isTrack ? Math.round(40 + amount * 36)
                             : Math.max(1, Math.min(Math.round(120 + amount * 108), cellWidth - gap - 20))
-        const height = Math.round(art + (isTrack ? 24 : (tab === 1 ? 84 : 66)))
+        const extraAlbumLine = isTrack ? art >= 60 && tab !== 5 && tab !== 6 : tab === 1
+        const height = Math.round(art + (isTrack ? 24 : (tab === 1 ? 84 : 66))
+            + AppTheme.fileLabelExtraHeight(Math.round(12 * (1.0 + amount * 0.12)), 10)
+            + (extraAlbumLine ? (AppTheme.fileSubtitleLines - 1) * AppTheme.fileLabelLineHeight(9) : 0))
         return {desired: desired, columns: columns, cellWidth: cellWidth, gap: gap, art: art, height: height}
     }
     property int resizeAnchorIndex: -1
@@ -104,6 +107,11 @@ Item {
     onCardSizeChanged: updateGridLayout()
     onTabIndexChanged: { groupBackPending = false; groupSelection = null; updateGridLayout(); rebuildTimer.restart() }
     onGroupSelectionChanged: { updateGridLayout(); rebuildTimer.restart() }
+    Connections {
+        target: AppTheme
+        function onFileTitleLinesChanged() { root.prepareForResize(); root.updateGridLayout() }
+        function onFileSubtitleLinesChanged() { root.prepareForResize(); root.updateGridLayout() }
+    }
 
     function tr(trText, enText) { return lang.language === "tr" ? trText : enText }
 
@@ -675,6 +683,8 @@ Item {
                     Text {
                         width: parent.width
                         text: String(trackCell.entry.title || "")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: AppTheme.fileTitleLines
                         font.pixelSize: Math.round(12 * root.textScale)
                         font.weight: Font.DemiBold
                         color: trackCell.nowPlaying ? AppTheme.accent : AppTheme.text
@@ -683,6 +693,8 @@ Item {
                     Text {
                         width: parent.width
                         text: String(trackCell.entry.subtitle || "")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: AppTheme.fileSubtitleLines
                         font.pixelSize: 10
                         color: AppTheme.textMuted
                         elide: Text.ElideRight
@@ -692,6 +704,8 @@ Item {
                         visible: root.artworkSize >= 60 && root.tabIndex !== 5 && root.tabIndex !== 6
                         text: String(trackCell.track.album || "")
                               + (trackCell.track.year ? " · " + trackCell.track.year : "")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: AppTheme.fileSubtitleLines
                         font.pixelSize: 9
                         color: AppTheme.textFaint
                         elide: Text.ElideRight
@@ -802,6 +816,8 @@ Item {
                     Text {
                         width: parent.width
                         text: String(collectionCell.entry.title || "")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: AppTheme.fileTitleLines
                         horizontalAlignment: collectionCell.entry.kind === "artist" ? Text.AlignHCenter : Text.AlignLeft
                         font.pixelSize: Math.round(12 * root.textScale)
                         font.weight: Font.DemiBold
@@ -811,6 +827,8 @@ Item {
                     Text {
                         width: parent.width
                         text: String(collectionCell.entry.subtitle || "")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: AppTheme.fileSubtitleLines
                         horizontalAlignment: collectionCell.entry.kind === "artist" ? Text.AlignHCenter : Text.AlignLeft
                         font.pixelSize: 10
                         color: AppTheme.textMuted
@@ -821,6 +839,8 @@ Item {
                         visible: collectionCell.entry.kind === "album"
                         text: (collectionCell.entry.tracks || []).length + root.tr(" parça", " tracks")
                               + (collectionCell.entry.year ? " · " + collectionCell.entry.year : "")
+                        wrapMode: Text.Wrap
+                        maximumLineCount: AppTheme.fileSubtitleLines
                         font.pixelSize: 9
                         color: AppTheme.textFaint
                         elide: Text.ElideRight

@@ -93,6 +93,7 @@ Item {
     readonly property real rowCardWidth: Math.max(1,
             (galleryContentWidth - (layoutColumns - 1) * cardGap) / layoutColumns)
     readonly property real rowCardHeight: desiredCardWidth * 0.82
+        + AppTheme.fileLabelExtraHeight(Math.round(11 * textScale), Math.round(8 * textScale))
     property double wheelBurstLastMs: 0
     property int wheelBurstCount: 0
     property int wheelBurstDirection: 0
@@ -840,7 +841,7 @@ Item {
                 id: albumStrip
                 objectName: "galleryAlbumStrip"
                 width: parent.width
-                height: 164
+                height: 164 + AppTheme.fileLabelExtraHeight(12, 10)
                 orientation: ListView.Horizontal
                 spacing: 12
                 model: root.albums
@@ -873,7 +874,7 @@ Item {
                     objectName: "galleryAlbumCard"
                     required property var modelData
                     width: Math.max(190, Math.min(270, (albumStrip.width - 36) / 4))
-                    height: 150
+                    height: 150 + AppTheme.fileLabelExtraHeight(12, 10)
                     album: modelData
                     lang: root.lang
                     selected: root.activeAlbumPath === modelData.path

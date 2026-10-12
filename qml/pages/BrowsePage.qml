@@ -718,6 +718,77 @@ Item {
             onTriggered: page.activePane.gridMode = false
         }
         GMenuSeparator {}
+        Item {
+            implicitWidth: 300
+            implicitHeight: 68
+            width: parent ? parent.width : implicitWidth
+            height: implicitHeight
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 2
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        Layout.fillWidth: true
+                        text: lang.language === "tr" ? "Başlık satırları" : "Title lines"
+                        color: AppTheme.text
+                        font.pixelSize: 12
+                    }
+                    Text {
+                        text: AppTheme.fileTitleLines
+                        color: AppTheme.accent
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                }
+                GSlider {
+                    objectName: "fileTitleLinesSlider"
+                    Layout.fillWidth: true
+                    from: 1; to: 4; stepSize: 1
+                    snapMode: Slider.SnapAlways
+                    value: AppTheme.fileTitleLines
+                    Accessible.name: lang.language === "tr" ? "Başlık satırları" : "Title lines"
+                    onMoved: AppTheme.setFileTitleLines(value)
+                }
+            }
+        }
+        Item {
+            implicitWidth: 300
+            implicitHeight: 68
+            width: parent ? parent.width : implicitWidth
+            height: implicitHeight
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 2
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        Layout.fillWidth: true
+                        text: lang.language === "tr" ? "Alt başlık satırları" : "Subtitle lines"
+                        color: AppTheme.text
+                        font.pixelSize: 12
+                    }
+                    Text {
+                        text: AppTheme.fileSubtitleLines
+                        color: AppTheme.accent
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                }
+                GSlider {
+                    objectName: "fileSubtitleLinesSlider"
+                    Layout.fillWidth: true
+                    from: 1; to: 4; stepSize: 1
+                    snapMode: Slider.SnapAlways
+                    value: AppTheme.fileSubtitleLines
+                    Accessible.name: lang.language === "tr" ? "Alt başlık satırları" : "Subtitle lines"
+                    onMoved: AppTheme.setFileSubtitleLines(value)
+                }
+            }
+        }
+        GMenuSeparator {}
         GMenuItem {
             text: lang.t("default_icons")
             checkable: true

@@ -89,7 +89,9 @@ Rectangle {
         Text {
             width: parent.width
             text: card.album.title
-            elide: Text.ElideMiddle
+            wrapMode: Text.Wrap
+            maximumLineCount: AppTheme.fileTitleLines
+            elide: Text.ElideRight
             font.pixelSize: 12
             font.weight: Font.DemiBold
             color: AppTheme.text
@@ -98,6 +100,8 @@ Rectangle {
             width: parent.width
             text: card.album.count + (card.lang.language === "tr" ? " görsel · " : " images · ")
                   + Qt.formatDate(new Date(card.album.latestMs), "dd MMM yyyy")
+            wrapMode: Text.Wrap
+            maximumLineCount: AppTheme.fileSubtitleLines
             elide: Text.ElideRight
             font.pixelSize: 10
             color: AppTheme.textMuted

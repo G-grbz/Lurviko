@@ -938,7 +938,7 @@ Rectangle {
                     clip: true
                     model: vault
                     cellWidth: Math.max(150, Math.floor(width / Math.max(1, Math.floor(width / 180))))
-                    cellHeight: 150
+                    cellHeight: 150 + AppTheme.fileLabelExtraHeight(11, 8)
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -1005,8 +1005,8 @@ Rectangle {
                                         Text { anchors.centerIn: parent; text: "🔒"; font.pixelSize: 11 }
                                     }
                                 }
-                                Text { Layout.fillWidth: true; text: tile.name; color: AppTheme.text; font.pixelSize: 11; font.weight: Font.DemiBold; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideMiddle }
-                                Text { Layout.fillWidth: true; text: tile.isDir ? (lang.language === "tr" ? "Şifreli klasör" : "Encrypted folder") : page.formatSize(tile.size); color: AppTheme.textMuted; font.pixelSize: 8; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                                Text { Layout.fillWidth: true; text: tile.name; color: AppTheme.text; font.pixelSize: 11; font.weight: Font.DemiBold; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap; maximumLineCount: AppTheme.fileTitleLines; elide: Text.ElideRight }
+                                Text { Layout.fillWidth: true; text: tile.isDir ? (lang.language === "tr" ? "Şifreli klasör" : "Encrypted folder") : page.formatSize(tile.size); color: AppTheme.textMuted; font.pixelSize: 8; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap; maximumLineCount: AppTheme.fileSubtitleLines; elide: Text.ElideRight }
                             }
                         }
 

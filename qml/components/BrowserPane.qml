@@ -4326,7 +4326,7 @@ Rectangle {
                     // Icon + name + metadata need a little vertical breathing
                     // room.  The old +52 was already tight in normal mode and
                     // overflowed as soon as the F2 editor grew by a few pixels.
-                    cellHeight: Math.round(iconExtent + 68)
+                    cellHeight: Math.round(iconExtent + 68 + AppTheme.fileLabelExtraHeight(itemNameFontPixels, 10))
                     boundsBehavior: Flickable.StopAtBounds
                     onContentYChanged: root.scheduleTabScrollSnapshot()
 
@@ -4504,11 +4504,13 @@ Rectangle {
                             // layout. Raising only its nested TextField leaves
                             // the card's hand cursor above the rename editor.
                             z: root.inlineRenameUrl === itemUrl ? 1 : 0
-                            anchors.fill: parent
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
                             anchors.leftMargin: 7
                             anchors.rightMargin: 7
                             anchors.topMargin: 7
-                            anchors.bottomMargin: 14
+                            height: implicitHeight
                             spacing: 4
 
                             Item {
@@ -4697,16 +4699,19 @@ Rectangle {
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 10
                                 Layout.rightMargin: 10
-                                Layout.preferredHeight: root.inlineRenameUrl === itemUrl ? 26 : 22
+                                Layout.preferredHeight: root.inlineRenameUrl === itemUrl ? 26 : Math.max(22, gridNameLabel.implicitHeight)
 
                                 Text {
+                                    id: gridNameLabel
                                     objectName: "gridFileName"
                                     anchors.fill: parent
                                     visible: root.inlineRenameUrl !== itemUrl
                                     text: name
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideMiddle
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: AppTheme.fileTitleLines
+                                    elide: Text.ElideRight
                                     color: AppTheme.text
                                     font.pixelSize: grid.itemNameFontPixels
                                     font.bold: isDir
@@ -4786,6 +4791,8 @@ Rectangle {
                                                : directory.formatBytes(size)
                                                  + (videoInfo.length ? " · " + videoInfo : ""))
                                 horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                maximumLineCount: AppTheme.fileSubtitleLines
                                 elide: Text.ElideRight
                                 color: AppTheme.textFaint
                                 font.pixelSize: 10
@@ -5081,7 +5088,8 @@ Rectangle {
                     // visible row is occupied. This gives the mouse an always-available place
                     // to clear a full selection or open the directory context menu.
                     width: Math.max(0, listView.width - 26)
-                    height: AppTheme.useSystemIcons ? Math.max(42, root.activeIconSize + 20) : Math.round(48 + (root.activeIconSize - 118) * 0.13)
+                    height: (AppTheme.useSystemIcons ? Math.max(42, root.activeIconSize + 20) : Math.round(48 + (root.activeIconSize - 118) * 0.13))
+                            + AppTheme.fileLabelExtraHeight(13, 10)
 
                     Component.onCompleted: directory.requestVideoMetadata(index)
                     ListView.onReused: directory.requestVideoMetadata(index)
@@ -5207,7 +5215,9 @@ Rectangle {
                                     color: AppTheme.text
                                     font.pixelSize: 13
                                     font.bold: isDir
-                                    elide: Text.ElideMiddle
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: AppTheme.fileTitleLines
+                                    elide: Text.ElideRight
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 GTextField {
@@ -5279,8 +5289,10 @@ Rectangle {
                                 text: directory.searchActive ? root.searchParentLabel(itemUrl, localPath) : (isDir ? root.folderItemCountText(childCount) : suffix.toUpperCase())
                                 color: AppTheme.textMuted
                                 font.pixelSize: 10
-                                width: directory.searchActive ? 250 : 75
-                                elide: Text.ElideMiddle
+                                Layout.preferredWidth: directory.searchActive ? 250 : 75
+                                wrapMode: Text.Wrap
+                                maximumLineCount: AppTheme.fileSubtitleLines
+                                elide: Text.ElideRight
                                 horizontalAlignment: Text.AlignRight
                             }
                             Text {
@@ -5289,7 +5301,10 @@ Rectangle {
                                       + (videoInfo.length ? " · " + videoInfo : "")
                                 color: AppTheme.textMuted
                                 font.pixelSize: 10
-                                width: visible ? (videoInfo.length ? 210 : 85) : 0
+                                Layout.preferredWidth: visible ? (videoInfo.length ? 210 : 85) : 0
+                                wrapMode: Text.Wrap
+                                maximumLineCount: AppTheme.fileSubtitleLines
+                                elide: Text.ElideRight
                                 horizontalAlignment: Text.AlignRight
                             }
                         }

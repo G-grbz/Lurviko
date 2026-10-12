@@ -43,7 +43,9 @@ Item {
     readonly property real cellGap: Math.max(6, Math.round(8 * scaleFactor))
     readonly property int calculatedColumns: Math.max(1, Math.floor(galleryList.width / desiredCardWidth))
     readonly property real rowCardWidth: Math.max(1, (galleryList.width - (layoutColumns - 1) * cellGap) / layoutColumns)
-    readonly property real rowCardHeight: Math.round(Math.max(58, Math.round(cardSize * 0.68)) + 62)
+    readonly property real rowCardHeight: Math.round(Math.max(58, Math.round(cardSize * 0.68)) + 62
+        + AppTheme.fileLabelExtraHeight(Math.max(12, Math.min(15, Math.round(12 * textScale))),
+                                        Math.max(9, Math.min(11, Math.round(10 * textScale)))))
 
     function dateKey(ms) {
         const d = new Date(Number(ms || 0))
@@ -311,7 +313,7 @@ Item {
                         }
                         readonly property real iconExtent: Math.max(58, Math.round(root.cardSize * 0.68))
                         width: root.rowCardWidth
-                        height: Math.round(iconExtent + 62)
+                        height: root.rowCardHeight
 
                         Rectangle {
                             anchors.fill: parent
@@ -328,11 +330,13 @@ Item {
 
                         ColumnLayout {
                             z: root.inlineRenameUrl === String(cell.modelData.itemUrl || "") ? 1 : 0
-                            anchors.fill: parent
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
                             anchors.leftMargin: 7
                             anchors.rightMargin: 7
                             anchors.topMargin: 7
-                            anchors.bottomMargin: 9
+                            height: implicitHeight
                             spacing: 4
 
                             Item {
@@ -365,15 +369,19 @@ Item {
 
                             Item {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: root.inlineRenameUrl === String(cell.modelData.itemUrl || "") ? 26 : 22
+                                Layout.preferredHeight: root.inlineRenameUrl === String(cell.modelData.itemUrl || "") ? 26
+                                    : Math.max(22, groupedNameLabel.implicitHeight)
 
                                 Text {
+                                    id: groupedNameLabel
                                     anchors.fill: parent
                                     visible: root.inlineRenameUrl !== String(cell.modelData.itemUrl || "")
                                     text: String(cell.modelData.name || "")
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideMiddle
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: AppTheme.fileTitleLines
+                                    elide: Text.ElideRight
                                     color: AppTheme.text
                                     font.pixelSize: Math.max(12, Math.min(15, Math.round(12 * root.textScale)))
                                     font.bold: !!cell.modelData.isDir
@@ -434,6 +442,8 @@ Item {
                                 Layout.fillWidth: true
                                 text: String(cell.modelData.metaText || "")
                                 horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.Wrap
+                                maximumLineCount: AppTheme.fileSubtitleLines
                                 elide: Text.ElideRight
                                 color: AppTheme.textFaint
                                 font.pixelSize: Math.max(9, Math.min(11, Math.round(10 * root.textScale)))

@@ -14,6 +14,8 @@ QtObject {
         property int systemSidebarIconSize: 22
         property int systemHomeIconSize: 48
         property int wheelScrollStep: 250
+        property int fileTitleLines: 1
+        property int fileSubtitleLines: 1
     }
 
     property Settings interactionSettings: Settings {
@@ -61,6 +63,13 @@ QtObject {
     readonly property int effectiveSidebarIconSize: systemSidebarIconSize
     readonly property int effectiveHomeIconSize: systemHomeIconSize
     readonly property int wheelScrollStep: Math.max(10, Math.min(1000, settings.wheelScrollStep))
+    readonly property int fileTitleLines: Math.max(1, Math.min(4, settings.fileTitleLines))
+    readonly property int fileSubtitleLines: Math.max(1, Math.min(4, settings.fileSubtitleLines))
+    function fileLabelLineHeight(pixels) { return Math.ceil(pixels * 1.5) }
+    function fileLabelExtraHeight(titlePixels, subtitlePixels) {
+        return (fileTitleLines - 1) * fileLabelLineHeight(titlePixels)
+             + (fileSubtitleLines - 1) * fileLabelLineHeight(subtitlePixels)
+    }
     // Lurviko UI design tokens.  Qt Quick Controls provide behaviour, focus,
     // accessibility and keyboard semantics; the visual language below belongs
     // to Lurviko and is intentionally independent from the desktop Qt theme.
@@ -162,6 +171,8 @@ QtObject {
     function setSystemSidebarIconSize(size) { settings.systemSidebarIconSize = Math.max(8, Math.min(128, Math.round(size))) }
     function setSystemHomeIconSize(size) { settings.systemHomeIconSize = Math.max(8, Math.min(128, Math.round(size))) }
     function setWheelScrollStep(size) { settings.wheelScrollStep = Math.max(10, Math.min(1000, Math.round(size))) }
+    function setFileTitleLines(lines) { settings.fileTitleLines = Math.max(1, Math.min(4, Math.round(lines))) }
+    function setFileSubtitleLines(lines) { settings.fileSubtitleLines = Math.max(1, Math.min(4, Math.round(lines))) }
     function systemIconName(name) {
         const names = {
             "folder.svg": "folder",
