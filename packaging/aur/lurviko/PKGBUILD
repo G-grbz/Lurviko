@@ -42,9 +42,7 @@ optdepends=(
 )
 install=lurviko.install
 source=("Lurviko-${pkgver}-${pkgrel}.tar.gz::${url}/releases/download/v${pkgver}/Lurviko-${pkgver}.tar.gz")
-# Unreleased: fill in the real SHA-256 after the v1.3.0 release archive exists.
-# Do not publish this recipe to AUR until the checksum has been updated.
-sha256sums=('RELEASE_PENDING')
+sha256sums=('70593b9638f36162190c56cb6dee4a935e2bd5835e0b6a6c483a14af9bd54373')
 
 prepare() {
   # Installed workers are found in /usr/share/Lurviko. Do not embed the
