@@ -13,6 +13,12 @@ pkgbase = lurviko
 	checkdepends = breeze-icons
 	checkdepends = desktop-file-utils
 	checkdepends = libarchive
+	checkdepends = 7zip
+	checkdepends = ttf-dejavu
+	checkdepends = dbus
+	checkdepends = mesa
+	checkdepends = xorg-server-xvfb
+	checkdepends = xorg-xauth
 	makedepends = cmake>=3.21
 	makedepends = extra-cmake-modules
 	makedepends = ninja

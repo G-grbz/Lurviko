@@ -16,7 +16,10 @@ depends=(
   'openssl>=3.2' 'ffmpeg' 'hicolor-icon-theme'
 )
 makedepends=('cmake>=3.21' 'extra-cmake-modules' 'ninja')
-checkdepends=('python' 'python-pytest' 'python-cryptography' 'breeze-icons' 'desktop-file-utils' 'libarchive')
+checkdepends=(
+  'python' 'python-pytest' 'python-cryptography' 'breeze-icons' 'desktop-file-utils'
+  'libarchive' '7zip' 'ttf-dejavu' 'dbus' 'mesa' 'xorg-server-xvfb' 'xorg-xauth'
+)
 optdepends=(
   'python-cryptography: standalone vault recovery tool'
   'qt6-wayland: Wayland desktop sessions'
