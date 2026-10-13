@@ -19,6 +19,7 @@ Item {
     property int selectionRevision: 0
     property var isSelected: null
     signal browseRequested(string location)
+    signal revealRequested(string location, string itemUrl)
     signal zoomRequested(int delta)
     signal itemPressed(int modelIndex, int modifiers)
 
@@ -238,6 +239,8 @@ Item {
         dismissHoverPreview()
         if (activeAlbumPath !== path) activeAlbumPath = path
     }
+
+    function hoverLabel(key) { const language = root.lang.language; return root.lang.t(key) }
 
     function requestHoverPreview(item, anchor) {
         if ((!imageMode && !videoMode) || !item || !anchor || galleryList.moving
@@ -779,6 +782,7 @@ Item {
                         onPreviewDismissed: function(anchor) { root.dismissHoverPreview(anchor) }
                         onActivated: root.activate(itemData)
                         onBrowseRequested: function(location) { root.browseRequested(location) }
+                        onRevealRequested: function(location, itemUrl) { root.revealRequested(location, itemUrl) }
                     }
                 }
             }
@@ -970,6 +974,7 @@ Item {
                         onPreviewDismissed: function(anchor) { root.dismissHoverPreview(anchor) }
                         onActivated: root.activate(itemData)
                         onBrowseRequested: function(location) { root.browseRequested(location) }
+                        onRevealRequested: function(location, itemUrl) { root.revealRequested(location, itemUrl) }
                     }
 
                     Grid {
@@ -1008,6 +1013,7 @@ Item {
                                 onPreviewDismissed: function(anchor) { root.dismissHoverPreview(anchor) }
                                 onActivated: root.activate(itemData)
                                 onBrowseRequested: function(location) { root.browseRequested(location) }
+                                onRevealRequested: function(location, itemUrl) { root.revealRequested(location, itemUrl) }
                             }
                         }
                     }
@@ -1215,12 +1221,12 @@ Item {
                         GCheckBox {
                             id: imageHoverEnabledCheck
                             Layout.fillWidth: true
-                            text: root.lang.language === "tr" ? "Hover önizlemesi" : "Hover preview"
+                            text: root.hoverLabel("hover_preview")
                         }
                         GCheckBox {
                             id: imageHoverAnimationCheck
                             Layout.fillWidth: true
-                            text: root.lang.language === "tr" ? "Hover animasyonları" : "Hover animations"
+                            text: root.hoverLabel("hover_animations")
                         }
                     }
 
@@ -1233,7 +1239,7 @@ Item {
                         rowSpacing: 10
                         Text {
                             Layout.fillWidth: true
-                            text: root.lang.language === "tr" ? "Hover gecikmesi" : "Hover delay"
+                            text: root.hoverLabel("hover_delay")
                             color: AppTheme.textMuted
                             font.pixelSize: 10
                         }
@@ -1479,13 +1485,13 @@ Item {
                         GCheckBox {
                             id: hoverEnabledCheck
                             Layout.fillWidth: true
-                            text: root.lang.language === "tr" ? "TMDB hover kartı" : "TMDB hover card"
+                            text: root.hoverLabel("hover_preview")
                             checked: true
                         }
                         GCheckBox {
                             id: hoverAnimationCheck
                             Layout.fillWidth: true
-                            text: root.lang.language === "tr" ? "Hover animasyonları" : "Hover animations"
+                            text: root.hoverLabel("hover_animations")
                             checked: true
                         }
                         GCheckBox {
@@ -1514,16 +1520,16 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: root.lang.language === "tr" ? "Hover gecikmesi" : "Hover delay"
+                            text: root.hoverLabel("hover_delay")
                             color: AppTheme.textMuted
                             font.pixelSize: 10
                             verticalAlignment: Text.AlignVCenter
                         }
                         GComboBox {
                             id: hoverDelayInput
-                            property var valueModel: [200, 360, 500, 700]
+                            property var valueModel: AppTheme.hoverDelayOptions
                             Layout.fillWidth: true
-                            model: ["200 ms", "360 ms", "500 ms", "700 ms"]
+                            model: valueModel.map(function(value) { return value + " ms" })
                         }
 
                         Text {

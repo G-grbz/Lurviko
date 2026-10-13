@@ -98,6 +98,7 @@ int main(int argc, char **argv)
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
+    engine.addImageProvider("folderart", new FolderIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", root + "/source");
     engine.loadData(R"qml(
 import QtQuick

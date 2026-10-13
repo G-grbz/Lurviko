@@ -1,10 +1,12 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import QtMultimedia
 import QtCore
 import Lurviko.App
 import Lurviko.Backend
+import "MusicArtists.js" as Artists
 
 Rectangle {
     id: root
@@ -23,6 +25,12 @@ Rectangle {
     property int playbackOrderPosition: -1
     property real rememberedVolume: 0.82
     property var playlists: []
+    readonly property string playlistActionText: {
+        // Read the notified property as well as the dictionary method so this
+        // label updates immediately when the application language changes.
+        const language = root.lang.language
+        return root.lang.t("music_add_playlist")
+    }
     property alias libraryManager: musicLibrary
     // When true the same global player is visually docked into the Music
     // category content area. Playback state remains global; only the chrome
@@ -30,6 +38,8 @@ Rectangle {
     property bool embeddedMode: false
     property bool showRemainingTime: false
     property bool currentFavorite: false
+    // Presentation state is owned by Main; audio and queue remain live here.
+    property bool expandedPresentation: false
 
     // Rich music metadata + lyrics. Sidecar lyrics have priority over embedded tags.
     property var trackMeta: ({})
@@ -44,12 +54,19 @@ Rectangle {
     property alias queueLimit: playerPrefs.queueSize
 
     signal requestClose()
+    signal requestNormal()
+    signal requestExpanded()
+    signal requestDetached()
+
+    function openNormal() { requestNormal() }
+    function openExpanded() { requestExpanded() }
+    function openDetached() { requestDetached() }
 
     radius: embeddedMode ? 14 : 16
     color: AppTheme.surface
     border.width: 1
     border.color: AppTheme.border
-    visible: opened && panelVisible
+    visible: opened && panelVisible && !expandedPresentation
     implicitHeight: queueOpen ? 360 : 126
     clip: true
 
@@ -141,7 +158,10 @@ Rectangle {
         return {
             itemUrl: String(item.itemUrl || item.url || ""),
             name: String(item.name || ""),
-            thumbnailSource: String(item.thumbnailSource || "")
+            thumbnailSource: String(item.thumbnailSource || ""),
+            title: String(item.title || ""),
+            artist: String(item.artist || ""),
+            album: String(item.album || "")
         }
     }
 
@@ -183,6 +203,15 @@ Rectangle {
             return
         }
         const start = Math.max(0, Math.min(Number(startIndex || 0), queue.length - 1))
+        if (!shuffleMode) {
+            // A queue selection changes the cursor, not the natural track order.
+            const order = []
+            for (let i = 0; i < queue.length; ++i)
+                order.push(i)
+            playbackOrder = order
+            playbackOrderPosition = start
+            return
+        }
         const rest = []
         for (let i = 0; i < queue.length; ++i) {
             if (i !== start)
@@ -198,8 +227,30 @@ Rectangle {
         if (idx < 0 || idx >= queue.length)
             return
         currentIndex = idx
-        rebuildPlaybackOrder(idx)
+        const position = playbackOrder.indexOf(idx)
+        if (playbackOrder.length === queue.length && position >= 0)
+            playbackOrderPosition = position
+        else
+            rebuildPlaybackOrder(idx)
         loadCurrent(autoplay === undefined ? true : !!autoplay)
+    }
+
+    function playTemporaryQueueItem(source) {
+        const item = normalizedItem(source)
+        if (!item.itemUrl)
+            return
+        let index = findUrl(queue, item.itemUrl)
+        if (index < 0) {
+            index = queue.length
+            const validOrder = playbackOrder.length === queue.length
+            // The playback queue is temporary. Never mutate a saved playlist,
+            // and retain the existing shuffle order when appending a track.
+            queue = queue.concat([item])
+            if (validOrder)
+                playbackOrder = playbackOrder.concat([index])
+        }
+        opened = true
+        selectQueueIndex(index, true)
     }
 
     function collectionForNewQueue() {
@@ -267,7 +318,7 @@ Rectangle {
         loadCurrent(autoplay === undefined ? true : !!autoplay)
     }
 
-    function buildQueue(startUrl, autoplay) {
+    function buildQueue(startUrl, autoplay, useQueueLimit) {
         const lib = sourceLibrary && sourceLibrary.length ? sourceLibrary : queue
         if (!lib || !lib.length)
             return
@@ -276,7 +327,8 @@ Rectangle {
         if (start < 0)
             start = 0
 
-        const limit = Math.max(1, Math.min(Number(queueLimit || 50), lib.length))
+        const limit = useQueueLimit === false ? lib.length
+                    : Math.max(1, Math.min(Number(queueLimit || 50), lib.length))
         const first = normalizedItem(lib[start])
         const result = [first]
 
@@ -293,11 +345,11 @@ Rectangle {
         loadCurrent(autoplay === undefined ? true : !!autoplay)
     }
 
-    function openUrl(url, title, artwork, items) {
+    function openUrl(url, title, artwork, items, useQueueLimit) {
         sourceLibrary = normalizedLibrary(items && items.length ? items : [{ itemUrl: url, name: title, thumbnailSource: artwork }])
         if (findUrl(sourceLibrary, url) < 0)
             sourceLibrary.unshift({ itemUrl: String(url || ""), name: String(title || ""), thumbnailSource: String(artwork || "") })
-        buildQueue(url, true)
+        buildQueue(url, true, useQueueLimit)
     }
 
     function resetTrackMetadata() {
@@ -517,23 +569,85 @@ Rectangle {
         playerPrefs.playlistsJson = JSON.stringify(nextPlaylists)
     }
 
-    function saveCurrentQueueAsPlaylist(name) {
-        const clean = String(name || "").trim()
-        if (!clean.length || !queue.length)
-            return
+    function uniquePlaylistItems(source) {
+        const seen = ({})
+        return normalizedLibrary(source).filter(function(item) {
+            if (seen[item.itemUrl]) return false
+            seen[item.itemUrl] = true
+            return true
+        })
+    }
+
+    function suggestPlaylistName(seed) {
+        const base = String(seed || "").trim() || (lang.t("music_new_playlist")
+            + " — " + Qt.formatDateTime(new Date(), "yyyy-MM-dd HH:mm"))
+        const names = playlists.map(function(list) { return Artists.key(list.name) })
+        let name = base
+        let suffix = 2
+        while (names.indexOf(Artists.key(name)) >= 0) name = base + " (" + suffix++ + ")"
+        return name
+    }
+
+    function savePlaylistItems(source, name, existingName) {
+        const items = uniquePlaylistItems(source)
+        if (!items.length) return false
         const list = playlists.slice()
-        const items = normalizedLibrary(queue)
-        let replaced = false
-        for (let i = 0; i < list.length; ++i) {
-            if (String(list[i].name || "").toLocaleLowerCase() === clean.toLocaleLowerCase()) {
-                list[i] = { name: clean, items: items }
-                replaced = true
-                break
-            }
+        if (existingName) {
+            const index = list.findIndex(function(entry) { return entry.name === existingName })
+            if (index < 0) return false
+            list[index] = Object.assign({}, list[index], {
+                items: uniquePlaylistItems((list[index].items || []).concat(items))
+            })
+        } else {
+            list.push({name: suggestPlaylistName(name), items: items})
         }
-        if (!replaced)
-            list.push({ name: clean, items: items })
         persistPlaylists(list)
+        return true
+    }
+
+    function saveCurrentQueueAsPlaylist(name, existingName) {
+        return savePlaylistItems(queue, name, existingName)
+    }
+
+    function tracksForArtist(artist, prepareLibrary) {
+        if (prepareLibrary !== false && contentIndexSource) {
+            const indexed = contentIndexSource.filesForCategory("music")
+            const loaded = ({})
+            for (const track of musicLibrary.tracks) loaded[track.itemUrl] = track
+            // The library may still describe a filtered category or have never
+            // been opened. Index entries use "url", while the native music
+            // library requires "itemUrl". Retain size/mtime for its cache.
+            const incomplete = indexed.some(function(track) {
+                const previous = loaded[String(track.itemUrl || track.url || "")]
+                return !previous || Number(previous.size) !== Number(track.size)
+                    || Number(previous.modifiedMs) !== Number(track.modifiedMs)
+            })
+            if (incomplete) musicLibrary.setItems(indexed.map(function(track) {
+                return Object.assign({}, track, {itemUrl: String(track.itemUrl || track.url || "")})
+            }))
+        }
+        const byUrl = ({})
+        for (const track of sourceLibrary.concat(queue, musicLibrary.tracks || [])) {
+            const item = normalizedItem(track)
+            if (item.itemUrl) byUrl[item.itemUrl] = item
+        }
+        if (currentItem && trackMeta.artist)
+            byUrl[currentUrl] = Object.assign({}, normalizedItem(currentItem), trackMeta)
+        const result = []
+        for (const url of Object.keys(byUrl)) {
+            const item = byUrl[url]
+            // Library metadata uses this same filename fallback while scanning.
+            if (!item.artist) {
+                const split = item.name.indexOf(" - ")
+                if (split > 0) item.artist = item.name.slice(0, split)
+            }
+            if (Artists.contains(item.artist, artist)) result.push(item)
+        }
+        return result.sort(function(a, b) { return (a.title || a.name).localeCompare(b.title || b.name) })
+    }
+
+    function openArtist(artist) {
+        playlistNamePopup.openForArtist(artist)
     }
 
     function playPlaylist(index) {
@@ -543,7 +657,7 @@ Rectangle {
         if (!items.length)
             return
         sourceLibrary = items
-        queue = items.slice(0, Math.min(items.length, Math.max(1, queueLimit)))
+        queue = items.slice()
         currentIndex = 0
         opened = true
         panelVisible = true
@@ -620,18 +734,11 @@ Rectangle {
                 color: AppTheme.surfaceRaised
                 border.color: AppTheme.border
                 clip: true
-
-                CrispIcon {
-                    anchors.centerIn: parent
-                    width: 38
-                    height: 38
-                    source: AppTheme.icon("music-note.svg")
-                    visible: art.status !== Image.Ready
-                }
-                Image {
+                MusicArtwork {
                     id: art
                     anchors.fill: parent
-                    source: root.currentArtwork
+                    artworkSource: root.visible ? root.currentArtwork : ""
+                    sourceSize: Qt.size(AppTheme.previewResolution(width, Screen.devicePixelRatio), AppTheme.previewResolution(height, Screen.devicePixelRatio))
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
@@ -644,57 +751,83 @@ Rectangle {
                 Layout.fillHeight: true
                 spacing: 6
 
-                RowLayout {
+                Item {
                     id: nowPlayingRow
+                    objectName: "normalMusicMetadataRow"
                     Layout.fillWidth: true
-                    spacing: 10
+                    Layout.preferredHeight: Math.max(20, artistTitle.implicitHeight, metadataDetails.implicitHeight)
+                    readonly property real textBudget: Math.max(0, metadataTextRow.width
+                        - (metadataDetails.visible ? 10 : 0)
+                        - (metadataLyrics.visible ? lyricSeparator.implicitWidth + 20 : 0))
 
-                    Text {
-                        Layout.minimumWidth: Math.min(150, implicitWidth)
-                        Layout.preferredWidth: implicitWidth
-                        Layout.maximumWidth: root.activeLyricText.length > 0
-                                             ? Math.max(210, nowPlayingRow.width * 0.40)
-                                             : Math.max(320, nowPlayingRow.width * 0.62)
-                        text: root.displayTitle || (root.lang.language === "tr" ? "Müzik oynatıcı" : "Music player")
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
+                    Row {
+                        id: metadataTextRow
+                        anchors.left: parent.left
+                        anchors.right: queuePosition.left
+                        anchors.rightMargin: 10
+                        height: parent.height
+                        spacing: 10
+
+                        MusicArtistLinks {
+                            id: artistTitle
+                            objectName: "normalMusicArtistLinks"
+                            width: Math.min(implicitWidth, nowPlayingRow.textBudget
+                                * (metadataLyrics.visible ? (metadataDetails.visible ? 0.40 : 0.55)
+                                                          : (metadataDetails.visible ? 0.66 : 1)))
+                            height: parent.height
+                            verticalAlignment: Text.AlignVCenter
+                            artistText: String(root.trackMeta.artist || "")
+                            suffixText: " — " + String(root.trackMeta.title || root.currentTitle || "")
+                            fallbackText: root.displayTitle || (root.lang.language === "tr" ? "Müzik oynatıcı" : "Music player")
+                            onArtistRequested: function(artist) { root.openArtist(artist) }
+                            color: AppTheme.text
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            id: metadataDetails
+                            objectName: "normalMusicDetails"
+                            visible: root.detailText.length > 0
+                            width: visible ? Math.min(implicitWidth, nowPlayingRow.textBudget
+                                * (metadataLyrics.visible ? 0.24 : 0.34)) : 0
+                            height: parent.height
+                            verticalAlignment: Text.AlignVCenter
+                            text: root.detailText
+                            textFormat: Text.PlainText
+                            color: AppTheme.textMuted
+                            font.pixelSize: 10
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            id: lyricSeparator
+                            visible: root.activeLyricText.length > 0
+                            height: parent.height
+                            verticalAlignment: Text.AlignVCenter
+                            text: "~"
+                            color: AppTheme.textFaint
+                            font.pixelSize: 10
+                        }
+                        Text {
+                            id: metadataLyrics
+                            objectName: "normalMusicLiveLyrics"
+                            width: visible ? Math.max(0, nowPlayingRow.textBudget - artistTitle.width - metadataDetails.width) : 0
+                            height: parent.height
+                            verticalAlignment: Text.AlignVCenter
+                            visible: root.activeLyricText.length > 0
+                            text: root.activeLyricText
+                            textFormat: Text.PlainText
+                            color: AppTheme.accent
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
+                            elide: Text.ElideRight
+                        }
                     }
                     Text {
-                        visible: root.detailText.length > 0
-                        Layout.preferredWidth: implicitWidth
-                        Layout.maximumWidth: root.activeLyricText.length > 0
-                                             ? Math.max(130, nowPlayingRow.width * 0.24)
-                                             : Math.max(180, nowPlayingRow.width * 0.30)
-                        text: root.detailText
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        visible: root.activeLyricText.length > 0
-                        text: "~"
-                        color: AppTheme.textFaint
-                        font.pixelSize: 10
-                    }
-                    Text {
-                        Layout.fillWidth: root.activeLyricText.length > 0
-                        Layout.minimumWidth: root.activeLyricText.length > 0 ? 90 : 0
-                        visible: root.activeLyricText.length > 0
-                        text: root.activeLyricText
-                        color: AppTheme.accent
-                        font.pixelSize: 10
-                        font.weight: Font.Medium
-                        elide: Text.ElideRight
-                    }
-                    Item {
-                        Layout.fillWidth: root.activeLyricText.length === 0
-                        Layout.minimumWidth: 0
-                    }
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        Layout.minimumWidth: implicitWidth
+                        id: queuePosition
+                        objectName: "normalMusicQueuePosition"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         text: root.queue.length > 0 && root.currentIndex >= 0
                               ? (root.currentIndex + 1) + " / " + root.queue.length : ""
                         color: AppTheme.textMuted
@@ -767,10 +900,10 @@ Rectangle {
                         horizontalAlignment: Text.AlignRight
                         HoverHandler { id: durationHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: root.showRemainingTime = !root.showRemainingTime }
-                        ToolTip.visible: durationHover.hovered
-                        ToolTip.text: root.showRemainingTime
+                        Accessible.name: root.showRemainingTime
                                       ? (root.lang.language === "tr" ? "Toplam süreyi göster" : "Show total duration")
                                       : (root.lang.language === "tr" ? "Kalan süreyi göster" : "Show remaining time")
+                        GToolTip { visible: durationHover.hovered; text: parent.Accessible.name }
                     }
                 }
 
@@ -790,8 +923,8 @@ Rectangle {
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("viewer-prev.svg")
                         onClicked: root.previous()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Önceki" : "Previous"
+                        Accessible.name: root.lang.language === "tr" ? "Önceki" : "Previous"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         background: Rectangle {
@@ -804,8 +937,8 @@ Rectangle {
                         implicitWidth: 40; implicitHeight: 34
                         icon.source: root.icon(root.playing ? "viewer-pause.svg" : "viewer-play.svg")
                         onClicked: root.toggle()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Oynat / duraklat" : "Play / pause"
+                        Accessible.name: root.lang.language === "tr" ? "Oynat / duraklat" : "Play / pause"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         background: Rectangle {
@@ -818,8 +951,8 @@ Rectangle {
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("viewer-next.svg")
                         onClicked: root.next()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Sonraki" : "Next"
+                        Accessible.name: root.lang.language === "tr" ? "Sonraki" : "Next"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         implicitWidth: 34; implicitHeight: 32
@@ -833,10 +966,10 @@ Rectangle {
                             border.width: parent.checked ? 1 : 0
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         }
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.currentFavorite
+                        Accessible.name: root.currentFavorite
                                       ? (root.lang.language === "tr" ? "Favorilerden çıkar" : "Remove from favorites")
                                       : (root.lang.language === "tr" ? "Favorilere ekle" : "Add to favorites")
+                        GToolTip { text: parent.Accessible.name }
                     }
 
                     GToolButton {
@@ -850,10 +983,10 @@ Rectangle {
                             color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         }
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.shuffleMode
+                        Accessible.name: root.shuffleMode
                                       ? (root.lang.language === "tr" ? "Karışık oynatma açık" : "Shuffle on")
                                       : (root.lang.language === "tr" ? "Karışık oynatma kapalı" : "Shuffle off")
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         implicitWidth: 38; implicitHeight: 32
@@ -866,12 +999,12 @@ Rectangle {
                             color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
                             border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                         }
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.repeatMode === 0
+                        Accessible.name: root.repeatMode === 0
                                       ? (root.lang.language === "tr" ? "Tekrar kapalı" : "Repeat off")
                                       : root.repeatMode === 1
                                         ? (root.lang.language === "tr" ? "Tümünü tekrarla" : "Repeat all")
                                         : (root.lang.language === "tr" ? "Tek parçayı tekrarla" : "Repeat one")
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         background: Rectangle {
@@ -884,8 +1017,8 @@ Rectangle {
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("music-refresh.svg")
                         onClicked: root.refreshQueue()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Yeni kuyruk oluştur" : "Generate new queue"
+                        Accessible.name: root.lang.language === "tr" ? "Yeni kuyruk oluştur" : "Generate new queue"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         background: Rectangle {
@@ -898,8 +1031,8 @@ Rectangle {
                         implicitWidth: 38; implicitHeight: 32
                         icon.source: root.icon("music-queue.svg")
                         onClicked: root.toggleQueue(0)
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Kuyruğu göster" : "Show queue"
+                        Accessible.name: root.lang.language === "tr" ? "Kuyruğu göster" : "Show queue"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         background: Rectangle {
@@ -912,8 +1045,8 @@ Rectangle {
                         implicitWidth: 38; implicitHeight: 32
                         icon.source: root.icon("music-playlist.svg")
                         onClicked: root.toggleQueue(1)
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Çalma listeleri" : "Playlists"
+                        Accessible.name: root.lang.language === "tr" ? "Çalma listeleri" : "Playlists"
+                        GToolTip { text: parent.Accessible.name }
                     }
 
                     GButton {
@@ -938,10 +1071,10 @@ Rectangle {
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
-                        ToolTip.visible: hovered
-                        ToolTip.text: enabled
+                        Accessible.name: enabled
                                       ? (root.lang.language === "tr" ? "Şarkı sözlerini göster" : "Show lyrics")
                                       : (root.lang.language === "tr" ? "Şarkı sözü bulunamadı" : "No lyrics found")
+                        GToolTip { text: parent.Accessible.name }
                     }
 
                     Item { Layout.fillWidth: true }
@@ -958,8 +1091,8 @@ Rectangle {
                         icon.source: root.icon(audioOutput.muted || root.rememberedVolume <= 0.001
                                                ? "viewer-volume-muted.svg" : "viewer-volume.svg")
                         onClicked: root.toggleMute()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Sesi aç / kapat" : "Mute / unmute"
+                        Accessible.name: root.lang.language === "tr" ? "Sesi aç / kapat" : "Mute / unmute"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GSlider {
                         id: volumeSlider
@@ -998,6 +1131,20 @@ Rectangle {
                         }
                     }
                     GToolButton {
+                        implicitWidth: 34; implicitHeight: 32
+                        icon.source: root.icon("viewer-fullscreen.svg")
+                        onClicked: root.openExpanded()
+                        Accessible.name: root.lang.language === "tr" ? "Genişletilmiş müzik görünümü" : "Expanded music view"
+                        GToolTip { text: parent.Accessible.name }
+                    }
+                    GToolButton {
+                        implicitWidth: 34; implicitHeight: 32
+                        icon.source: root.icon("clone.svg")
+                        onClicked: root.openDetached()
+                        Accessible.name: root.lang.language === "tr" ? "Ayrı pencerede aç" : "Open in new window"
+                        GToolTip { text: parent.Accessible.name }
+                    }
+                    GToolButton {
                         background: Rectangle {
                             radius: 9
                             color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
@@ -1008,8 +1155,8 @@ Rectangle {
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("music-minimize.svg")
                         onClicked: root.minimize()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Simge durumuna küçült" : "Minimize player"
+                        Accessible.name: root.lang.language === "tr" ? "Simge durumuna küçült" : "Minimize player"
+                        GToolTip { text: parent.Accessible.name }
                     }
                     GToolButton {
                         background: Rectangle {
@@ -1022,8 +1169,8 @@ Rectangle {
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("close-ui.svg")
                         onClicked: root.closePlayer()
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.lang.language === "tr" ? "Oynatıcıyı kapat" : "Close player"
+                        Accessible.name: root.lang.language === "tr" ? "Oynatıcıyı kapat" : "Close player"
+                        GToolTip { text: parent.Accessible.name }
                     }
                 }
             }
@@ -1111,6 +1258,14 @@ Rectangle {
 
                 ListView {
                     id: queueList
+                    objectName: "musicQueueList"
+                    GPopupWheelScroll {
+                        parent: queueList
+                        anchors.fill: parent
+                        view: queueList
+                        scrollbar: queueList.ScrollBar.vertical
+                        enabled: root.visible && root.queueOpen && root.drawerTab === 0
+                    }
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: root.drawerTab === 0
@@ -1184,13 +1339,22 @@ Rectangle {
                                 border.width: 1
                                 border.color: parent.checked ? AppTheme.accentBorder : AppTheme.border
                             }
-                            text: root.lang.language === "tr" ? "+ Çalma listesi" : "+ Playlist"
+                            objectName: "musicAddPlaylist"
+                            text: root.playlistActionText
                             enabled: root.queue.length > 0
-                            onClicked: playlistNamePopup.open()
+                            onClicked: playlistNamePopup.openForItems(root.queue, root.trackMeta.album || "", false)
                         }
                     }
                     ListView {
                         id: playlistView
+                        objectName: "musicPlaylistView"
+                        GPopupWheelScroll {
+                            parent: playlistView
+                            anchors.fill: parent
+                            view: playlistView
+                            scrollbar: playlistView.ScrollBar.vertical
+                            enabled: root.visible && root.queueOpen && root.drawerTab === 1
+                        }
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
@@ -1209,12 +1373,20 @@ Rectangle {
                                 anchors.rightMargin: 6
                                 spacing: 8
                                 Text {
+                                    objectName: "normalPlaylistName"
                                     Layout.fillWidth: true
                                     text: String(modelData.name || "")
+                                    textFormat: Text.PlainText
                                     color: AppTheme.text
                                     font.pixelSize: 10
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    TapHandler {
+                                        acceptedButtons: Qt.LeftButton
+                                        enabled: !!modelData.items && modelData.items.length > 0
+                                        onTapped: root.playPlaylist(index)
+                                    }
                                 }
                                 Text {
                                     text: String((modelData.items || []).length) + (root.lang.language === "tr" ? " parça" : " tracks")
@@ -1270,6 +1442,7 @@ Rectangle {
 
     Popup {
         id: lyricsPopup
+        objectName: "musicLyricsPopup"
         parent: Overlay.overlay
         modal: false
         focus: true
@@ -1319,6 +1492,14 @@ Rectangle {
 
             ListView {
                 id: lyricList
+                objectName: "musicLyricList"
+                GPopupWheelScroll {
+                    parent: lyricList
+                    anchors.fill: parent
+                    view: lyricList
+                    scrollbar: lyricList.ScrollBar.vertical
+                    enabled: lyricsPopup.visible && root.lyricsSynced
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: root.lyricsSynced
@@ -1344,6 +1525,15 @@ Rectangle {
             }
 
             ScrollView {
+                id: plainLyricsScroll
+                objectName: "musicPlainLyricsScroll"
+                GPopupWheelScroll {
+                    parent: plainLyricsScroll
+                    anchors.fill: parent
+                    view: plainLyricsScroll.contentItem
+                    scrollbar: plainLyricsScroll.ScrollBar.vertical
+                    enabled: lyricsPopup.visible && !root.lyricsSynced
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: !root.lyricsSynced
@@ -1363,58 +1553,10 @@ Rectangle {
         }
     }
 
-    GModalPopup {
+    MusicPlaylistDialog {
         id: playlistNamePopup
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        width: 390
-        height: 190
-        padding: 0
-        onOpened: {
-            playlistNameInput.text = ""
-            playlistNameInput.forceActiveFocus()
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 20
-            spacing: 12
-            Text {
-                Layout.fillWidth: true
-                text: root.lang.language === "tr" ? "Çalma listesi oluştur" : "Create playlist"
-                color: AppTheme.text
-                font.pixelSize: 17
-                font.weight: Font.Bold
-            }
-            GTextField {
-                id: playlistNameInput
-                Layout.fillWidth: true
-                placeholderText: root.lang.language === "tr" ? "Çalma listesi adı" : "Playlist name"
-                onAccepted: {
-                    if (text.trim().length) {
-                        root.saveCurrentQueueAsPlaylist(text)
-                        playlistNamePopup.close()
-                    }
-                }
-            }
-            Item { Layout.fillHeight: true }
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                GModalButton {
-                    text: root.lang.language === "tr" ? "İptal" : "Cancel"
-                    onClicked: playlistNamePopup.close()
-                }
-                GModalButton {
-                    primary: true
-                    text: root.lang.language === "tr" ? "Kaydet" : "Save"
-                    enabled: playlistNameInput.text.trim().length > 0
-                    onClicked: {
-                        root.saveCurrentQueueAsPlaylist(playlistNameInput.text)
-                        playlistNamePopup.close()
-                    }
-                }
-            }
-        }
+        objectName: "musicPlaylistDialog"
+        player: root
+        lang: root.lang
     }
 }

@@ -1,0 +1,128 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64" viewBox="0 0 64 64" version="1.1" role="img" aria-labelledby="google-title">
+  <title id="google-title">Google Drive</title>
+  <desc>Mevcut üç renkli Google Drive biçiminde mavi, yeşil ve altın cam yüzeyler.</desc>
+  <defs>
+    <path id="google-0-shape" d="m 24.526971,37.26706 c -1.197694,0 -2.300162,0.652955 -2.875676,1.703333 L 13.63371,53.601024 c -1.197568,2.185387 0.383675,4.855225 2.875675,4.855225 h 32.845766 c 1.197694,0 2.300162,-0.652955 2.875676,-1.703333 L 60.248412,42.122285 C 61.44598,39.936898 59.864737,37.26706 57.372737,37.26706 Z" />
+    <linearGradient id="google-0-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#a8d7ff" stop-opacity="1" />
+      <stop offset=".38" stop-color="#5b98e9" stop-opacity="1" />
+      <stop offset=".47" stop-color="#407aca" stop-opacity="1" />
+      <stop offset=".54" stop-color="#5b98e9" stop-opacity="1" />
+      <stop offset="1" stop-color="#c9e7ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="google-0-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="google-0-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#c9e7ff" stop-opacity="0" />
+      <stop offset=".55" stop-color="#c9e7ff" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#c9e7ff" stop-opacity=".18" />
+      <stop offset="1" stop-color="#c9e7ff" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="google-0-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="google-0-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#a8d7ff" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#28529e" stop-opacity=".18" />
+      <stop offset="1" stop-color="#c9e7ff" stop-opacity=".66" />
+    </linearGradient>
+    <path id="google-1-shape" d="m 18.757205,8.5158268 c -1.342991,-2.128555 -4.484036,-2.013338 -5.667477,0.207856 L -1.9350942,36.923366 c -0.5468664,1.026415 -0.5091875,2.26573 0.099018,3.256955 l 8.1412648,13.268973 c 1.321007,2.152973 4.4778184,2.066955 5.6795484,-0.154883 L 27.238178,25.0916 c 0.563784,-1.042306 0.521406,-2.307729 -0.110991,-3.309928 z" />
+    <linearGradient id="google-1-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#b6eaa4" stop-opacity="1" />
+      <stop offset=".38" stop-color="#6bbb77" stop-opacity="1" />
+      <stop offset=".47" stop-color="#47a257" stop-opacity="1" />
+      <stop offset=".54" stop-color="#6bbb77" stop-opacity="1" />
+      <stop offset="1" stop-color="#d5f4c4" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="google-1-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="google-1-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#d5f4c4" stop-opacity="0" />
+      <stop offset=".55" stop-color="#d5f4c4" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#d5f4c4" stop-opacity=".18" />
+      <stop offset="1" stop-color="#d5f4c4" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="google-1-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="google-1-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#b6eaa4" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#2c733b" stop-opacity=".18" />
+      <stop offset="1" stop-color="#d5f4c4" stop-opacity=".66" />
+    </linearGradient>
+    <path id="google-2-shape" d="m 22.834358,2.4562488 c -2.59454,0 -4.161531,2.870202 -2.758504,5.0526 L 37.265457,34.2476 c 0.603388,0.938631 1.642667,1.505946 2.758505,1.505946 h 15.816595 c 2.59454,0 4.161531,-2.870252 2.758504,-5.052612 L 41.409457,3.9622078 C 40.80607,3.0236148 39.766791,2.4562488 38.650953,2.4562488 Z" />
+    <linearGradient id="google-2-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#ffe7a4" stop-opacity="1" />
+      <stop offset=".38" stop-color="#e2ba59" stop-opacity="1" />
+      <stop offset=".47" stop-color="#c89a38" stop-opacity="1" />
+      <stop offset=".54" stop-color="#e2ba59" stop-opacity="1" />
+      <stop offset="1" stop-color="#fff1c8" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="google-2-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="google-2-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#fff1c8" stop-opacity="0" />
+      <stop offset=".55" stop-color="#fff1c8" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#fff1c8" stop-opacity=".18" />
+      <stop offset="1" stop-color="#fff1c8" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="google-2-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="google-2-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#ffe7a4" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#8b6c21" stop-opacity=".18" />
+      <stop offset="1" stop-color="#fff1c8" stop-opacity=".66" />
+    </linearGradient>
+  </defs>
+  <g id="cloud-google-normalized" transform="matrix(0.896860757 0 0 0.896860757 4.207818526 4.194875605)">
+    <g transform="matrix(0.98448915,0,0,0.98214285,2.2842645,1.0876129)">
+      <g>
+        <use fill="url(#google-0-body)" xlink:href="#google-0-shape" />
+        <use fill="url(#google-0-reflection)" xlink:href="#google-0-shape" />
+        <use fill="url(#google-0-lower-glow)" xlink:href="#google-0-shape" />
+        <use fill="url(#google-0-glint)" xlink:href="#google-0-shape" />
+        <use fill="none" stroke="url(#google-0-edge)" stroke-width="0.45" stroke-linejoin="round" xlink:href="#google-0-shape" />
+      </g>
+      <g>
+        <use fill="url(#google-1-body)" xlink:href="#google-1-shape" />
+        <use fill="url(#google-1-reflection)" xlink:href="#google-1-shape" />
+        <use fill="url(#google-1-lower-glow)" xlink:href="#google-1-shape" />
+        <use fill="url(#google-1-glint)" xlink:href="#google-1-shape" />
+        <use fill="none" stroke="url(#google-1-edge)" stroke-width="0.45" stroke-linejoin="round" xlink:href="#google-1-shape" />
+      </g>
+      <g>
+        <use fill="url(#google-2-body)" xlink:href="#google-2-shape" />
+        <use fill="url(#google-2-reflection)" xlink:href="#google-2-shape" />
+        <use fill="url(#google-2-lower-glow)" xlink:href="#google-2-shape" />
+        <use fill="url(#google-2-glint)" xlink:href="#google-2-shape" />
+        <use fill="none" stroke="url(#google-2-edge)" stroke-width="0.45" stroke-linejoin="round" xlink:href="#google-2-shape" />
+      </g>
+    </g>
+  </g>
+</svg>

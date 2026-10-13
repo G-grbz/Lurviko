@@ -26,6 +26,8 @@ Image {
     smooth: true
     mipmap: false
     cache: true
-    asynchronous: true
+    // Baked/cached folder pixels arrive in this frame, without waiting behind
+    // media thumbnails. All artwork that still needs decoding remains async.
+    asynchronous: String(source).indexOf("image://folderart/") !== 0
     retainWhileLoading: true
 }

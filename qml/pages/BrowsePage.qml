@@ -702,6 +702,7 @@ Item {
 
     GMenu {
         id: toolbarViewMenu
+        objectName: "toolbarViewMenu"
         parent: page
         maximumPopupHeight: Math.max(180, Math.min(620, page.height - 24))
         closePolicy: Popup.CloseOnEscape
@@ -794,6 +795,21 @@ Item {
             checkable: true
             checked: !AppTheme.useSystemIcons
             onTriggered: AppTheme.setSystemIcons(false)
+        }
+        Item {
+            objectName: "coloredFolderIconsSetting"
+            visible: !AppTheme.useSystemIcons
+            implicitHeight: !AppTheme.useSystemIcons ? 42 : 0
+            implicitWidth: 250
+            GSwitch {
+                objectName: "coloredFolderIconsSwitch"
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                text: lang.t("colored_folder_icons")
+                checked: AppTheme.useColoredFolderIcons
+                onToggled: AppTheme.setColoredFolderIcons(checked)
+            }
         }
         GMenuItem {
             text: lang.t("system_icons")

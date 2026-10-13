@@ -61,6 +61,7 @@ int main(int argc, char **argv) {
         "-c:v", "mpeg4", "-metadata", "title=Güneş ve Yağmur", videoPath});
     QQmlApplicationEngine engine;
     engine.addImageProvider("bundledicon", new BundledIconProvider);
+    engine.addImageProvider("folderart", new FolderIconProvider);
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.loadData(R"QML(
 import QtQuick

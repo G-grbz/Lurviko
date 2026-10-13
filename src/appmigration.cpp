@@ -1,8 +1,11 @@
 #include "appmigration.h"
+#include "iconreference.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QUrl>
+#include <QSettings>
+#include <functional>
 #include <KWallet>
 
 namespace {
@@ -121,4 +124,53 @@ QString relocatedAppPath(const QString &pathOrUrl)
         }
     }
     return pathOrUrl;
+}
+
+void migrateGroupedIconReferences(QSettings &settings, const QString &iconRoot)
+{
+    const QString base = QDir(iconRoot).absolutePath();
+    const auto relocate = [&base](const QString &reference) {
+        const QString local = IconReference::localFile(reference);
+        if (local.isEmpty()) return reference;
+        const QFileInfo old(QUrl(local).toLocalFile());
+        // Only retired flat files from this source tree qualify. Existing
+        // custom artwork, sibling folders and unrelated local files keep their paths.
+        if (old.absolutePath() != base || old.exists()) return reference;
+        for (const auto &group : {"png", "symbolic", "color"}) {
+            const QString next = QDir(base).filePath(QString::fromLatin1(group) + '/' + old.fileName());
+            if (QFileInfo(next).isFile())
+                return reference.startsWith('/') ? next : QUrl::fromLocalFile(next).toString(QUrl::FullyEncoded);
+        }
+        return reference;
+    };
+    std::function<QVariant(const QVariant &, bool)> update;
+    update = [&](const QVariant &value, bool iconField) -> QVariant {
+        if (value.metaType().id() == QMetaType::QString)
+            return iconField ? QVariant(relocate(value.toString())) : value;
+        if (value.metaType().id() == QMetaType::QVariantList) {
+            auto list = value.toList();
+            for (auto &entry : list) entry = update(entry, iconField);
+            return list;
+        }
+        if (value.metaType().id() == QMetaType::QVariantMap) {
+            auto map = value.toMap();
+            for (auto it = map.begin(); it != map.end(); ++it)
+                it.value() = update(it.value(), iconField || it.key().contains("icon", Qt::CaseInsensitive));
+            return map;
+        }
+        if (iconField && value.metaType().id() == QMetaType::QStringList) {
+            auto list = value.toStringList();
+            for (auto &entry : list) entry = relocate(entry);
+            return list;
+        }
+        return value;
+    };
+    bool changed = false;
+    for (const auto &key : settings.allKeys()) {
+        const bool iconField = key.contains("icon", Qt::CaseInsensitive);
+        if (!iconField && key != "quickAccess/items" && key != "favorites/items") continue;
+        const QVariant before = settings.value(key), after = update(before, iconField);
+        if (before != after) { settings.setValue(key, after); changed = true; }
+    }
+    if (changed) settings.sync();
 }

@@ -1,0 +1,87 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64" viewBox="0 0 64 64" version="1.1" role="img" aria-labelledby="onedrive-title">
+  <title id="onedrive-title">OneDrive</title>
+  <desc>Mevcut simge biçiminde katmanlı cam yüzey; Kobalt / gök mavisi. Parlak kenarlar ve yumuşak ışık yansımaları.</desc>
+  <defs>
+    <linearGradient id="onedrive-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#a4c6f6" stop-opacity="1" />
+      <stop offset=".38" stop-color="#578cde" stop-opacity="1" />
+      <stop offset=".47" stop-color="#3e71c4" stop-opacity="1" />
+      <stop offset=".54" stop-color="#578cde" stop-opacity="1" />
+      <stop offset="1" stop-color="#b4d9fc" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="onedrive-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="onedrive-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#b4d9fc" stop-opacity="0" />
+      <stop offset=".55" stop-color="#b4d9fc" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#b4d9fc" stop-opacity=".18" />
+      <stop offset="1" stop-color="#b4d9fc" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="onedrive-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="onedrive-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#a4c6f6" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#214989" stop-opacity=".18" />
+      <stop offset="1" stop-color="#b4d9fc" stop-opacity=".66" />
+    </linearGradient>
+    <path id="onedrive-shape-0" d="M9.2 18.5h9.5a4.3 4.3 0 0 0 .3-8.6A7 7 0 0 0 6.1 8.1a5.3 5.3 0 0 0 3.1 10.4z" />
+    <path id="onedrive-shape-1" d="M4.8 18.5h10a4 4 0 0 0 .4-8A5.8 5.8 0 0 0 4.4 8.8a4.9 4.9 0 0 0 .4 9.7z" />
+    <linearGradient id="onedrive-front-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#c2e2ff" stop-opacity="1" />
+      <stop offset=".38" stop-color="#82b4f0" stop-opacity="1" />
+      <stop offset=".47" stop-color="#609bdc" stop-opacity="1" />
+      <stop offset=".54" stop-color="#82b4f0" stop-opacity="1" />
+      <stop offset="1" stop-color="#d2edff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="onedrive-front-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="onedrive-front-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#d2edff" stop-opacity="0" />
+      <stop offset=".55" stop-color="#d2edff" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#d2edff" stop-opacity=".18" />
+      <stop offset="1" stop-color="#d2edff" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="onedrive-front-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="onedrive-front-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#c2e2ff" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#34659a" stop-opacity=".18" />
+      <stop offset="1" stop-color="#d2edff" stop-opacity=".66" />
+    </linearGradient>
+  </defs>
+  <g id="cloud-onedrive-normalized" transform="matrix(2.434337187 0 0 2.434337187 3.370952877 3.679753485)">
+    <g>
+      <use fill="url(#onedrive-body)" xlink:href="#onedrive-shape-0" />
+      <use fill="url(#onedrive-reflection)" xlink:href="#onedrive-shape-0" />
+      <use fill="url(#onedrive-lower-glow)" xlink:href="#onedrive-shape-0" />
+      <use fill="url(#onedrive-glint)" xlink:href="#onedrive-shape-0" />
+      <use fill="none" stroke="url(#onedrive-edge)" stroke-width="0.22" stroke-linejoin="round" xlink:href="#onedrive-shape-0" />
+    </g>
+    <g opacity=".88">
+      <use fill="url(#onedrive-front-body)" xlink:href="#onedrive-shape-1" />
+      <use fill="url(#onedrive-front-reflection)" xlink:href="#onedrive-shape-1" />
+      <use fill="url(#onedrive-front-lower-glow)" xlink:href="#onedrive-shape-1" />
+      <use fill="url(#onedrive-front-glint)" xlink:href="#onedrive-shape-1" />
+      <use fill="none" stroke="url(#onedrive-front-edge)" stroke-width="0.22" stroke-linejoin="round" xlink:href="#onedrive-shape-1" />
+    </g>
+  </g>
+</svg>

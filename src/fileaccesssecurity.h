@@ -14,7 +14,11 @@ struct FileAccessTask {
 
 namespace FileAccessSecurity {
 void applyLocalAccess(const QString &path, int mode, uid_t owner, gid_t group, bool recursive,
-                      const std::shared_ptr<FileAccessTask> &task);
+                      const std::shared_ptr<FileAccessTask> &task, int modeMask = 0777);
+// The caller retains the already opened root descriptor. Administrator jobs
+// use this entry point so no pathname is reopened after authentication.
+void applyDescriptorAccess(int descriptor, const QString &display, int mode, uid_t owner, gid_t group,
+                           bool recursive, const std::shared_ptr<FileAccessTask> &task, int modeMask = 0777);
 struct TreeCheck {
     bool safe = false;
     QString path;

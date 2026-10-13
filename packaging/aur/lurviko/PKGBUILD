@@ -2,7 +2,7 @@
 # Maintainer: G-grbz <gkhn.gurbuz@hotmail.com>
 
 pkgname=lurviko
-pkgver=1.2.0
+pkgver=1.3.0
 pkgrel=1
 pkgdesc='Qt Quick file manager with media libraries, cloud storage and an encrypted vault'
 arch=('x86_64')
@@ -34,11 +34,14 @@ optdepends=(
   'python-pillow: optional media worker artwork processing'
   'breeze-icons: fallback icon theme'
   'kio-extras: additional network and filesystem protocols'
-  'kio-admin: administrator authentication for file ownership and permissions'
+  'kio-admin: authenticated administrator locations'
+  'polkit: administrator authentication for file ownership and permissions'
 )
 install=lurviko.install
 source=("Lurviko-${pkgver}-${pkgrel}.tar.gz::${url}/releases/download/v${pkgver}/Lurviko-${pkgver}.tar.gz")
-sha256sums=('8d3866e7ace9d8cfcb6985819337f8c0c079d6e9c31dc1630ef09323dc138a3b')
+# Unreleased: fill in the real SHA-256 after the v1.3.0 release archive exists.
+# Do not publish this recipe to AUR until the checksum has been updated.
+sha256sums=('RELEASE_PENDING')
 
 prepare() {
   # Installed workers are found in /usr/share/Lurviko. Do not embed the

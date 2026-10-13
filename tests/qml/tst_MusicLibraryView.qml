@@ -16,15 +16,23 @@ Item {
         manager: library
         player: player
     }
+    SignalSpy { id: revealSpy; target: music; signalName: "revealRequested" }
     TestCase {
         name: "MusicLibraryView"
         when: windowShown
+        property bool savedHoverEnabled
         function initTestCase() {
+            savedHoverEnabled = AppTheme.musicHoverEnabled
+            AppTheme.setMusicHoverPreferences(false, AppTheme.musicHoverAnimationsEnabled, AppTheme.musicHoverDelayMs)
             const tracks = []
             for (let i = 0; i < 2836; ++i)
                 tracks.push({name: "Track " + i, title: "Track " + String(i).padStart(4, "0"),
-                             artist: "Artist", album: "Album", itemUrl: "file:///tmp/music-" + i + ".mp3"})
+                             artist: "Artist", album: "Album", itemUrl: "file:///tmp/music-" + i + ".mp3",
+                             thumbnailSource: "qrc:/qt/qml/Lurviko/App/assets/icons/logo.png"})
             library.tracks = tracks
+        }
+        function cleanupTestCase() {
+            AppTheme.setMusicHoverPreferences(savedHoverEnabled, AppTheme.musicHoverAnimationsEnabled, AppTheme.musicHoverDelayMs)
         }
         function init() {
             music.visible = true
@@ -102,6 +110,58 @@ Item {
             music.browseGroup(music.viewItems[0])
             tryVerify(function() { return music.viewItems.length === 2836 })
             music.closeGroup()
+        }
+        function test_loaded_covers_survive_repeated_tab_and_density_changes() {
+            const grid = findChild(music, "musicLibraryGrid")
+            tryVerify(function() {
+                const cover = findChild(music, "musicTrackCover")
+                return cover && cover.status === Image.Ready
+            })
+            for (let cycle = 0; cycle < 3; ++cycle) {
+                for (const tab of [1, 2, 0, 5, 6, 3, 4, 7, 0]) {
+                    music.tabIndex = tab
+                    wait(120)
+                    music.cardSize = cycle % 2 ? 360 : 104
+                    wait(30)
+                    if (tab === 1 || tab === 2) {
+                        tryVerify(function() {
+                            return music.viewItems.length === 1
+                                && music.viewItems[0].kind === (tab === 1 ? "album" : "artist")
+                        })
+                        tryVerify(function() {
+                            const cover = findChild(music, "musicCollectionCover")
+                            return cover && cover.status === Image.Ready
+                        })
+                        music.browseGroup(music.viewItems[0])
+                        tryCompare(grid, "count", 2836)
+                        wait(100)
+                        music.closeGroup()
+                        tryVerify(function() { return music.viewItems.length === 1 })
+                    }
+                }
+            }
+            compare(music.tabIndex, 0)
+            tryCompare(grid, "count", 2836)
+        }
+        function test_right_click_track_has_folder_and_external_actions() {
+            const grid = findChild(music, "musicLibraryGrid")
+            grid.forceLayout()
+            tryVerify(function() { return grid.itemAtIndex(0) !== null })
+            const area = findChild(grid.itemAtIndex(0), "musicTrackMouse")
+            verify(area !== null)
+            mouseClick(area, 18, 18, Qt.RightButton)
+            const menu = findChild(music, "musicTrackMenu")
+            tryCompare(menu, "visible", true)
+            verify(music.contextTrack.itemUrl.length > 0)
+            const target = music.contextTrack.itemUrl
+            const folderAction = findChild(music, "musicOpenContainingFolder")
+            const externalAction = findChild(music, "musicOpenExternally")
+            verify(folderAction !== null && externalAction !== null)
+            revealSpy.clear()
+            folderAction.triggered()
+            compare(revealSpy.count, 1)
+            compare(revealSpy.signalArguments[0][0], target)
+            menu.close()
         }
         function test_only_the_active_tab_draws_a_scrollbar() {
             const tracksBar = findChild(music, "musicLibraryScrollBar")

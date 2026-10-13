@@ -94,6 +94,7 @@ int main(int argc, char **argv) {
   engine.addImageProvider("gfilethumb", new ThumbnailProvider);
   engine.addImageProvider("systemicon", new SystemIconProvider);
   engine.addImageProvider("bundledicon", new BundledIconProvider);
+  engine.addImageProvider("folderart", new FolderIconProvider);
   engine.rootContext()->setContextProperty("testBase", base);
   std::fprintf(stderr, "QML_LOAD_START\n");
   engine.loadData(R"qml(

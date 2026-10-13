@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icons/logo.png" width="96" alt="Lurviko logo">
+  <img src="assets/icons/png/logo.png" width="96" alt="Lurviko logo">
 </p>
 
 <p align="center">Your files, media and cloud storage in one Linux desktop app.</p>
@@ -207,7 +207,8 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 | Archive creation / extraction | `bsdtar` from libarchive creates and safely extracts archives; `7z` from 7zip inspects entries for overwrite confirmation. Format support depends on libarchive; unsafe destination links are rejected. |
 | AppImage icon extraction | `unsquashfs` from squashfs-tools |
 | Additional image formats | Qt image-format plugins |
-| Administrator locations, file ownership and permissions | `kio-admin` and a functioning Polkit agent |
+| Administrator locations | `kio-admin` and a functioning Polkit agent |
+| Administrator file ownership and permissions | `polkit` (`pkexec`), a functioning Polkit agent, and the installed Lurviko access helper |
 | Terminal, external search, disk usage | Your configured terminal; optional `kfind`, `filelight` |
 | Device/Bluetooth sending | Optional KDE Connect/Bluetooth tools |
 | Film metadata | A user-provided TMDB read-access token in settings or `TMDB_API_TOKEN` |
@@ -215,15 +216,26 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 ### File permissions and ownership
 
 Properties provides an editable octal permission code, individual read/write/execute
-controls, and owner/group selectors. Normal changes use your current account's
+controls, and searchable owner/group fields. Type an account prefix to see
+suggestions and a faint completion hint. Tab completes a unique match or cycles
+multiple suggestions; Up/Down moves the selection and Enter accepts it.
+Normal changes use your current account's
 permissions; the group selector lists groups your account belongs to. Enable
 **Use administrator authentication** to select any system user or group and let
-the system's authentication dialog authorize the change. This requires `kio-admin`
-and a running Polkit agent; Lurviko does not collect administrator passwords.
+the system's authentication dialog authorize the change. This requires `polkit`
+(`pkexec`), a running Polkit agent and the installed `lurviko-access-helper`;
+Lurviko does not collect administrator passwords. The helper operates on pinned
+file descriptors, skips symbolic links and other filesystems during recursion,
+and can repair folders whose access permissions were removed. Selected paths
+containing symbolic-link ancestors are rejected; use the resolved location.
+Linux 6.5 or newer with glibc 2.39 or newer is required for these descriptor-based
+permission changes; unsupported systems fail safely without path-based fallback.
 
 Folders need execute ("Enter folder") permission to access their children and
 read file metadata. `0644` is a common file mode; folders typically use `0755`
 or `0700`. Removing folder access does not erase the files inside it.
+Renaming or removing an item is controlled by its parent folder's permissions
+(and sticky-bit restrictions), rather than the item's owner alone.
 
 For folders, **Apply to enclosed files and folders** includes hidden entries,
 skips symbolic links, and supports cancellation. Execute permissions apply to
@@ -317,7 +329,7 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 Published tags are immutable: source fixes need a new version/tag rather than
 replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
 
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.2.0`** (or `Lurviko-v1.2.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.2.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.3.0`** (or `Lurviko-v1.3.0`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.3.0** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
 
 The workflow publishes source code; it does not produce distribution packages. See [GitHub tag triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push) and [release creation](https://cli.github.com/manual/gh_release_create).
 

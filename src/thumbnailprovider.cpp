@@ -64,7 +64,7 @@ struct ThumbnailMemoryCache {
     QMutex mutex;
     // QCache costs are KiB here. Keep final, view-sized images instead of the
     // larger 384/512 px source cache so repeated directory visits stay cheap.
-    QCache<QString, QImage> images{64 * 1024};
+    QCache<QString, QImage> images{32 * 1024};
 };
 
 ThumbnailMemoryCache &thumbnailMemoryCache()
@@ -87,7 +87,7 @@ void storeMemoryThumbnail(const QString &key, const QImage &image)
     if (image.isNull())
         return;
     ThumbnailMemoryCache &cache = thumbnailMemoryCache();
-    const int costKiB = qMax<qsizetype>(1, image.sizeInBytes() / 1024);
+    const int costKiB = qMax<qsizetype>(1, (image.sizeInBytes() + 1023) / 1024);
     QMutexLocker locker(&cache.mutex);
     cache.images.insert(key, new QImage(image), costKiB);
 }

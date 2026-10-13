@@ -1,0 +1,58 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64" viewBox="0 0 64 64" version="1.1" role="img" aria-labelledby="mega-title">
+  <title id="mega-title">MEGA</title>
+  <desc>Mevcut MEGA biçiminde gül / mercan tonlarında cam yüzey.</desc>
+  <defs>
+    <linearGradient id="mega-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#f5adb8" stop-opacity="1" />
+      <stop offset=".38" stop-color="#dc697d" stop-opacity="1" />
+      <stop offset=".47" stop-color="#c14e66" stop-opacity="1" />
+      <stop offset=".54" stop-color="#dc697d" stop-opacity="1" />
+      <stop offset="1" stop-color="#ffd1d8" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="mega-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="mega-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#ffd1d8" stop-opacity="0" />
+      <stop offset=".55" stop-color="#ffd1d8" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#ffd1d8" stop-opacity=".18" />
+      <stop offset="1" stop-color="#ffd1d8" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="mega-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="mega-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#f5adb8" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#8d2440" stop-opacity=".18" />
+      <stop offset="1" stop-color="#ffd1d8" stop-opacity=".66" />
+    </linearGradient>
+    <rect x="4" y="4" width="56" height="56" rx="13.002" ry="13.002" id="mega-shape" />
+    <g id="mega-glyph">
+      <path d="M16.347 42.433V21.564h5.217v20.87m20.869-.001V21.564h5.217v20.87" />
+      <path d="M20.26 21.564h1.304L32 32l10.434-10.435h1.305v5.218l-10.435 9.13h-2.608l-10.435-9.13" />
+    </g>
+    <linearGradient id="mega-glyph-fill" x1="0%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1" />
+      <stop offset="1" stop-color="#fff0f3" stop-opacity="1" />
+    </linearGradient>
+  </defs>
+  <g id="cloud-mega-normalized" transform="matrix(0.9893992933 0 0 0.9893992933 0.3392226148 0.3392226148)">
+    <g>
+      <use fill="url(#mega-body)" xlink:href="#mega-shape" />
+      <use fill="url(#mega-reflection)" xlink:href="#mega-shape" />
+      <use fill="url(#mega-lower-glow)" xlink:href="#mega-shape" />
+      <use fill="url(#mega-glint)" xlink:href="#mega-shape" />
+      <use fill="none" stroke="url(#mega-edge)" stroke-width="0.6" stroke-linejoin="round" xlink:href="#mega-shape" />
+    </g>
+    <use fill="#8d2440" opacity=".18" transform="translate(.45 .65)" xlink:href="#mega-glyph" />
+    <use fill="url(#mega-glyph-fill)" xlink:href="#mega-glyph" />
+  </g>
+</svg>

@@ -1,0 +1,176 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="58" viewBox="0 0 64 58" version="1.1" role="img" aria-labelledby="turquoise-download-title">
+  <title id="turquoise-download-title">Turkuaz — İndirilenler</title>
+  <desc>turquoise cam klasör; referans ikonlardan alınan gradyan tonları ve downloads.svg ile aynı sembol.</desc>
+  <defs>
+    <linearGradient id="turquoise-download-folder-back-body" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-folder-back-reflection" gradientUnits="userSpaceOnUse" x1="54.753499999999995" y1="15.0871" x2="27.336000000000002" y2="35.943799999999996">
+      <stop offset="0" stop-color="#defff5" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#defff5" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#defff5" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#defff5" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#defff5" stop-opacity="0" />
+      <stop offset="1" stop-color="#defff5" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-folder-back-lower-glow" gradientUnits="userSpaceOnUse" x1="31.45" y1="55.390100000000004" x2="31.45" y2="38.682599999999994">
+      <stop offset="0" stop-color="#96f4d7" stop-opacity="1" />
+      <stop offset="0.72590101" stop-color="#96f4d7" stop-opacity="0.16470588" />
+      <stop offset="0.78715777" stop-color="#96f4d7" stop-opacity="0.12156863" />
+      <stop offset="0.84562707" stop-color="#96f4d7" stop-opacity="0.08627451" />
+      <stop offset="0.91712201" stop-color="#96f4d7" stop-opacity="0.05882353" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="turquoise-download-folder-back-glint" gradientUnits="userSpaceOnUse" cx=".927" cy=".0486" fx=".927" fy=".0486" r=".5" gradientTransform="matrix(55 0 0 41 4.5 12.5)">
+      <stop offset="0" stop-color="#defff5" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#defff5" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#defff5" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#defff5" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#defff5" stop-opacity="0" />
+      <stop offset="1" stop-color="#defff5" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="turquoise-download-folder-back-edge" x1="3.6118641" y1="14.073239" x2="34.905312" y2="62.217007" gradientTransform="scale(1.1559128,0.86511714)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#defff5" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#71d8cc" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#066d80" stop-opacity=".18" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity=".66" />
+    </linearGradient>
+    <path id="turquoise-download-folder-back-shape" d="m 4.5,20.5 c 0,-4.7 3.3,-8 8,-8 h 7.9 c 2.7,0 4.4,0.8 6.2,2.8 L 30,19 h 21.5 c 5,0 8,3 8,8 v 18 c 0,5.3 -3.2,8.5 -8.5,8.5 H 13 C 7.7,53.5 4.5,50.3 4.5,45 Z" />
+    <linearGradient id="turquoise-download-folder-paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7fffc" stop-opacity=".94" />
+      <stop offset="1" stop-color="#85dfd3" stop-opacity=".68" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-folder-front-body" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#71d8cc" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#239caf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-folder-front-reflection" gradientUnits="userSpaceOnUse" x1="54.753499999999995" y1="24.895506100000002" x2="27.336000000000002" y2="40.4266258">
+      <stop offset="0" stop-color="#defff5" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#defff5" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#defff5" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#defff5" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#defff5" stop-opacity="0" />
+      <stop offset="1" stop-color="#defff5" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-folder-front-lower-glow" gradientUnits="userSpaceOnUse" x1="31.45" y1="54.9074791" x2="31.45" y2="42.4660966">
+      <stop offset="0" stop-color="#96f4d7" stop-opacity="1" />
+      <stop offset="0.72590101" stop-color="#96f4d7" stop-opacity="0.16470588" />
+      <stop offset="0.78715777" stop-color="#96f4d7" stop-opacity="0.12156863" />
+      <stop offset="0.84562707" stop-color="#96f4d7" stop-opacity="0.08627451" />
+      <stop offset="0.91712201" stop-color="#96f4d7" stop-opacity="0.05882353" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="turquoise-download-folder-front-glint" gradientUnits="userSpaceOnUse" cx=".927" cy=".0486" fx=".927" fy=".0486" r=".5" gradientTransform="matrix(55 0 0 30.531 4.5 22.969)">
+      <stop offset="0" stop-color="#defff5" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#defff5" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#defff5" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#defff5" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#defff5" stop-opacity="0" />
+      <stop offset="1" stop-color="#defff5" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="turquoise-download-folder-front-edge" x1="3.1251268" y1="30.251396" x2="30.20145" y2="71.90728" gradientTransform="scale(1.3359457,0.74853339)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#defff5" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#71d8cc" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#066d80" stop-opacity=".18" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity=".66" />
+    </linearGradient>
+    <path id="turquoise-download-folder-front-shape" d="m 4.5,27.5 c 0,-2.9 2.1,-4.8 5.1,-4.5 l 43.5,3.1 c 4.2,0.3 6.4,2.7 6.4,6.9 v 12 c 0,5.3 -3.2,8.5 -8.5,8.5 H 13 C 7.7,53.5 4.5,50.3 4.5,45 Z" />
+    <linearGradient xlink:href="#turquoise-download-folder-paper" id="turquoise-download-linearGradient54" x1="15.594224" y1="20.196621" x2="15.594224" y2="47.573666" gradientTransform="matrix(1.0817554,0,0,0.93482766,-4.130338,2.4260776)" gradientUnits="userSpaceOnUse" />
+    <linearGradient xlink:href="#turquoise-download-folder-paper" id="turquoise-download-linearGradient55" x1="19.17029" y1="22.56617" x2="19.17029" y2="49.952297" gradientTransform="matrix(1.1015924,0,0,0.91799365,2.4810984,-4.4469006)" gradientUnits="userSpaceOnUse" />
+    <linearGradient id="turquoise-download-linearGradient60" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient62" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#71d8cc" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#239caf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient64" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#71d8cc" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#239caf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient1" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#71d8cc" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#239caf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#29a6b5" stop-opacity="1" />
+      <stop offset="1" stop-color="#96f4d7" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient2" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient3" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient4" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient5" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-linearGradient6" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#066d80" stop-opacity="1" />
+      <stop offset="1" stop-color="#63efd1" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="turquoise-download-ref-downloads-glyph-fill" x1="30" y1="22" x2="44" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#defff5" id="turquoise-download-ref-stop21" />
+      <stop stop-color="#ffffff" id="turquoise-download-ref-stop20" offset="1" />
+    </linearGradient>
+    <linearGradient xlink:href="#turquoise-download-ref-downloads-glyph-fill" id="turquoise-download-ref-linearGradient34" x1="55.026356" y1="37.384018" x2="18.865604" y2="37.384018" gradientUnits="userSpaceOnUse" />
+  </defs>
+  <g id="turquoise-download-g1" transform="matrix(1.0578295,0,0,1.1279835,-1.8505449,-7.095473)">
+    <g id="turquoise-download-g48" transform="matrix(1.0056117,0,0,1.0056117,-0.17957351,-1.1851852)">
+      <use fill="url(#turquoise-download-folder-back-body)" xlink:href="#turquoise-download-folder-back-shape" id="turquoise-download-use44" style="fill:url(#turquoise-download-linearGradient6)" />
+      <use fill="url(#turquoise-download-folder-back-reflection)" xlink:href="#turquoise-download-folder-back-shape" id="turquoise-download-use45" style="fill:url(#turquoise-download-folder-back-reflection)" opacity=".22" />
+      <use fill="url(#turquoise-download-folder-back-lower-glow)" xlink:href="#turquoise-download-folder-back-shape" id="turquoise-download-use46" style="fill:url(#turquoise-download-folder-back-lower-glow)" opacity=".22" />
+      <use fill="url(#turquoise-download-folder-back-glint)" xlink:href="#turquoise-download-folder-back-shape" id="turquoise-download-use47" style="fill:url(#turquoise-download-folder-back-glint)" opacity=".22" />
+      <use fill="none" stroke="url(#turquoise-download-folder-back-edge)" stroke-width="0.65" stroke-linejoin="round" xlink:href="#turquoise-download-folder-back-shape" id="turquoise-download-use48" style="stroke:url(#turquoise-download-folder-back-edge)" />
+    </g>
+    <rect x="12.96506" y="21.5327" width="29.162739" height="25.140291" rx="3.3185184" transform="rotate(-6.9999997)" fill="url(#turquoise-download-folder-paper)" stroke="#defff5" stroke-opacity="0.55" stroke-width="0.452525" id="turquoise-download-rect48" style="fill:url(#turquoise-download-linearGradient54);stroke:url(#turquoise-download-linearGradient62);stroke-width:0.206;stroke-dasharray:none;stroke-opacity:0.55" />
+    <rect x="23.598944" y="16.2687" width="30.16835" height="25.140291" rx="3.3185184" transform="rotate(5)" fill="url(#turquoise-download-folder-paper)" opacity="0.85" id="turquoise-download-rect49" style="fill:url(#turquoise-download-linearGradient55);stroke:url(#turquoise-download-linearGradient64);stroke-width:0.206;stroke-dasharray:none" />
+    <path d="M 24.960719,23.452301 H 43.06173" fill="none" stroke="#259faf" stroke-opacity="0.32" stroke-width="1.10617" stroke-linecap="round" id="turquoise-download-path49" />
+    <path d="m 9.6754212,22.044445 43.5429868,3.117396 c 3.720763,0.301684 5.832548,2.51403 6.134231,5.631426 L 8.4686871,27.273626 Z" fill="#066d80" opacity="0.12" id="turquoise-download-path50" style="stroke-width:1.00561" />
+    <g id="turquoise-download-g54" transform="matrix(1.0056117,0,0,1.0056117,-0.17957351,-1.1851852)">
+      <use fill="url(#turquoise-download-folder-front-body)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use50" style="fill:url(#turquoise-download-linearGradient1)" />
+      <use fill="url(#turquoise-download-folder-front-reflection)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use51" style="fill:url(#turquoise-download-folder-front-reflection)" />
+      <use fill="url(#turquoise-download-folder-front-lower-glow)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use52" style="fill:url(#turquoise-download-folder-front-lower-glow)" />
+      <use fill="url(#turquoise-download-folder-front-glint)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use53" style="fill:url(#turquoise-download-folder-front-glint)" />
+      <use fill="none" stroke="url(#turquoise-download-folder-front-edge)" stroke-width="0.65" stroke-linejoin="round" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use54" style="stroke:url(#turquoise-download-folder-front-edge)" />
+    </g>
+    <path d="M 9.6754212,22.547251 52.615041,25.564086" fill="none" stroke="#defff5" stroke-opacity="0.56" stroke-width="0.754209" stroke-linecap="round" id="turquoise-download-path54" />
+    <g id="turquoise-download-g59" transform="matrix(1.0056117,0,0,1.0056117,-0.17957351,-1.1851852)" style="fill:none;fill-opacity:1;stroke:url(#turquoise-download-linearGradient60);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1">
+      <use fill="url(#turquoise-download-folder-front-body)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use55" style="fill:none;fill-opacity:1;stroke:url(#turquoise-download-linearGradient2);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="url(#turquoise-download-folder-front-reflection)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use56" style="fill:none;fill-opacity:1;stroke:url(#turquoise-download-linearGradient3);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="url(#turquoise-download-folder-front-lower-glow)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use57" style="fill:none;fill-opacity:1;stroke:url(#turquoise-download-linearGradient4);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="url(#turquoise-download-folder-front-glint)" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use58" style="fill:none;fill-opacity:1;stroke:url(#turquoise-download-linearGradient5);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="none" stroke="url(#turquoise-download-folder-front-edge)" stroke-width="0.65" stroke-linejoin="round" xlink:href="#turquoise-download-folder-front-shape" id="turquoise-download-use59" style="fill:none;fill-opacity:1;stroke:url(#turquoise-download-linearGradient60);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+    </g>
+  </g>
+  <g id="turquoise-download-symbol" transform="matrix(0.596816457 0 0 0.596816457 10.08029693 15.31887214)" data-symbol-source="downloads.svg">
+    <g id="turquoise-download-ref-reference-symbol">
+      <g id="turquoise-download-ref-g32" style="fill:#066d80;fill-opacity:1;opacity:0.18">
+        <rect x="17.495602" y="-45.328537" width="36.444427" height="16.537115" rx="6.2420626" id="turquoise-download-ref-rect6-8" transform="rotate(90)" ry="7.377099" style="fill:#066d80;fill-opacity:1;stroke-width:0.764939" />
+        <path d="m 22.273161,37.639938 h 29.345532 c 3.260683,0 4.890966,3.079639 1.63033,6.158817 L 40.206855,56.118159 c -1.630854,1.539026 -4.890993,1.539026 -6.521447,0 L 20.642838,43.798755 c -3.260548,-3.079178 -1.630105,-6.158817 1.630323,-6.158817 z" id="turquoise-download-ref-path8836-6" style="fill:#066d80;fill-opacity:1;stroke-width:0.764939" />
+      </g>
+      <g id="turquoise-download-ref-g33" style="opacity:1;fill:url(#turquoise-download-ref-linearGradient34);fill-opacity:1" transform="translate(-0.43654181,-0.43654181)">
+        <rect x="17.495602" y="-45.328537" width="36.444427" height="16.537115" rx="6.2420626" id="turquoise-download-ref-rect32" transform="rotate(90)" ry="7.377099" style="fill:url(#turquoise-download-ref-linearGradient34);fill-opacity:1;stroke-width:0.764939" />
+        <path d="m 22.273161,37.639938 h 29.345532 c 3.260683,0 4.890966,3.079639 1.63033,6.158817 L 40.206855,56.118159 c -1.630854,1.539026 -4.890993,1.539026 -6.521447,0 L 20.642838,43.798755 c -3.260548,-3.079178 -1.630105,-6.158817 1.630323,-6.158817 z" id="turquoise-download-ref-path32" style="fill:url(#turquoise-download-ref-linearGradient34);fill-opacity:1;stroke-width:0.764939" />
+      </g>
+    </g>
+  </g>
+</svg>

@@ -57,6 +57,46 @@ int main(int argc, char **argv) {
     QSettings current;
     require(current.value("ui/language").toString() == "tr", "language migrated");
     require(current.value("BrowserView/musicIconSize").toInt() == 287, "view preference migrated");
+    const QString icons = data + "/artwork-source/assets/icons";
+    const QString flat = icons + "/folder.svg", grouped = icons + "/color/folder.svg";
+    write(grouped, "fixture SVG");
+    write(icons + "/symbolic/nav-up.svg", "fixture glyph");
+    write(icons + "/png/logo.png", "fixture PNG");
+    write(icons + "/keep.svg", "explicit old custom file");
+    write(icons + "/color/keep.svg", "different grouped file");
+    current.setValue("AppSidebar/dashboardIcon", flat);
+    current.setValue("AppSidebar/navIcon", "system:" + icons + "/nav-up.svg");
+    current.setValue("AppSidebar/logoIcon", QUrl::fromLocalFile(icons + "/logo.png").toString());
+    current.setValue("AppSidebar/keepIcon", icons + "/keep.svg");
+    current.setValue("AppSidebar/unavailableIcon", icons + "/not-bundled.svg");
+    current.setValue("AppSidebar/siblingIcon", icons + "-other/folder.svg");
+    current.setValue("AppSidebar/themeIcon", "system:folder-pictures");
+    current.setValue("cloud/accessToken", flat);
+    const QVariantList shortcuts{QVariantMap{{"icon", QUrl::fromLocalFile(flat).toString()},
+                                             {"title", flat}, {"location", flat}}};
+    current.setValue("quickAccess/items", shortcuts);
+    current.setValue("favorites/items", shortcuts);
+    migrateGroupedIconReferences(current, icons);
+    require(current.value("AppSidebar/dashboardIcon").toString() == grouped,
+            "retired source icon path moves to its color folder");
+    require(current.value("AppSidebar/navIcon").toString() == QUrl::fromLocalFile(icons + "/symbolic/nav-up.svg").toString()
+            && current.value("AppSidebar/logoIcon").toString() == QUrl::fromLocalFile(icons + "/png/logo.png").toString(),
+            "legacy system-prefixed local icons and PNG URLs migrate safely");
+    for (const auto &key : {"quickAccess/items", "favorites/items"}) {
+        const auto item = current.value(key).toList().first().toMap();
+        require(item.value("icon").toString() == QUrl::fromLocalFile(grouped).toString()
+                && item.value("title").toString() == flat && item.value("location").toString() == flat,
+                "nested quick-access and favorite icons migrate without rewriting navigation or titles");
+    }
+    require(current.value("AppSidebar/keepIcon").toString() == icons + "/keep.svg"
+            && current.value("AppSidebar/unavailableIcon").toString() == icons + "/not-bundled.svg"
+            && current.value("AppSidebar/siblingIcon").toString() == icons + "-other/folder.svg"
+            && current.value("AppSidebar/themeIcon").toString() == "system:folder-pictures"
+            && current.value("cloud/accessToken").toString() == flat,
+            "existing files, unavailable icons, siblings, theme names and unrelated settings stay intact");
+    migrateGroupedIconReferences(current, icons);
+    require(current.value("AppSidebar/dashboardIcon").toString() == grouped, "grouped icon migration is idempotent");
+    std::puts("PASS: grouped icon references migrate without changing unrelated preferences or navigation");
     require(read(data + "/Lurviko/Lurviko/.private-vault/vault.json") == vaultBytes, "encrypted header unchanged");
     require(read(data + "/Lurviko/music-library.json") == "music history", "music history retained");
     require(read(config + "/Lurviko/subtitle-ai/settings.json").contains("retained"), "subtitle settings retained");

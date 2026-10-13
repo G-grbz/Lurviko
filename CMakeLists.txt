@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.2.0 LANGUAGES CXX)
+project(Lurviko VERSION 1.3.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -70,6 +70,11 @@ find_package(KF6Wallet REQUIRED)
 find_package(KF6IconThemes REQUIRED)
 find_package(KF6Archive REQUIRED)
 find_package(KF6WindowSystem REQUIRED)
+
+add_executable(lurviko-access-helper src/fileaccesshelper.cpp src/fileaccesssecurity.cpp)
+target_link_libraries(lurviko-access-helper PRIVATE Qt6::Core Qt6::Concurrent)
+file(RELATIVE_PATH LURVIKO_ACCESS_HELPER_RELATIVE_PATH
+    "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBEXECDIR}/lurviko-access-helper")
 
 qt_standard_project_setup(REQUIRES 6.9)
 qt_policy(SET QTP0004 NEW)
@@ -161,9 +166,56 @@ qt_add_executable(lurviko
 )
 
 target_compile_definitions(lurviko PRIVATE
+    LURVIKO_ACCESS_HELPER_RELATIVE_PATH="${LURVIKO_ACCESS_HELPER_RELATIVE_PATH}"
     LURVIKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     LURVIKO_VERSION="${PROJECT_VERSION}"
 )
+
+# Physical artwork is grouped for editing; stable resource aliases keep saved
+# icon names and all QML/native renderers independent from the source folders.
+file(GLOB LURVIKO_ICON_FILES CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/png/*.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/symbolic/*.svg")
+file(GLOB_RECURSE LURVIKO_COLOR_ICON_FILES CONFIGURE_DEPENDS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/color/*.svg")
+list(APPEND LURVIKO_ICON_FILES ${LURVIKO_COLOR_ICON_FILES})
+list(SORT LURVIKO_ICON_FILES)
+set(LURVIKO_ICON_NAMES)
+foreach(LURVIKO_ICON_FILE IN LISTS LURVIKO_ICON_FILES)
+    get_filename_component(LURVIKO_ICON_NAME "${LURVIKO_ICON_FILE}" NAME)
+    if(LURVIKO_ICON_NAME IN_LIST LURVIKO_ICON_NAMES)
+        message(FATAL_ERROR "Duplicate bundled icon filename: ${LURVIKO_ICON_NAME}")
+    endif()
+    list(APPEND LURVIKO_ICON_NAMES "${LURVIKO_ICON_NAME}")
+    set_source_files_properties("${LURVIKO_ICON_FILE}" PROPERTIES
+        QT_RESOURCE_ALIAS "assets/icons/${LURVIKO_ICON_NAME}")
+endforeach()
+
+# Rebuild reusable raster sizes automatically when an editable folder SVG
+# changes. No runtime SVG rendering, recoloring or external image tool needed.
+add_executable(lurviko-render-folder-icons tools/render-folder-icons.cpp)
+target_link_libraries(lurviko-render-folder-icons PRIVATE Qt6::Gui)
+set(LURVIKO_FOLDER_RASTERS)
+foreach(LURVIKO_ICON_FILE IN LISTS LURVIKO_COLOR_ICON_FILES)
+    get_filename_component(LURVIKO_ICON_NAME "${LURVIKO_ICON_FILE}" NAME)
+    if(NOT LURVIKO_ICON_NAME MATCHES "^(folder|(blue|green|orange|pink|purple|red|turquoise|yellow)-(folder|documents|download|music|picture|video))\\.svg$")
+        continue()
+    endif()
+    set(LURVIKO_FOLDER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/assets/folder-raster/${LURVIKO_ICON_NAME}")
+    set(LURVIKO_FOLDER_OUTPUTS)
+    foreach(LURVIKO_EXTENT 64 128 192 256 320 384 448 512)
+        set(LURVIKO_RASTER "${LURVIKO_FOLDER_OUTPUT_DIR}/${LURVIKO_EXTENT}.png")
+        list(APPEND LURVIKO_FOLDER_OUTPUTS "${LURVIKO_RASTER}")
+        set_source_files_properties("${LURVIKO_RASTER}" PROPERTIES GENERATED TRUE
+            QT_RESOURCE_ALIAS "assets/folder-raster/${LURVIKO_ICON_NAME}/${LURVIKO_EXTENT}.png")
+    endforeach()
+    add_custom_command(OUTPUT ${LURVIKO_FOLDER_OUTPUTS}
+        COMMAND lurviko-render-folder-icons "${CMAKE_CURRENT_SOURCE_DIR}/${LURVIKO_ICON_FILE}" "${LURVIKO_FOLDER_OUTPUT_DIR}"
+        DEPENDS lurviko-render-folder-icons "${CMAKE_CURRENT_SOURCE_DIR}/${LURVIKO_ICON_FILE}"
+        VERBATIM)
+    list(APPEND LURVIKO_FOLDER_RASTERS ${LURVIKO_FOLDER_OUTPUTS})
+endforeach()
+qt_add_resources(lurviko folder_rasters PREFIX "/qt/qml/Lurviko/App" FILES ${LURVIKO_FOLDER_RASTERS})
 
 qt_add_qml_module(lurviko
     URI Lurviko.App
@@ -171,6 +223,7 @@ qt_add_qml_module(lurviko
     QML_FILES
         qml/Main.qml
         qml/AppTheme.qml
+        qml/FolderArtwork.js
         qml/GButton.qml
         qml/GToolButton.qml
         qml/GTextField.qml
@@ -178,6 +231,7 @@ qt_add_qml_module(lurviko
         qml/GSwitch.qml
         qml/GCheckBox.qml
         qml/GComboBox.qml
+        qml/GAccountPicker.qml
         qml/GSpinBox.qml
         qml/GProgressBar.qml
         qml/GBusyIndicator.qml
@@ -222,8 +276,14 @@ qt_add_qml_module(lurviko
         qml/components/SubtitleBackdrop.qml
         qml/components/SubtitleLabel.qml
         qml/components/MusicPlayer.qml
+        qml/components/MusicExpandedView.qml
+        qml/components/MusicArtists.js
+        qml/components/MusicArtistLinks.qml
+        qml/components/MusicPlaylistDialog.qml
         qml/components/MediaSession.qml
         qml/components/MusicLibraryView.qml
+        qml/components/MusicHoverPreview.qml
+        qml/components/MusicArtwork.qml
         qml/components/CategoryDateHeader.qml
         qml/pages/HomePage.qml
         qml/pages/ContentCategoryPage.qml
@@ -231,84 +291,7 @@ qt_add_qml_module(lurviko
         qml/pages/PrivateVaultPage.qml
         qml/components/VaultAttemptStatus.qml
     RESOURCES
-        assets/icons/folder.svg
-        assets/icons/file.svg
-        assets/icons/image.svg
-        assets/icons/video.svg
-        assets/icons/audio.svg
-        assets/icons/archive.svg
-        assets/icons/pdf.svg
-        assets/icons/drive.svg
-        assets/icons/cloud-google.svg
-        assets/icons/cloud-onedrive.svg
-        assets/icons/cloud-dropbox.svg
-        assets/icons/cloud-nextcloud.svg
-        assets/icons/cloud-owncloud.svg
-        assets/icons/cloud-mega.svg
-        assets/icons/cloud-pcloud.svg
-        assets/icons/trash.svg
-        assets/icons/trashfull.svg
-        assets/icons/network.svg
-        assets/icons/root.svg
-        assets/icons/favorite.svg
-        assets/icons/private.svg
-        assets/icons/lock.svg
-        assets/icons/unlock.svg
-        assets/icons/logo.png
-        assets/icons/dashboard.svg
-        assets/icons/home-folder.svg
-        assets/icons/desktop.svg
-        assets/icons/downloads.svg
-        assets/icons/documents.svg
-        assets/icons/settings.svg
-        assets/icons/cloud.svg
-        assets/icons/plus.svg
-        assets/icons/nav-back.svg
-        assets/icons/nav-forward.svg
-        assets/icons/nav-up.svg
-        assets/icons/close-ui.svg
-        assets/icons/edit.svg
-        assets/icons/moon.svg
-        assets/icons/sun.svg
-        assets/icons/info.svg
-        assets/icons/keyboard.svg
-        assets/icons/eye.svg
-        assets/icons/search.svg
-        assets/icons/split-view.svg
-        assets/icons/view-layout.svg
-        assets/icons/history.svg
-        assets/icons/appimage.svg
-        assets/icons/filelight.svg
-        assets/icons/viewer-prev.svg
-        assets/icons/viewer-next.svg
-        assets/icons/viewer-zoom-in.svg
-        assets/icons/viewer-zoom-out.svg
-        assets/icons/viewer-fit.svg
-        assets/icons/viewer-rotate-left.svg
-        assets/icons/viewer-rotate-right.svg
-        assets/icons/viewer-play.svg
-        assets/icons/viewer-pause.svg
-        assets/icons/viewer-folder.svg
-        assets/icons/viewer-external.svg
-        assets/icons/viewer-fullscreen.svg
-        assets/icons/viewer-fullscreen-exit.svg
-        assets/icons/viewer-rewind.svg
-        assets/icons/viewer-forward.svg
-        assets/icons/viewer-volume.svg
-        assets/icons/viewer-volume-muted.svg
-        assets/icons/music-shuffle.svg
-        assets/icons/music-repeat.svg
-        assets/icons/music-repeat-one.svg
-        assets/icons/music-queue.svg
-        assets/icons/music-playlist.svg
-        assets/icons/music-refresh.svg
-        assets/icons/music-minimize.svg
-        assets/icons/music-expand.svg
-        assets/icons/music-stop.svg
-        assets/icons/music-note.svg
-        assets/icons/music-heart.svg
-        assets/icons/music-heart-filled.svg
-        assets/icons/music-chevron-up.svg
+        ${LURVIKO_ICON_FILES}
 )
 
 target_link_libraries(lurviko PRIVATE
@@ -331,6 +314,7 @@ target_link_libraries(lurviko PRIVATE
     OpenSSL::Crypto
 )
 
+install(TARGETS lurviko-access-helper RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
 install(TARGETS lurviko
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -338,8 +322,8 @@ install(TARGETS lurviko
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lurviko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES packaging/org.freedesktop.FileManager1.service DESTINATION ${CMAKE_INSTALL_DATADIR}/dbus-1/services)
-install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
-install(FILES assets/icons/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
+install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
+install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
 install(FILES assets/LICENSE-FontAwesome.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
 install(FILES tools/recover-vault.py DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/tools)
 install(FILES docs/vault-recovery.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Lurviko)

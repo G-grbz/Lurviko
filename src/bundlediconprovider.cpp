@@ -6,6 +6,9 @@
 #include <QPainter>
 #include <QRegularExpression>
 #include <QUrl>
+#include <QCache>
+#include <QMutex>
+#include <QMutexLocker>
 
 BundledIconProvider::BundledIconProvider()
     : QQuickImageProvider(Image, ForceAsynchronousImageLoading)
@@ -80,6 +83,51 @@ QImage BundledIconProvider::requestImage(const QString &id, QSize *size, const Q
     painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     painter.fillRect(result.rect(), foreground);
     painter.end();
+    if (size) *size = result.size();
+    return result;
+}
+
+FolderIconProvider::FolderIconProvider() : QQuickImageProvider(Image) {}
+
+QImage FolderIconProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
+{
+    static const QRegularExpression safeName(QStringLiteral(
+        "^(?:folder|(?:blue|green|orange|pink|purple|red|turquoise|yellow)-(?:folder|documents|download|music|picture|video))\\.svg$"));
+    if (!safeName.match(id).hasMatch()) return {};
+    const QSize extent(qBound(1, requestedSize.width() > 0 ? requestedSize.width() : 128, 512),
+                       qBound(1, requestedSize.height() > 0 ? requestedSize.height() : 128, 512));
+    // Layouts briefly expose one-pixel geometry; avoid decoding throwaway art.
+    if (qMax(extent.width(), extent.height()) <= 1) {
+        QImage empty(1, 1, QImage::Format_ARGB32_Premultiplied);
+        empty.fill(Qt::transparent);
+        if (size) *size = empty.size();
+        return empty;
+    }
+    struct Cache {
+        QMutex mutex;
+        QCache<QString, QImage> rasters{8 * 1024};
+        QCache<QString, QImage> scaled{16 * 1024};
+    };
+    static Cache cache;
+    QMutexLocker lock(&cache.mutex);
+    const QString key = id + QLatin1Char('|') + QString::number(extent.width())
+        + QLatin1Char('x') + QString::number(extent.height());
+    if (const QImage *hit = cache.scaled.object(key)) {
+        if (size) *size = hit->size();
+        return *hit;
+    }
+    const int bucket = ((qMax(extent.width(), extent.height()) + 63) / 64) * 64;
+    const QString resource = QStringLiteral(":/qt/qml/Lurviko/App/assets/folder-raster/")
+        + id + QLatin1Char('/') + QString::number(bucket) + QStringLiteral(".png");
+    QImage raster;
+    if (const QImage *hit = cache.rasters.object(resource)) raster = *hit;
+    else {
+        raster = QImage(resource).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        if (raster.isNull()) return {};
+        cache.rasters.insert(resource, new QImage(raster), (raster.sizeInBytes() + 1023) / 1024);
+    }
+    const QImage result = raster.scaled(extent, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    cache.scaled.insert(key, new QImage(result), qMax<qsizetype>(1, (result.sizeInBytes() + 1023) / 1024));
     if (size) *size = result.size();
     return result;
 }

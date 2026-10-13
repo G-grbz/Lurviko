@@ -4,6 +4,8 @@
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDir>
+#include <QDirIterator>
+#include <QElapsedTimer>
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusPendingCallWatcher>
@@ -28,6 +30,7 @@
 #include <QUrl>
 #include <QtConcurrent>
 #include <memory>
+#include <atomic>
 #include <utility>
 #include <signal.h>
 #include <cerrno>
@@ -82,27 +85,99 @@ public:
         setCapabilities(KJob::Killable | KJob::Suspendable);
     }
 
-    void start() override
+    void trackCompression(const QStringList &sources, const QString &destination)
     {
-        startElapsedTimer();
-        QTimer::singleShot(0, this, [this] {
-            if (!m_process)
-                return;
-            emit description(this, m_title, {QStringLiteral("File"), m_detail});
-            m_process->start(m_executable, m_arguments);
+        m_destination = destination;
+        setProgressUnit(KJob::Items);
+        m_cancelScan = std::make_shared<std::atomic_bool>(false);
+        const auto cancelled = m_cancelScan;
+        auto *watcher = new QFutureWatcher<qulonglong>(this);
+        connect(watcher, &QFutureWatcher<qulonglong>::finished, this, [this, watcher] {
+            m_totalEntries = watcher->result(); watcher->deleteLater();
+            if (m_done) return;
+            setTotalAmount(KJob::Items, m_totalEntries);
+            publishProgress();
+        });
+        watcher->setFuture(QtConcurrent::run([sources, destination, cancelled] {
+            qulonglong entries = 0;
+            for (const auto &source : sources) {
+                if (cancelled->load()) break;
+                ++entries;
+                const QFileInfo info(source);
+                if (!info.isDir() || info.isSymLink()) continue;
+                QDirIterator it(source, QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+                                QDirIterator::Subdirectories);
+                while (!cancelled->load() && it.hasNext()) {
+                    if (it.next() != destination) ++entries;
+                }
+            }
+            return entries;
+        }));
+        connect(m_process, &QProcess::readyReadStandardError, this, [this] { consumeDiagnostics(); });
+        m_timer = new QTimer(this);
+        m_timer->setInterval(500);
+        connect(m_timer, &QTimer::timeout, this, [this] {
+            if (!m_process || m_process->state() != QProcess::Running || isSuspended()) return;
+            // SIGUSR1 is bsdtar's documented progress signal. Check the actual
+            // handler first: never send it during exec/loader initialization.
+            QFile status(QStringLiteral("/proc/%1/status").arg(m_process->processId()));
+            if (status.open(QIODevice::ReadOnly)) {
+                const auto lines = status.readAll().split('\n');
+                for (const auto &line : lines) {
+                    if (!line.startsWith("SigCgt:")) continue;
+                    bool ok = false;
+                    const auto caught = line.mid(7).trimmed().toULongLong(&ok, 16);
+                    if (ok && (caught & (qulonglong(1) << (SIGUSR1 - 1))))
+                        ::kill(static_cast<pid_t>(m_process->processId()), SIGUSR1);
+                    break;
+                }
+            }
+            sampleOutput();
+            publishProgress();
         });
     }
 
-    void updateProgress(int percent) { setPercent(static_cast<unsigned long>(qBound(0, percent, 100))); }
+    ~ArchiveProgressJob() override { if (m_cancelScan) m_cancelScan->store(true); }
+
+    void start() override
+    {
+        startElapsedTimer();
+        m_clock.start();
+        QTimer::singleShot(0, this, [this] {
+            if (!m_process) return;
+            publishDescription();
+            m_process->start(m_executable, m_arguments);
+            if (m_timer) m_timer->start();
+        });
+    }
+
+    QString compressionDiagnostics()
+    {
+        consumeDiagnostics();
+        if (!m_buffer.isEmpty()) { parseLine(m_buffer); m_buffer.clear(); }
+        return m_errors.trimmed();
+    }
 
     void complete(bool success, const QString &error = QString())
     {
+        m_done = true;
+        if (m_timer) m_timer->stop();
+        if (m_cancelScan) m_cancelScan->store(true);
         if (!success) {
-            setError(KJob::UserDefinedError);
-            setErrorText(error);
+            setError(KJob::UserDefinedError); setErrorText(error);
         } else {
+            if (!m_destination.isEmpty()) {
+                sampleOutput();
+                // Successful verbose records are the actual archive entries,
+                // including when sources changed while the scan was running.
+                m_totalEntries = m_seenEntries;
+                setTotalAmount(KJob::Items, m_seenEntries);
+                setProcessedAmount(KJob::Items, m_seenEntries);
+                publishDescription();
+            }
             setPercent(100);
         }
+        emitSpeed(0);
         emitResult();
     }
 
@@ -111,32 +186,100 @@ public:
 protected:
     bool doKill() override
     {
-        if (!m_process)
-            return false;
+        if (m_cancelScan) m_cancelScan->store(true);
+        if (m_timer) m_timer->stop();
+        if (!m_process) return false;
         if (isSuspended() && m_process->processId() > 0)
             ::kill(static_cast<pid_t>(m_process->processId()), SIGCONT);
-        m_process->kill();
-        return true;
+        m_process->kill(); return true;
     }
-
     bool doSuspend() override
     {
-        return m_process && m_process->processId() > 0
+        const bool stopped = m_process && m_process->processId() > 0
             && ::kill(static_cast<pid_t>(m_process->processId()), SIGSTOP) == 0;
+        if (stopped) emitSpeed(0);
+        return stopped;
     }
-
     bool doResume() override
     {
+        m_lastSampleTime = m_clock.elapsed();
         return m_process && m_process->processId() > 0
             && ::kill(static_cast<pid_t>(m_process->processId()), SIGCONT) == 0;
     }
 
 private:
+    void consumeDiagnostics()
+    {
+        if (!m_process || m_destination.isEmpty()) return;
+        m_buffer += m_process->readAllStandardError();
+        qsizetype newline;
+        while ((newline = m_buffer.indexOf('\n')) >= 0) {
+            parseLine(m_buffer.left(newline)); m_buffer.remove(0, newline + 1);
+        }
+        // Bound pathological filenames/diagnostics instead of growing forever.
+        if (m_buffer.size() > 65536) { m_errors += QString::fromLocal8Bit(m_buffer).right(4096); m_buffer.clear(); }
+        m_errors = m_errors.right(8192);
+    }
+    void parseLine(const QByteArray &raw)
+    {
+        const QString line = QString::fromLocal8Bit(raw).trimmed();
+        static const QRegularExpression report(QStringLiteral("^In: ([0-9]+) files, [0-9]+ bytes; Out: ([0-9]+) bytes, compression [0-9]+%$"));
+        static const QRegularExpression current(QStringLiteral("^Current: (.*) \\(([0-9]+)/([0-9]+) bytes\\)$"));
+        if (line.startsWith(QStringLiteral("a "))) {
+            ++m_seenEntries; m_currentFile = line.mid(2); m_currentFraction = 0;
+        } else if (const auto match = report.match(line); match.hasMatch()) {
+            m_reportEntries = qMax(m_reportEntries, match.captured(1).toULongLong());
+        } else if (const auto match = current.match(line); match.hasMatch()) {
+            m_currentFile = match.captured(1);
+            const auto size = match.captured(3).toULongLong();
+            m_currentFraction = size ? qBound(0.0, double(match.captured(2).toULongLong()) / double(size), 1.0) : 0;
+        } else if (!line.isEmpty()) {
+            m_errors += line + QLatin1Char('\n');
+        }
+    }
+    void sampleOutput()
+    {
+        const auto written = qulonglong(qMax<qint64>(0, QFileInfo(m_destination).size()));
+        const qint64 now = m_clock.elapsed(), elapsed = now - m_lastSampleTime;
+        setProcessedAmount(KJob::Bytes, written); // Compressed output, not input bytes.
+        if (elapsed > 0) emitSpeed(static_cast<unsigned long>((written >= m_lastWritten ? written - m_lastWritten : 0) * 1000 / elapsed));
+        m_lastWritten = written; m_lastSampleTime = now;
+    }
+    void publishProgress()
+    {
+        if (m_done) return;
+        const auto announced = qMax(m_seenEntries, m_reportEntries);
+        const auto completed = announced > 0 ? announced - 1 : 0;
+        setProcessedAmount(KJob::Items, m_totalEntries ? qMin(completed, m_totalEntries - 1) : completed);
+        if (m_totalEntries)
+            setPercent(qMax(percent(), static_cast<unsigned long>(qBound(0.0, (double(completed) + m_currentFraction) * 100 / double(m_totalEntries), 99.0))));
+        publishDescription();
+    }
+    void publishDescription()
+    {
+        if (m_destination.isEmpty()) {
+            emit description(this, m_title, {securityMessage("File", "Dosya"), m_detail}); return;
+        }
+        QString destination = m_destination;
+        if (m_totalEntries)
+            destination += QStringLiteral(" · ") + securityMessage("%1 / %2 entries", "%1 / %2 öğe")
+                .arg(processedAmount(KJob::Items)).arg(m_totalEntries);
+        emit description(this, m_title,
+                         {securityMessage("Source", "Kaynak"), m_currentFile.isEmpty() ? m_detail : m_currentFile},
+                         {securityMessage("Archive", "Arşiv"), destination});
+    }
     QPointer<QProcess> m_process;
     QString m_executable;
     QStringList m_arguments;
-    QString m_title;
-    QString m_detail;
+    QString m_title, m_detail, m_destination, m_currentFile, m_errors;
+    QByteArray m_buffer;
+    QTimer *m_timer = nullptr;
+    QElapsedTimer m_clock;
+    qint64 m_lastSampleTime = 0;
+    qulonglong m_lastWritten = 0, m_totalEntries = 0, m_seenEntries = 0, m_reportEntries = 0;
+    double m_currentFraction = 0;
+    bool m_done = false;
+    std::shared_ptr<std::atomic_bool> m_cancelScan;
 };
 
 FileOperations::FileOperations(QObject *parent)
@@ -687,7 +830,7 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
                                       const QUrl &destination, const QString &kind)
 {
     const QString detail = sources.size() == 1 ? sources.constFirst().fileName()
-                          : QStringLiteral("%1 items").arg(sources.size());
+                          : securityMessage("%1 items", "%1 öğe").arg(sources.size());
     const int operationId = startOperation(kind, detail, job);
     setOperationAmount(operationId, int(KJob::Items), qulonglong(sources.size()), true);
     connect(job, &KJob::percentChanged, this, [this, operationId](KJob *, unsigned long percent) {
@@ -1685,23 +1828,24 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
          << QStringLiteral("-cf")
          << archivePath;
 
-    qulonglong inputBytes = 0;
+    QStringList sourcePaths;
+    args << QStringLiteral("-v");
     for (const QFileInfo &info : std::as_const(sources)) {
         // -C before each operand avoids embedding absolute paths even when a
         // category selection contains files from different directories.
         args << ArchiveArguments::sourceOperand(info);
-        if (info.isFile() && info.size() > 0)
-            inputBytes += qulonglong(info.size());
+        sourcePaths.append(info.absoluteFilePath());
     }
 
     const QString detail = sources.size() == 1
         ? sources.constFirst().fileName()
-        : QStringLiteral("%1 items").arg(sources.size());
+        : securityMessage("%1 items", "%1 öğe").arg(sources.size());
 
     auto *process = new QProcess(this);
     process->setWorkingDirectory(parent.absolutePath());
-    auto *job = new ArchiveProgressJob(process, executable, args, QStringLiteral("Creating archive"),
+    auto *job = new ArchiveProgressJob(process, executable, args, securityMessage("Creating archive", "Arşiv oluşturuluyor"),
                                        detail, this);
+    job->trackCompression(sourcePaths, archivePath);
     QPointer<ArchiveProgressJob> trackedJob(job);
     const int operationId = startOperation(QStringLiteral("compress"), detail, job, process);
     setOperationAmount(operationId, int(KJob::Items), qulonglong(sources.size()), true);
@@ -1713,34 +1857,35 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
                 m_cancelledOperations.remove(operationId);
                 QFile::remove(archivePath);
                 finishOperation(operationId, false);
-                emit operationFinished(false, QStringLiteral("Cancelled"), false, true);
+                emit operationFinished(false, securityMessage("Cancelled", "İptal edildi"), false, true);
             }
         }
     });
     connect(job, &KJob::suspended, this, [this, operationId] { setOperationPaused(operationId, true); });
     connect(job, &KJob::resumed, this, [this, operationId] { setOperationPaused(operationId, false); });
 
-    if (inputBytes > 0) {
-        auto *progressTimer = new QTimer(process);
-        progressTimer->setInterval(180);
-        connect(progressTimer, &QTimer::timeout, this,
-                [this, operationId, archivePath, inputBytes, trackedJob] {
-            const qulonglong written = qulonglong(qMax<qint64>(0, QFileInfo(archivePath).size()));
-            const int percent = int(qMin<qulonglong>(95, written * 100 / inputBytes));
-            setOperationProgress(operationId, percent);
-            if (trackedJob)
-                trackedJob->updateProgress(percent);
-        });
-        progressTimer->start();
-    }
+    connect(job, &KJob::percentChanged, this, [this, operationId](KJob *, unsigned long value) {
+        setOperationProgress(operationId, int(value));
+    });
+    connect(job, &KJob::totalAmountChanged, this, [this, operationId](KJob *, KJob::Unit unit, qulonglong value) {
+        setOperationAmount(operationId, int(unit), value, true);
+    });
+    connect(job, &KJob::processedAmountChanged, this, [this, operationId](KJob *, KJob::Unit unit, qulonglong value) {
+        setOperationAmount(operationId, int(unit), value, false);
+    });
+    connect(job, &KJob::speed, this, [this, operationId](KJob *, unsigned long value) { setOperationSpeed(operationId, value); });
+    connect(job, &KJob::description, this, [this, operationId](KJob *, const QString &, const QPair<QString, QString> &source, const QPair<QString, QString> &) {
+        setOperationDetail(operationId, source.second);
+    });
 
     connect(process, &QProcess::finished, this,
             [this, process, archivePath, operationId, trackedJob](int exitCode, QProcess::ExitStatus status) {
         const bool cancelled = m_cancelledOperations.remove(operationId);
         const bool ok = !cancelled && status == QProcess::NormalExit && exitCode == 0;
-        const QString processError = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+        const QString processError = trackedJob ? trackedJob->compressionDiagnostics()
+                                                : QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
         if (trackedJob && !cancelled)
-            trackedJob->complete(ok, processError.isEmpty() ? QStringLiteral("Compression failed.") : processError);
+            trackedJob->complete(ok, processError.isEmpty() ? securityMessage("Compression failed.", "Sıkıştırma başarısız.") : processError);
         finishOperation(operationId, ok);
         if (cancelled)
             QFile::remove(archivePath);
@@ -1751,9 +1896,9 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
             emit operationFinished(true, QStringLiteral("Archive created: %1").arg(QFileInfo(archivePath).fileName()), true,
                                    true);
         } else {
-            QString error = cancelled ? QStringLiteral("Cancelled") : processError;
+            QString error = cancelled ? securityMessage("Cancelled", "İptal edildi") : processError;
             if (error.isEmpty())
-                error = QStringLiteral("Compression failed.");
+                error = securityMessage("Compression failed.", "Sıkıştırma başarısız.");
             setLastError(error);
             emit operationFinished(false, error, false, true);
         }
@@ -1965,7 +2110,7 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
     connect(process, &QObject::destroyed, [directory] { ::close(directory); });
     const QString pinnedOutput = QStringLiteral("/proc/%1/fd/%2").arg(QCoreApplication::applicationPid()).arg(directory);
     const QStringList args = ArchiveArguments::extraction(archivePath, pinnedOutput);
-    auto *job = new ArchiveProgressJob(process, executable, args, QStringLiteral("Extracting archive"),
+    auto *job = new ArchiveProgressJob(process, executable, args, securityMessage("Extracting archive", "Arşiv çıkarılıyor"),
                                        QFileInfo(archivePath).fileName(), this);
     QPointer<ArchiveProgressJob> trackedJob(job);
     const int operationId = startOperation(QStringLiteral("extract"), QFileInfo(archivePath).fileName(), job, process);

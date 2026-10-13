@@ -9,6 +9,9 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import math
+import struct
+import wave
 
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", str(repo / "build"))).resolve()
@@ -16,6 +19,38 @@ if not (build / "build.ninja").is_file():
     raise SystemExit("Build the application with Ninja first (see README.md).")
 with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
     root = Path(temporary)
+    audio_fixture = root / "music-preview.wav"
+    with wave.open(str(audio_fixture), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        second = b"".join(struct.pack("<h", int(1000 * math.sin(i * 2 * math.pi * 440 / 8000)))
+                          for i in range(8000))
+        audio.writeframes(second * 100)
+    # Exercise the format that usually exposes an attached artwork video stream,
+    # not just WAV playback with no audio device.
+    covered_fixture = root / "music-preview-covered.mp3"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(audio_fixture), "-i", str(repo / "assets/icons/png/music-cover.png"),
+                    "-map", "0:a", "-map", "1:v", "-c:a", "libmp3lame", "-b:a", "48k",
+                    "-c:v", "copy", "-disposition:v", "attached_pic", str(covered_fixture)], check=True)
+    covered_streams = json.loads(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_streams", "-of", "json", str(covered_fixture)], text=True))
+    if not any(stream.get("disposition", {}).get("attached_pic") == 1
+               for stream in covered_streams.get("streams", [])):
+        raise SystemExit("MP3 regression fixture must contain attached artwork")
+    rename_folder = root / "rename-fixture"
+    rename_folder.mkdir()
+    rename_fixture = rename_folder / "rename-after-preview.txt"
+    rename_fixture.write_text("Rename regression fixture\n")
+    artwork_folder = root / "folder-artwork-fixture"
+    artwork_folder.mkdir()
+    for name in [".hidden-folder", "Mor", "Mavi Fotoğraflar", "MyMusic", "visible-folder"]:
+        (artwork_folder / name).mkdir()
+    for index in range(45):
+        (artwork_folder / f"Folder-{index:03d}").mkdir()
+    for name in [".hidden-file.txt", "visible-file.txt", "lurviko.pkg.tar.zst", "archive.tar.lz4"]:
+        (artwork_folder / name).write_text("Artwork test fixture\n")
     main = (repo / "src/main.cpp").read_text()
     includes = "\n".join(line for line in main.splitlines() if line.startswith('#include "'))
     registration = main[main.index("    qmlRegisterType<StorageModel>"):
@@ -27,7 +62,10 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
             f'[](QQmlEngine *, QJSEngine *) -> QObject * {{ return new {name}; }});\n')
     source = '''#include <QApplication>
 #include <QQmlEngine>
+#include <QQmlContext>
 #include <QQuickStyle>
+#include <QIcon>
+#include <KIconTheme>
 #include <QtQuickTest/quicktest.h>
 ''' + includes + '''
 class Setup : public QObject {
@@ -36,14 +74,41 @@ public slots:
     void applicationAvailable() {
         qApp->setOrganizationName("Lurviko-QA");
         qApp->setApplicationName("Gallery");
+        qApp->setDesktopFileName("org.lurviko.Tests");
         QQuickStyle::setStyle("Basic");
 ''' + registration + '''
     }
     void qmlEngineAvailable(QQmlEngine *engine) {
+        engine->rootContext()->setContextProperty("fileArtworkFixtureUrl",
+            QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_ARTWORK_FIXTURE")));
+        engine->rootContext()->setContextProperty("bundledIconNames",
+            qEnvironmentVariable("LURVIKO_QML_BUNDLED_ICONS").split(';', Qt::SkipEmptyParts));
+        engine->rootContext()->setContextProperty("musicHoverFixtureUrl",
+            QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_AUDIO_FIXTURE")));
+        engine->rootContext()->setContextProperty("musicHoverCoveredFixtureUrl",
+            QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_COVERED_FIXTURE")));
+        engine->rootContext()->setContextProperty("musicHoverRenameFixtureUrl",
+            QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_RENAME_FIXTURE")));
+        engine->rootContext()->setContextProperty("musicHoverUseAudioDevice",
+            qEnvironmentVariableIntValue("LURVIKO_QML_AUDIO_DEVICE") != 0);
+        engine->rootContext()->setContextProperty("musicHoverExternalFixtureUrl",
+            QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_EXTERNAL_AUDIO_FIXTURE")));
+        engine->addImageProvider("systemicon", new SystemIconProvider);
+        engine->addImageProvider("gfilethumb", new ThumbnailProvider);
         engine->addImageProvider("bundledicon", new BundledIconProvider);
+        engine->addImageProvider("folderart", new FolderIconProvider);
     }
 };
-QUICK_TEST_MAIN_WITH_SETUP(gfile_gallery, Setup)
+int main(int argc, char **argv) {
+    // File selection exercises KDE service actions backed by QWidget/QMenu.
+    // Match the real application instead of Quick Test's QGuiApplication.
+    // Keep icon tests independent of the user's desktop theme.
+    KIconTheme::forceThemeForTests(QStringLiteral("breeze"));
+    QApplication app(argc, argv);
+    QIcon::setThemeName(QStringLiteral("breeze"));
+    Setup setup;
+    return quick_test_main_with_setup(argc, argv, "gfile_gallery", nullptr, &setup);
+}
 #include "main.moc"
 '''
     (root / "main.cpp").write_text(source)
@@ -66,12 +131,27 @@ QUICK_TEST_MAIN_WITH_SETUP(gfile_gallery, Setup)
     link.extend(["-lQt6QuickTest", "-lQt6Test"])
     subprocess.run(link, cwd=build, check=True)
     report = root / "results.txt"
-    environment = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
+    environment = dict(os.environ,
+        QT_QPA_PLATFORM=os.environ.get("LURVIKO_QML_TEST_QPA", "offscreen"),
+        QT_QUICK_BACKEND=os.environ.get("LURVIKO_QML_TEST_BACKEND", "software"),
+        LURVIKO_QML_AUDIO_FIXTURE=str(audio_fixture),
+        LURVIKO_QML_COVERED_FIXTURE=str(covered_fixture),
+        LURVIKO_QML_RENAME_FIXTURE=str(rename_fixture),
+        LURVIKO_QML_ARTWORK_FIXTURE=str(artwork_folder),
         XDG_CONFIG_HOME=str(root / "config"), XDG_DATA_HOME=str(root / "data"),
         XDG_CACHE_HOME=str(root / "cache"),
         PULSE_SERVER="unix:" + str(root / "no-pulse-server"))
-    result = subprocess.run([str(root / "qml-tests"), "-input", str(repo / "tests/qml"),
-                            "-o", f"{report},txt"], env=environment, timeout=90)
+    environment["LURVIKO_QML_BUNDLED_ICONS"] = ";".join(sorted(
+        path.name for pattern in ("png/*.png", "symbolic/*.svg", "color/**/*.svg")
+        for path in (repo / "assets/icons").glob(pattern)))
+    if os.environ.get("LURVIKO_QML_AUDIO_DEVICE") == "1":
+        if "PULSE_SERVER" in os.environ:
+            environment["PULSE_SERVER"] = os.environ["PULSE_SERVER"]
+        else:
+            environment.pop("PULSE_SERVER", None)
+    test_input = repo / "tests/qml" / os.environ.get("LURVIKO_QML_TEST_FILE", "")
+    result = subprocess.run([str(root / "qml-tests"), "-input", str(test_input),
+                            "-o", f"{report},txt"], env=environment, timeout=120)
     output = report.read_text() if report.exists() else "No test report was produced."
     unexpected_warnings = []
     for line in output.splitlines():

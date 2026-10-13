@@ -86,10 +86,21 @@ Rectangle {
             Layout.preferredHeight: tile.effectiveIconPixels
             CrispIcon {
                 id: quickIconVisual
+                objectName: "quickAccessIconVisual"
                 anchors.fill: parent
                 source: AppTheme.useSystemIcons
                         ? AppTheme.systemIconAtSize(tile.iconSource, tile.effectiveIconPixels)
                         : tile.iconSource
+                visible: status === Image.Ready || status === Image.Loading
+            }
+            CrispIcon {
+                objectName: "quickAccessIconFallback"
+                anchors.fill: parent
+                visible: quickIconVisual.status === Image.Error || quickIconVisual.status === Image.Empty
+                source: visible ? (tile.fixedShortcut ? AppTheme.icon("last-location.svg")
+                        : AppTheme.useSystemIcons
+                        ? AppTheme.systemIconAtSize(AppTheme.systemIcon("folder"), tile.effectiveIconPixels)
+                        : AppTheme.icon("folder.svg")) : ""
             }
         }
 

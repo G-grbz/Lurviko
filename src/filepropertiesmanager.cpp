@@ -10,6 +10,7 @@
 #include <QLocale>
 #include <QSettings>
 #include <QUrl>
+#include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <cerrno>
@@ -22,6 +23,12 @@
 #include <unistd.h>
 
 namespace {
+QString securityMessage(const char *english, const char *turkish)
+{
+    const QString fallback = QLocale::system().language() == QLocale::Turkish ? QStringLiteral("tr") : QStringLiteral("en");
+    return QString::fromUtf8(QSettings().value(QStringLiteral("ui/language"), fallback).toString() == QStringLiteral("tr") ? turkish : english);
+}
+
 struct FolderStats {
     qint64 bytes = 0;
     int files = 0;
@@ -93,13 +100,22 @@ QString FilePropertiesManager::readFolderIcon(const QString &path)
     return icon.isEmpty() ? QStringLiteral("folder") : icon;
 }
 
+void FilePropertiesManager::cancelInspection()
+{
+    ++m_generation;
+    if (m_statsCancelled) m_statsCancelled->store(true);
+    setCalculating(false);
+}
+
 void FilePropertiesManager::inspect(const QString &urlOrPath)
 {
     if (!m_accessBusy) {
         m_accessError.clear();
         emit accessProgressChanged();
     }
-    ++m_generation;
+    cancelInspection();
+    m_statsCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_statsCancelled;
     const int generation = m_generation;
     const QUrl url = QUrl::fromUserInput(urlOrPath);
     m_localFile = url.isLocalFile();
@@ -113,6 +129,11 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     m_linkCount = 1;
 
     m_path = info.absoluteFilePath();
+    m_selection = {m_path};
+    m_commonLocation = info.absolutePath();
+    m_selectedFolders = info.isDir() && !info.isSymLink() ? 1 : 0;
+    m_selectedLinks = info.isSymLink() ? 1 : 0;
+    m_selectedFiles = !m_selectedFolders && !m_selectedLinks ? 1 : 0;
     m_name = info.fileName();
     m_directory = info.isDir();
     m_totalSize = m_directory ? 0 : info.size();
@@ -152,7 +173,7 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     refreshPermissions();
     emit propertiesChanged();
 
-    if (!m_directory || !info.exists()) {
+    if (!m_directory || info.isSymLink() || !info.exists()) {
         setCalculating(false);
         return;
     }
@@ -171,12 +192,12 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
         emit propertiesChanged();
     });
     const QString root = m_path;
-    watcher->setFuture(QtConcurrent::run([root]() {
+    watcher->setFuture(QtConcurrent::run([root, cancelled]() {
         FolderStats stats;
         QDirIterator it(root,
                         QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
                         QDirIterator::Subdirectories);
-        while (it.hasNext()) {
+        while (!cancelled->load() && it.hasNext()) {
             it.next();
             const QFileInfo item = it.fileInfo();
             if (item.isSymLink())
@@ -192,6 +213,80 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     }));
 }
 
+void FilePropertiesManager::inspectSelection(const QStringList &urls)
+{
+    QStringList selection;
+    bool local = true;
+    for (const auto &input : urls) {
+        const QUrl url = QUrl::fromUserInput(input);
+        const QString item = url.isLocalFile() ? QDir::cleanPath(url.toLocalFile()) : url.toString();
+        if (item.isEmpty() || selection.contains(item)) continue;
+        selection.append(item);
+        local &= url.isLocalFile();
+    }
+    if (selection.size() == 1) { inspect(urls.first()); return; }
+    cancelInspection();
+    m_statsCancelled = std::make_shared<std::atomic_bool>(false);
+    const auto cancelled = m_statsCancelled;
+    const int generation = m_generation;
+    m_selection = selection;
+    m_localFile = local && !selection.isEmpty();
+    m_path = m_localFile ? selection.first() : QString();
+    m_name = securityMessage("%1 selected items", "%1 seçili öğe").arg(selection.size());
+    m_commonLocation.clear();
+    m_selectedFiles = m_selectedFolders = m_selectedLinks = 0;
+    m_totalSize = m_fileCount = m_folderCount = 0;
+    m_created = m_modified = m_accessed = {};
+    m_iconName.clear(); m_linkType.clear(); m_linkTarget.clear();
+    m_linkTargetExists = false; m_inode = 0; m_linkCount = 1;
+    m_directory = false;
+    if (!m_accessBusy) { m_accessError.clear(); emit accessProgressChanged(); }
+    if (m_localFile) {
+        m_commonLocation = QFileInfo(selection.first()).absolutePath();
+        for (const auto &path : selection) {
+            if (QFileInfo(path).absolutePath() != m_commonLocation) m_commonLocation.clear();
+            struct stat st {};
+            if (::lstat(QFile::encodeName(path).constData(), &st) != 0) continue;
+            if (S_ISDIR(st.st_mode)) ++m_selectedFolders;
+            else if (S_ISLNK(st.st_mode)) ++m_selectedLinks;
+            else if (S_ISREG(st.st_mode)) ++m_selectedFiles;
+        }
+    }
+    m_directory = m_selectedFolders > 0;
+    refreshPermissions();
+    emit propertiesChanged();
+    if (!m_localFile) { setCalculating(false); return; }
+    setCalculating(true);
+    auto *watcher = new QFutureWatcher<FolderStats>(this);
+    connect(watcher, &QFutureWatcher<FolderStats>::finished, this, [this, watcher, generation] {
+        const auto stats = watcher->result(); watcher->deleteLater();
+        if (generation != m_generation) return;
+        m_totalSize = stats.bytes; m_fileCount = stats.files; m_folderCount = stats.folders;
+        setCalculating(false); emit propertiesChanged();
+    });
+    watcher->setFuture(QtConcurrent::run([selection, cancelled] {
+        FolderStats stats;
+        QSet<QString> visited;
+        auto count = [&](const QString &path, const QFileInfo &info) {
+            if (visited.contains(path) || info.isSymLink()) return;
+            visited.insert(path);
+            if (info.isDir()) ++stats.folders;
+            else if (info.isFile()) { ++stats.files; stats.bytes += info.size(); }
+        };
+        for (const auto &path : selection) {
+            if (cancelled->load()) break;
+            const QFileInfo info(path);
+            if (info.isSymLink()) continue;
+            count(path, info);
+            if (!info.isDir()) continue;
+            QDirIterator it(path, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                            QDirIterator::Subdirectories);
+            while (!cancelled->load() && it.hasNext()) { it.next(); count(it.filePath(), it.fileInfo()); }
+        }
+        return stats;
+    }));
+}
+
 void FilePropertiesManager::refreshPermissions()
 {
     m_permissionMode = 0;
@@ -199,6 +294,37 @@ void FilePropertiesManager::refreshPermissions()
     m_groupName.clear();
     m_permissionsEditable = false;
     m_permissionsText.clear();
+    m_mixedPermissionMask = 0;
+    if (multiple()) {
+        bool first = true, mixedOwner = false, mixedGroup = false;
+        m_permissionsEditable = m_localFile;
+        for (const auto &path : m_selection) {
+            struct stat item {};
+            if (!m_localFile || ::lstat(QFile::encodeName(path).constData(), &item) != 0) {
+                m_permissionsEditable = false; continue;
+            }
+            if (!S_ISREG(item.st_mode) && !S_ISDIR(item.st_mode)) continue;
+            const auto user = ::getpwuid(item.st_uid);
+            const QString owner = user ? QString::fromLocal8Bit(user->pw_name) : QString::number(item.st_uid);
+            const auto account = ::getgrgid(item.st_gid);
+            const QString group = account ? QString::fromLocal8Bit(account->gr_name) : QString::number(item.st_gid);
+            const int mode = item.st_mode & 0777;
+            if (first) { m_permissionMode = mode; m_ownerName = owner; m_groupName = group; first = false; }
+            else {
+                m_mixedPermissionMask |= m_permissionMode ^ mode;
+                m_permissionMode &= mode;
+                mixedOwner |= owner != m_ownerName; mixedGroup |= group != m_groupName;
+            }
+            m_permissionsEditable &= ::geteuid() == 0 || ::geteuid() == item.st_uid;
+        }
+        if (mixedOwner) m_ownerName.clear();
+        if (mixedGroup) m_groupName.clear();
+        m_permissionsEditable &= !first;
+        m_permissionsText = first ? QString() : m_mixedPermissionMask
+            ? securityMessage("Mixed permissions", "Farklı izinler")
+            : QStringLiteral("0%1").arg(m_permissionMode, 3, 8, QLatin1Char('0'));
+        emit permissionsChanged(); return;
+    }
     struct stat st {};
     const QByteArray nativePath = QFile::encodeName(m_path);
     if (m_localFile && ::lstat(nativePath.constData(), &st) == 0) {
@@ -223,7 +349,7 @@ void FilePropertiesManager::refreshPermissions()
 
 bool FilePropertiesManager::setPermissionMode(int mode)
 {
-    if (m_accessBusy)
+    if (m_accessBusy || multiple())
         return false;
     if (!m_localFile || m_path.isEmpty() || mode < 0 || mode > 0777)
         return false;
@@ -254,7 +380,7 @@ bool FilePropertiesManager::setPermissionMode(int mode)
 
 bool FilePropertiesManager::setFolderIcon(const QString &iconName)
 {
-    if (!m_directory || m_path.isEmpty() || iconName.trimmed().isEmpty())
+    if (multiple() || !m_directory || m_path.isEmpty() || iconName.trimmed().isEmpty())
         return false;
     const QString metadataPath = QDir(m_path).filePath(QStringLiteral(".directory"));
     QSettings metadata(metadataPath, QSettings::IniFormat);
@@ -275,7 +401,7 @@ bool FilePropertiesManager::setFolderIcon(const QString &iconName)
 bool FilePropertiesManager::setLinkTarget(const QString &target)
 {
     const QString trimmed = target.trimmed();
-    if (m_path.isEmpty() || m_linkType.isEmpty() || trimmed.isEmpty())
+    if (multiple() || m_path.isEmpty() || m_linkType.isEmpty() || trimmed.isEmpty())
         return false;
 
     if (m_linkType == QStringLiteral("shortcut")) {

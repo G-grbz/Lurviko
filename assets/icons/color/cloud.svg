@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64" viewBox="0 0 64 64" version="1.1" role="img" aria-labelledby="cloud-title">
+  <title id="cloud-title">Bulut</title>
+  <desc>Mevcut simge biçiminde katmanlı cam yüzey; Kehribar / şeftali. Parlak kenarlar ve yumuşak ışık yansımaları.</desc>
+  <defs>
+    <linearGradient id="cloud-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#f3c18d" stop-opacity="1" />
+      <stop offset=".38" stop-color="#dc975e" stop-opacity="1" />
+      <stop offset=".47" stop-color="#c78047" stop-opacity="1" />
+      <stop offset=".54" stop-color="#dc975e" stop-opacity="1" />
+      <stop offset="1" stop-color="#ffdcc0" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="cloud-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="cloud-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#ffdcc0" stop-opacity="0" />
+      <stop offset=".55" stop-color="#ffdcc0" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#ffdcc0" stop-opacity=".18" />
+      <stop offset="1" stop-color="#ffdcc0" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="cloud-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="cloud-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#f3c18d" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#925220" stop-opacity=".18" />
+      <stop offset="1" stop-color="#ffdcc0" stop-opacity=".66" />
+    </linearGradient>
+    <path id="cloud-shape" d="m 36.565231,11.792983 c -2.993747,0.0062 -5.931536,0.817607 -8.513371,2.35334 -2.581836,1.535733 -4.70979,3.736744 -6.172467,6.3792 a 9.1708772,9.1708772 0 0 0 -4.038295,-0.945067 c -2.191684,0.0062 -4.311866,0.800509 -5.981277,2.23987 -1.669411,1.439362 -2.7761333,3.432085 -3.1274245,5.622214 -2.3160351,0.980818 -4.2947684,2.63313 -5.6859439,4.748649 -1.3911754,2.11552 -2.1341719,4.599429 -2.1341719,7.139295 0.003109,3.418095 1.349207,6.693186 3.7382982,9.108702 2.3890913,2.415516 5.6315401,3.767831 9.0092211,3.767831 a 12.435088,12.435088 0 0 0 1.597909,-0.116578 h 35.418238 q 0.27979,0.02176 0.559579,0.02798 0.2658,-0.0093 0.5316,-0.02798 h 0.848695 v -0.06373 a 11.813333,11.813333 0 0 0 7.471933,-3.957467 12.170842,12.170842 0 0 0 2.999965,-8.005088 v -0.02332 A 12.170842,12.170842 0 0 0 60.352,32.368389 11.813333,11.813333 0 0 0 53.434982,28.225951 17.160421,17.160421 0 0 0 48.279084,16.564947 16.787368,16.787368 0 0 0 36.565231,11.792983" />
+  </defs>
+  <g id="cloud-normalized" transform="matrix(0.8927797248 0 0 0.8927797248 3.431048712 3.431048785)">
+    <g>
+      <use fill="url(#cloud-body)" xlink:href="#cloud-shape" />
+      <use fill="url(#cloud-reflection)" xlink:href="#cloud-shape" />
+      <use fill="url(#cloud-lower-glow)" xlink:href="#cloud-shape" />
+      <use fill="url(#cloud-glint)" xlink:href="#cloud-shape" />
+      <use fill="none" stroke="url(#cloud-edge)" stroke-width="0.55" stroke-linejoin="round" xlink:href="#cloud-shape" />
+    </g>
+  </g>
+</svg>

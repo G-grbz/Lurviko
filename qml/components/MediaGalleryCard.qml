@@ -18,6 +18,7 @@ Rectangle {
     signal activated()
     signal pressed(int modifiers)
     signal browseRequested(string location)
+    signal revealRequested(string location, string itemUrl)
     signal previewRequested(var item, var anchor)
     signal previewDismissed(var anchor)
 
@@ -26,7 +27,8 @@ Rectangle {
     border.width: card.selected ? 2 : 1
     border.color: card.selected ? AppTheme.accent : (mouse.containsMouse ? AppTheme.accentBorder : AppTheme.border)
     clip: true
-    opacity: itemData ? 1 : 0
+    opacity: itemData ? (AppTheme.itemIsHidden(itemData.name, itemData.path || itemData.url, itemData.hidden)
+                        ? AppTheme.hiddenItemOpacity : 1) : 0
 
     Behavior on border.color { ColorAnimation { duration: 120 } }
     onItemDataChanged: previewDismissed(card)
@@ -182,7 +184,8 @@ Rectangle {
         id: menu
         GMenuItem {
             text: card.lang.language === "tr" ? "İçeren klasörü aç" : "Open containing folder"
-            onTriggered: card.browseRequested(card.itemData.parentPath)
+            objectName: "mediaOpenContainingFolder"
+            onTriggered: card.revealRequested(card.itemData.parentPath, card.itemData.url)
         }
         GMenuItem {
             text: card.lang.language === "tr" ? "Harici uygulamada aç" : "Open externally"

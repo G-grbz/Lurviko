@@ -70,43 +70,57 @@ void recordFailure(const std::shared_ptr<FileAccessTask> &task, const QString &p
 
 }
 
-void FileAccessSecurity::applyLocalAccess(const QString &path, int mode, uid_t owner, gid_t group, bool recursive,
-                      const std::shared_ptr<FileAccessTask> &task)
+void FileAccessSecurity::applyDescriptorAccess(int descriptor, const QString &path, int mode, uid_t owner, gid_t group, bool recursive,
+                      const std::shared_ptr<FileAccessTask> &task, int modeMask)
 {
-    const auto apply = [&](int parent, const QByteArray &name, const QString &display, bool descendant) {
+    struct stat selected {};
+    if (::fstat(descriptor, &selected) != 0) { recordFailure(task, path, errno); return; }
+    const auto apply = [&](int parent, const QByteArray &name, const QString &display, bool descendant, bool direct = false) {
         if (task->cancelled) return;
+        // Pin the actual inode, including files that cannot be opened for
+        // reading. Never resolve its name again between stat/chown/chmod.
+        const int fd = direct ? ::fcntl(parent, F_DUPFD_CLOEXEC, 0)
+                              : ::openat(parent, name.constData(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
+        if (fd < 0) { recordFailure(task, display, errno); return; }
+        struct Descriptor { int fd; ~Descriptor() { ::close(fd); } } pinned{fd};
         struct stat st {};
-        if (::fstatat(parent, name.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        if (::fstat(fd, &st) != 0) {
             recordFailure(task, display, errno); return;
         }
         if (S_ISLNK(st.st_mode) || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))) return;
+        if (descendant && st.st_dev != selected.st_dev) { ++task->skipped; return; }
         if ((owner != static_cast<uid_t>(-1) && owner != st.st_uid)
             || (group != static_cast<gid_t>(-1) && group != st.st_gid)) {
-            if (::fchownat(parent, name.constData(), owner, group, AT_SYMLINK_NOFOLLOW) != 0) {
+            if (::fchownat(fd, "", owner, group, AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW) != 0) {
                 recordFailure(task, display, errno); return;
             }
             // chown may clear setuid/setgid. Do not restore cleared privilege bits.
-            if (::fstatat(parent, name.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
+            if (::fstat(fd, &st) != 0) {
                 recordFailure(task, display, errno); return;
             }
             if (S_ISLNK(st.st_mode)) { recordFailure(task, display, ELOOP); return; }
         }
-        int requested = mode;
+        // Merge only explicitly edited bits, using the current item rather than
+        // the first item in a mixed selection. Ownership-only edits skip chmod.
+        if (!modeMask) { ++task->changed; return; }
+        int requested = (st.st_mode & 0777 & ~modeMask) | (mode & modeMask);
         // Match Dolphin's recursive +X behavior: ordinary documents stay
         // non-executable; directories and existing programs receive execute bits.
-        if (descendant && S_ISREG(st.st_mode) && !(st.st_mode & 0111) && (mode & 0111))
+        if (descendant && S_ISREG(st.st_mode) && !(st.st_mode & 0111) && (requested & 0111))
             requested &= ~0111;
         // This editor changes only ordinary rwx bits. Preserve existing special
         // bits deliberately; never restore privilege bits already cleared by chown.
         requested |= st.st_mode & (S_ISUID | S_ISGID | S_ISVTX);
-        if (::fchmodat(parent, name.constData(), requested, AT_SYMLINK_NOFOLLOW) != 0)
+        // fchmodat2/AT_EMPTY_PATH is required on Linux. Unsupported kernels
+        // fail safely; do not fall back to privileged path-based chmod.
+        if (::fchmodat(fd, "", requested, AT_EMPTY_PATH) != 0)
             recordFailure(task, display, errno);
         else
             ++task->changed;
     };
-    if (!recursive) { apply(AT_FDCWD, QFile::encodeName(path), path, false); return; }
+    if (!recursive) { apply(descriptor, {}, path, false, true); return; }
 
-    const int root = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    const int root = ::openat(descriptor, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (root < 0) { recordFailure(task, path, errno); return; }
     struct stat rootStat {};
     if (::fstat(root, &rootStat) != 0) {
@@ -158,4 +172,13 @@ void FileAccessSecurity::applyLocalAccess(const QString &path, int mode, uid_t o
         }
     }
     for (const auto &frame : stack) ::closedir(frame.stream);
+}
+
+void FileAccessSecurity::applyLocalAccess(const QString &path, int mode, uid_t owner, gid_t group, bool recursive,
+                                        const std::shared_ptr<FileAccessTask> &task, int modeMask)
+{
+    const int fd = ::open(QFile::encodeName(path).constData(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) { recordFailure(task, path, errno); return; }
+    applyDescriptorAccess(fd, path, mode, owner, group, recursive, task, modeMask);
+    ::close(fd);
 }

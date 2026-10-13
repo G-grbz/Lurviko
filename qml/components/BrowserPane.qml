@@ -440,6 +440,7 @@ Rectangle {
             root.applyDirectoryIconModeSize()
             root.scheduleGroupedCategoryReload()
         }
+        function onUseColoredFolderIconsChanged() { root.scheduleGroupedCategoryReload() }
     }
 
     function pointInsideItem(item, x, y) {
@@ -500,6 +501,7 @@ Rectangle {
                 parentPath: localPath.lastIndexOf("/") > 0
                             ? localPath.substring(0, localPath.lastIndexOf("/")) : "/",
                 suffix: String(entry.suffix || "").toLowerCase(),
+                hidden: !!entry.hidden,
                 size: itemSize,
                 modifiedMs: modifiedMs,
                 modelIndex: row
@@ -583,6 +585,7 @@ Rectangle {
                 createdMs: createdMs,
                 groupDateMs: directory.sortMode === "created" ? createdMs : modifiedMs,
                 iconSource: iconName,
+                hidden: !!entry.hidden,
                 thumbnailSource: !entry.isDir ? root.thumbSource(String(entry.localPath || ""), String(entry.suffix || ""), entry.modified, entry.size, entry.previewRevision) : "",
                 metaText: entry.isDir
                           ? (lang.language === "tr" ? "Klasör" : "Folder")
@@ -1011,7 +1014,8 @@ Rectangle {
         const lowerName = (name || "").toLowerCase()
         const archiveSuffixes = [
             ".zip", ".rar", ".7z", ".tar", ".tar.gz", ".tgz", ".tar.bz2",
-            ".tbz2", ".tar.xz", ".txz", ".tar.zst", ".gz", ".bz2", ".xz", ".zst"
+            ".tbz2", ".tbz", ".tar.xz", ".txz", ".tar.zst", ".tzst", ".gz", ".bz2", ".xz", ".zst",
+            ".zstd", ".gzip", ".lz", ".lzma", ".lzo", ".lz4", ".z", ".br", ".cpio", ".ar", ".deb", ".rpm", ".cab"
         ]
         for (let i = 0; i < archiveSuffixes.length; ++i) {
             if (lowerName.endsWith(archiveSuffixes[i]))
@@ -1028,7 +1032,7 @@ Rectangle {
                 || (mimeType || "").toLowerCase().indexOf("appimage") >= 0
     }
 
-    function iconForItem(isDir, suffix, systemIconName, itemName) {
+    function iconForItem(isDir, suffix, systemIconName, itemName, identity, mimeType) {
         const local = isDir ? AppTheme.localIconSource(systemIconName) : ""
         if (local.length)
             return local
@@ -1038,12 +1042,12 @@ Rectangle {
             return AppTheme.systemIcon(isDir
                                        ? AppTheme.folderSystemIcon(itemName, systemIconName)
                                        : (systemIconName || "text-x-generic"))
-        if (isDir) return AppTheme.icon("folder.svg")
+        if (isDir) return AppTheme.bundledFolderIcon(itemName, identity)
         const s = suffix.toLowerCase()
         if (["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg"].indexOf(s) >= 0) return AppTheme.icon("image.svg")
         if (["mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"].indexOf(s) >= 0) return AppTheme.icon("video.svg")
         if (["mp3", "flac", "wav", "m4a", "ogg"].indexOf(s) >= 0) return AppTheme.icon("audio.svg")
-        if (["zip", "rar", "7z", "tar", "gz", "xz"].indexOf(s) >= 0) return AppTheme.icon("archive.svg")
+        if (root.isArchive(itemName || ("item." + s), mimeType)) return AppTheme.icon("archive.svg")
         if (s === "pdf") return AppTheme.icon("pdf.svg")
         return AppTheme.icon("file.svg")
     }
@@ -2316,7 +2320,7 @@ Rectangle {
     }
 
     function showPropertiesForSelection() {
-        if (selectedCount === 1 && selectedUrl.length)
+        if (selectedCount > 0 && selectedUrl.length)
             openPropertiesForSelection()
     }
 
@@ -3235,7 +3239,8 @@ Rectangle {
     }
 
     function openPropertiesForSelection() {
-        openWithModel.setContext(selectedUrl, selectedMimeType)
+        if (!selectedUrls.length) return
+        propertiesDialog.selectionUrls = selectedUrls.slice()
         propertiesDialog.open()
     }
 
@@ -4407,6 +4412,7 @@ Rectangle {
                     required property string suffix
                     required property string mimeType
                     required property string systemIconName
+                    required property bool hidden
                     required property string videoInfo
                     required property int childCount
                     required property var folderPreviewPaths
@@ -4438,7 +4444,9 @@ Rectangle {
                     Item {
                         id: card
                         anchors.fill: parent
-                        opacity: fileOps.clipboardCut && fileOps.isCutUrl(itemUrl) ? 0.46 : 1.0
+                        objectName: "gridFileCard"
+                        opacity: fileOps.clipboardCut && fileOps.isCutUrl(itemUrl) ? 0.46
+                            : hidden ? AppTheme.hiddenItemOpacity : 1.0
                         Behavior on opacity { NumberAnimation { duration: 120 } }
 
                         // No permanent tile/card background: the icon and labels own the space.
@@ -4518,11 +4526,13 @@ Rectangle {
                                 Layout.preferredWidth: Math.min(grid.iconExtent, Math.max(36, grid.cellWidth - 20))
                                 Layout.preferredHeight: Math.min(grid.iconExtent, Math.max(36, grid.cellWidth - 20))
                                 CrispIcon {
+                                    objectName: "gridFileIcon"
                                     anchors.fill: parent
                                     source: AppTheme.useSystemIcons
-                                            ? AppTheme.systemIconAtSize(root.iconForItem(isDir, suffix, systemIconName, name), Math.round(parent.width))
-                                            : root.iconForItem(isDir, suffix, systemIconName, name)
-                                    visible: isDir || gridPreview.status !== Image.Ready
+                                            ? AppTheme.systemIconAtSize(root.iconForItem(isDir, suffix, systemIconName, name, itemUrl, mimeType), Math.round(parent.width))
+                                            : root.iconForItem(isDir, suffix, systemIconName, name, itemUrl, mimeType)
+                                    retainWhileLoading: false
+                                    visible: isDir || !gridPreview.displayReady
                                 }
                                 DeferredThumbnail {
                                     id: gridPreview
@@ -4537,7 +4547,7 @@ Rectangle {
                                     fileSuffix: suffix
                                     fileModified: modified
                                     fileSize: size
-                                    visible: !isDir && status === Image.Ready
+                                    visible: !isDir && displayReady
                                 }
 
                                 Rectangle {
@@ -5077,6 +5087,7 @@ Rectangle {
                     required property string suffix
                     required property string mimeType
                     required property string systemIconName
+                    required property bool hidden
                     required property string videoInfo
                     required property int childCount
                     required property var folderPreviewPaths
@@ -5110,7 +5121,9 @@ Rectangle {
                     Rectangle {
                         id: rowCard
                         anchors.fill: parent
-                        opacity: fileOps.clipboardCut && fileOps.isCutUrl(itemUrl) ? 0.46 : 1.0
+                        objectName: "listFileCard"
+                        opacity: fileOps.clipboardCut && fileOps.isCutUrl(itemUrl) ? 0.46
+                            : hidden ? AppTheme.hiddenItemOpacity : 1.0
                         Behavior on opacity { NumberAnimation { duration: 120 } }
                         radius: 12
                         color: root.isSelected(itemUrl) ? AppTheme.accentSoft
@@ -5167,11 +5180,13 @@ Rectangle {
                                        : Math.max(24, Math.min(38, root.activeIconSize * 0.18))
                                 height: width
                                 CrispIcon {
+                                    objectName: "listFileIcon"
                                     anchors.fill: parent
                                     source: AppTheme.useSystemIcons
-                                            ? AppTheme.systemIconAtSize(root.iconForItem(isDir, suffix, systemIconName, name), Math.round(parent.width))
-                                            : root.iconForItem(isDir, suffix, systemIconName, name)
-                                    visible: listPreview.status !== Image.Ready
+                                            ? AppTheme.systemIconAtSize(root.iconForItem(isDir, suffix, systemIconName, name, itemUrl, mimeType), Math.round(parent.width))
+                                            : root.iconForItem(isDir, suffix, systemIconName, name, itemUrl, mimeType)
+                                    retainWhileLoading: false
+                                    visible: !listPreview.displayReady
                                 }
                                 DeferredThumbnail {
                                     id: listPreview
@@ -5182,7 +5197,7 @@ Rectangle {
                                     fileSuffix: suffix
                                     fileModified: modified
                                     fileSize: size
-                                    visible: status === Image.Ready
+                                    visible: displayReady
                                     sourceSize.width: 96
                                     sourceSize.height: 96
                                 }
@@ -5740,6 +5755,7 @@ Rectangle {
 
                             MediaGalleryView {
                                 id: mediaGalleryView
+                                objectName: "mediaGalleryView"
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 visible: !root.dlnaViewActive || root.categoryKey !== "videos"
@@ -5757,6 +5773,7 @@ Rectangle {
                                     if (location && location.length)
                                         root.navigateTo(location)
                                 }
+                                onRevealRequested: function(location, itemUrl) { root.revealExternalItem(location, itemUrl) }
                                 onZoomRequested: function(delta) { root.adjustIconSize(delta) }
                             }
 
@@ -5870,7 +5887,7 @@ Rectangle {
                             border.width: 1
                             border.color: musicSettingsButton.hovered ? AppTheme.accentBorder : AppTheme.border
                         }
-                        ToolTip.visible: hovered
+                        ToolTip.visible: hovered && root.categoryKey !== "music"
                         ToolTip.text: (root.contentIndexModel
                                        ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
                                        : root.categoryKey) + (lang.language === "tr" ? " Ayarları" : " Settings")
@@ -6049,6 +6066,9 @@ Rectangle {
                     wheelStep: AppTheme.wheelScrollStep
                     sortMode: directory.sortMode
                     sortAscending: directory.sortAscending
+                    onRevealRequested: function(itemUrl) {
+                        root.revealNavigationTarget(fileOps.navigationTarget(itemUrl, ""), false)
+                    }
                 }
 
 
@@ -6198,16 +6218,26 @@ Rectangle {
 
     GModalPopup {
         id: categorySettingsPopup
+        objectName: "musicCategorySettings"
         parent: Overlay.overlay
         anchors.centerIn: parent
-        width: Math.min(560, Math.max(400, root.width - 40))
-        height: Math.min(580, Math.max(360, root.height - 40))
+        width: Math.min(560, Math.max(1, (parent ? parent.width : root.width) - 32))
+        height: Math.min(580, Math.max(1, (parent ? parent.height : root.height) - 32))
         padding: 0
         property bool musicBackgroundDraft: true
         property int musicQueueDraft: 50
-        onOpened: {
+        property bool musicHoverDraft: true
+        property bool musicHoverAnimationsDraft: true
+        property int musicHoverDelayDraft: 600
+        function commonLabel(key) { const language = root.lang.language; return root.lang.t(key) }
+        onAboutToShow: {
             categoryRootsEditor.reload()
             if (root.categoryKey === "music") {
+                musicLibraryView.dismissHoverPreview()
+                musicHoverDraft = AppTheme.musicHoverEnabled
+                musicHoverAnimationsDraft = AppTheme.musicHoverAnimationsEnabled
+                musicHoverDelayDraft = AppTheme.musicHoverDelayMs
+                musicHoverDelayInput.currentIndex = Math.max(0, musicHoverDelayInput.valueModel.indexOf(musicHoverDelayDraft))
                 if (root.musicPlayer) {
                     musicBackgroundDraft = root.musicPlayer.backgroundPlayback
                     musicQueueDraft = root.musicPlayer.queueLimit
@@ -6250,6 +6280,7 @@ Rectangle {
 
             ScrollView {
                 id: categorySettingsScroll
+                objectName: "musicCategorySettingsScroll"
 
                 GPopupWheelScroll {
                     parent: categorySettingsScroll
@@ -6259,11 +6290,14 @@ Rectangle {
                 }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.minimumWidth: 0
+                contentWidth: availableWidth
                 clip: true
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
                 ColumnLayout {
+                    objectName: "musicSettingsScrollContent"
                     width: Math.max(1, categorySettingsScroll.availableWidth)
                     spacing: 12
                     Item { Layout.preferredHeight: 4 }
@@ -6288,6 +6322,7 @@ Rectangle {
                     ColumnLayout {
                         visible: root.categoryKey === "music"
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         spacing: 10
@@ -6324,6 +6359,7 @@ Rectangle {
                             spacing: 10
                             ColumnLayout {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 spacing: 2
                                 Text {
                                     Layout.fillWidth: true
@@ -6400,22 +6436,64 @@ Rectangle {
                             onToggled: categorySettingsPopup.musicBackgroundDraft = checked
                         }
 
+                        GCheckBox {
+                            objectName: "musicHoverEnabledCheck"
+                            Layout.fillWidth: true
+                            text: categorySettingsPopup.commonLabel("hover_preview")
+                            checked: categorySettingsPopup.musicHoverDraft
+                            onToggled: categorySettingsPopup.musicHoverDraft = checked
+                        }
+                        GCheckBox {
+                            objectName: "musicHoverAnimationCheck"
+                            Layout.fillWidth: true
+                            text: categorySettingsPopup.commonLabel("hover_animations")
+                            checked: categorySettingsPopup.musicHoverAnimationsDraft
+                            onToggled: categorySettingsPopup.musicHoverAnimationsDraft = checked
+                        }
                         RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: categorySettingsPopup.commonLabel("hover_delay")
+                                color: AppTheme.textMuted
+                                font.pixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+                            GComboBox {
+                                id: musicHoverDelayInput
+                                objectName: "musicHoverDelayInput"
+                                Layout.preferredWidth: 112
+                                Layout.minimumWidth: 112
+                                Layout.maximumWidth: 112
+                                property var valueModel: AppTheme.hoverDelayOptions
+                                model: valueModel.map(function(value) { return value + " ms" })
+                                currentIndex: 0
+                                onActivated: categorySettingsPopup.musicHoverDelayDraft = valueModel[currentIndex]
+                            }
+                        }
+
+                        RowLayout {
+                            objectName: "musicQueueSettingsRow"
                             Layout.fillWidth: true
                             spacing: 10
                             ColumnLayout {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 spacing: 2
                                 Text {
+                                    Layout.fillWidth: true
                                     text: lang.language === "tr" ? "Kuyruk boyutu" : "Queue size"
                                     color: AppTheme.text
                                     font.pixelSize: 10
                                     font.weight: Font.Medium
                                 }
                                 Text {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     text: lang.language === "tr"
-                                          ? "Yeni kuyruk oluşturulurken en fazla kaç parça ekleneceğini belirler."
-                                          : "Maximum tracks added when a new queue is generated."
+                                          ? "Bir parçayla oynatmayı başlatırken veya rastgele yeni kuyruk oluştururken uygulanır. Mevcut kuyruk ve kayıtlı listeler değişmez."
+                                          : "Applies when starting playback from a track or generating a random queue. Existing queues and saved playlists stay unchanged."
                                     color: AppTheme.textMuted
                                     font.pixelSize: 8
                                     wrapMode: Text.Wrap
@@ -6429,6 +6507,8 @@ Rectangle {
                                 value: categorySettingsPopup.musicQueueDraft
                                 onValueModified: categorySettingsPopup.musicQueueDraft = value
                                 Layout.preferredWidth: 112
+                                Layout.minimumWidth: 112
+                                Layout.maximumWidth: 112
                             }
                         }
                     }
@@ -6461,19 +6541,17 @@ Rectangle {
                     onClicked: categorySettingsPopup.close()
                 }
                 GModalButton {
+                    objectName: "saveCategorySettings"
                     primary: true
                     text: lang.language === "tr" ? "Kaydet" : "Save"
                     onClicked: {
                         categoryRootsEditor.save()
                         if (root.categoryKey === "music") {
+                            AppTheme.setMusicHoverPreferences(categorySettingsPopup.musicHoverDraft,
+                                categorySettingsPopup.musicHoverAnimationsDraft, categorySettingsPopup.musicHoverDelayDraft)
                             if (root.musicPlayer) {
                                 root.musicPlayer.backgroundPlayback = categorySettingsPopup.musicBackgroundDraft
                                 root.musicPlayer.queueLimit = categorySettingsPopup.musicQueueDraft
-                                if (root.musicPlayer.opened && root.musicPlayer.queue.length > root.musicPlayer.queueLimit) {
-                                    root.musicPlayer.queue = root.musicPlayer.queue.slice(0, root.musicPlayer.queueLimit)
-                                    root.musicPlayer.currentIndex = Math.max(0, Math.min(root.musicPlayer.currentIndex, root.musicPlayer.queue.length - 1))
-                                    root.musicPlayer.rebuildPlaybackOrder(root.musicPlayer.currentIndex)
-                                }
                             }
                         }
                         categorySettingsPopup.close()
@@ -6683,6 +6761,8 @@ Rectangle {
 
     GMenu {
         id: itemContextMenu
+        objectName: "itemContextMenu"
+        property string pendingRenameSelection: ""
         parent: root
         onOpened: {
             root.submenuActivationReady = false
@@ -6704,6 +6784,15 @@ Rectangle {
             shareMenu.close()
             fileActionsMenu.close()
             openWithMenu.close()
+            // Popup closing restores the previous focus. Start the editor
+            // afterwards so that restoration cannot immediately submit it.
+            const selection = pendingRenameSelection
+            pendingRenameSelection = ""
+            if (selection.length)
+                Qt.callLater(function() {
+                    if (JSON.stringify(root.selectedUrls) === selection)
+                        root.renameSelection()
+                })
         }
 
         GMenuItem {
@@ -6871,13 +6960,17 @@ Rectangle {
         }
 
         GMenuItem {
+            objectName: "contextRenameAction"
             text: root.selectedCount > 1
                   ? (lang.language === "tr" ? "Toplu yeniden adlandır…" : "Batch rename…")
                   : lang.t("rename")
             shortcutAction: "rename"
             enabled: root.selectedCount > 0
                      && (root.selectedCount === 1 || !root.isCloudUrl(directory.location))
-            onTriggered: root.renameSelection()
+            onTriggered: {
+                itemContextMenu.pendingRenameSelection = JSON.stringify(root.selectedUrls)
+                itemContextMenu.dismiss()
+            }
         }
 
         GMenu {
@@ -7129,10 +7222,10 @@ Rectangle {
                     root.trashSelection()
             }
         }
-        GMenuSeparator { visible: root.selectedCount === 1 }
+        GMenuSeparator { visible: root.selectedCount > 0 }
 
         GMenuItem {
-            visible: root.selectedCount === 1
+            visible: root.selectedCount > 0
             text: lang.t("properties"); shortcutAction: "properties"
             onTriggered: root.openPropertiesForSelection()
         }
@@ -7325,6 +7418,15 @@ Rectangle {
     GModalPopup {
         id: propertiesDialog
         objectName: "filePropertiesDialog"
+        property var selectionUrls: []
+        readonly property bool multiple: selectionUrls.length > 1
+        readonly property bool localSelection: fileProperties.allLocal
+        readonly property bool hasFolders: multiple ? fileProperties.selectedFolders > 0 : root.selectedIsDir
+        readonly property string keepExisting: lang.language === "tr" ? "Mevcut değerleri koru" : "Keep existing values"
+        property int permissionMask: 0
+        property bool modeEdited: false
+        readonly property bool validMode: (!modeEdited || permissionModeInput.acceptableInput)
+            && permissionOwnerPicker.acceptableInput && permissionGroupPicker.acceptableInput
         property int permissionDraft: 0
         property string ownerDraft: ""
         property string groupDraft: ""
@@ -7333,24 +7435,38 @@ Rectangle {
         property var ownerChoices: []
         property var groupChoices: []
         readonly property bool canEditAccess: !fileProperties.accessBusy
-                && fileProperties.linkType !== "symlink"
+                && localSelection && fileProperties.linkType !== "symlink"
                 && (fileProperties.permissionsEditable || administratorDraft)
-        readonly property bool permissionsDirty: permissionDraft !== fileProperties.permissionMode
-                || ownerDraft !== fileProperties.ownerName || groupDraft !== fileProperties.groupName || recursiveDraft
+        readonly property bool permissionsDirty: multiple
+                ? ((permissionMask & fileProperties.mixedPermissionMask) !== 0
+                   || ((permissionDraft ^ fileProperties.permissionMode) & permissionMask) !== 0
+                   || ownerDraft.length > 0 || groupDraft.length > 0)
+                : permissionDraft !== fileProperties.permissionMode
+                  || ownerDraft !== fileProperties.ownerName || groupDraft !== fileProperties.groupName || recursiveDraft
         function reloadAccessChoices() {
             ownerChoices = fileProperties.availableOwners(administratorDraft)
             groupChoices = fileProperties.availableGroups(administratorDraft)
-            if (ownerChoices.indexOf(ownerDraft) < 0) ownerDraft = fileProperties.ownerName
-            if (groupChoices.indexOf(groupDraft) < 0) groupDraft = fileProperties.groupName
+            if (multiple) {
+                ownerChoices = [keepExisting].concat(ownerChoices)
+                groupChoices = [keepExisting].concat(groupChoices)
+            }
+            if (ownerChoices.indexOf(ownerDraft) < 0) ownerDraft = multiple ? "" : fileProperties.ownerName
+            if (groupChoices.indexOf(groupDraft) < 0) groupDraft = multiple ? "" : fileProperties.groupName
         }
         function resetAccessDraft() {
             permissionDraft = fileProperties.permissionMode
-            ownerDraft = fileProperties.ownerName
-            groupDraft = fileProperties.groupName
+            permissionMask = 0
+            modeEdited = false
+            ownerDraft = multiple ? "" : fileProperties.ownerName
+            groupDraft = multiple ? "" : fileProperties.groupName
             reloadAccessChoices()
+            permissionModeInput.syncModeText()
         }
         function applyAccessDraft() {
-            if (canEditAccess && permissionsDirty && permissionModeInput.acceptableInput)
+            if (!canEditAccess || !permissionsDirty || !validMode) return
+            if (multiple)
+                fileProperties.applySelectionAccess(permissionDraft, permissionMask, ownerDraft, groupDraft, recursiveDraft, administratorDraft)
+            else
                 fileProperties.applyAccess(permissionDraft, ownerDraft, groupDraft, recursiveDraft, administratorDraft)
         }
         onAdministratorDraftChanged: reloadAccessChoices()
@@ -7362,22 +7478,20 @@ Rectangle {
         height: Math.min(root.selectedIsDir ? 720 : 700, Overlay.overlay.height - 40)
         padding: 0
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        onOpened: {
+        onAboutToShow: {
             propertiesWheel.reset()
             recursiveDraft = false
             administratorDraft = false
-            openWithModel.setContext(root.selectedUrl, root.selectedMimeType)
-            if (root.selectedLocalPath.length > 0) {
-                fileProperties.inspect(root.selectedUrl)
-                linkTargetInput.text = fileProperties.linkTarget
-            } else {
-                linkTargetInput.text = ""
-            }
+            fileProperties.inspectSelection(selectionUrls)
+            resetAccessDraft()
+            if (!multiple) openWithModel.setContext(root.selectedUrl, root.selectedMimeType)
+            linkTargetInput.text = multiple ? "" : fileProperties.linkTarget
             Qt.callLater(function() {
                 defaultAppCombo.currentIndex = openWithModel.indexForDesktopEntry(openWithModel.defaultDesktopEntry)
             })
         }
-        onClosed: { propertiesWheel.reset(); fileProperties.cancelAccess() }
+        onOpened: propertiesWheel.reset()
+        onClosed: { propertiesWheel.reset(); fileProperties.cancelAccess(); fileProperties.cancelInspection() }
         background: GModalSurface { }
 
         ColumnLayout {
@@ -7405,7 +7519,7 @@ Rectangle {
                         border.color: AppTheme.accentBorder
                         CrispIcon {
                             anchors.centerIn: parent
-                            source: root.iconForItem(root.selectedIsDir, root.selectedSuffix,
+                            source: propertiesDialog.multiple ? AppTheme.icon("documents.svg") : root.iconForItem(root.selectedIsDir, root.selectedSuffix,
                                                      root.selectedIsDir && root.selectedLocalPath.length > 0
                                                      ? fileProperties.iconName : root.selectedSystemIconName,
                                                      root.selectedName)
@@ -7414,7 +7528,7 @@ Rectangle {
                         }
                         MouseArea {
                             anchors.fill: parent
-                            visible: root.selectedIsDir && root.selectedLocalPath.length > 0
+                            visible: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 const title = lang.language === "tr" ? "Klasör ikonu seç" : "Choose folder icon"
@@ -7426,7 +7540,7 @@ Rectangle {
                             }
                         }
                         GToolTip {
-                            visible: folderIconHover.hovered && root.selectedIsDir && root.selectedLocalPath.length > 0
+                            visible: folderIconHover.hovered && !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
                             text: lang.language === "tr" ? "İkonu değiştir" : "Change icon"
                         }
                         HoverHandler { id: folderIconHover }
@@ -7443,7 +7557,7 @@ Rectangle {
                             font.letterSpacing: 1.1
                         }
                         Text {
-                            text: root.selectedName
+                            text: propertiesDialog.multiple ? fileProperties.name : root.selectedName
                             color: AppTheme.text
                             font.pixelSize: 19
                             font.weight: Font.DemiBold
@@ -7451,7 +7565,13 @@ Rectangle {
                             elide: Text.ElideMiddle
                         }
                         Text {
-                            text: root.selectedIsDir
+                            text: propertiesDialog.multiple && !propertiesDialog.localSelection
+                                  ? (lang.language === "tr" ? "Uzak konumlardaki seçim" : "Selection from remote locations")
+                                  : propertiesDialog.multiple
+                                  ? (fileProperties.selectedFiles + (lang.language === "tr" ? " dosya · " : " files · ")
+                                     + fileProperties.selectedFolders + (lang.language === "tr" ? " klasör" : " folders")
+                                     + (fileProperties.selectedLinks ? " · " + fileProperties.selectedLinks + (lang.language === "tr" ? " bağlantı" : " links") : ""))
+                                  : root.selectedIsDir
                                   ? (lang.language === "tr" ? "Klasör" : "Folder")
                                   : (root.selectedMimeType || (lang.language === "tr" ? "Dosya" : "File"))
                             color: AppTheme.textMuted
@@ -7460,7 +7580,7 @@ Rectangle {
                             elide: Text.ElideRight
                         }
                         Text {
-                            visible: root.selectedIsDir && root.selectedLocalPath.length > 0
+                            visible: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
                             text: lang.language === "tr" ? "Klasör ikonunu değiştirmek için simgeye tıkla" : "Click the icon to customize this folder"
                             color: AppTheme.accent
                             font.pixelSize: 9
@@ -7524,49 +7644,51 @@ Rectangle {
                             rowSpacing: 12
 
                             Text { text: lang.t("location"); color: AppTheme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 105 }
-                            Text { text: root.selectedLocalPath.length ? root.selectedLocalPath : root.selectedUrl; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                            Text { text: propertiesDialog.multiple
+                                   ? (fileProperties.commonLocation || (lang.language === "tr" ? "Farklı konumlar" : "Multiple locations"))
+                                   : root.selectedLocalPath.length ? root.selectedLocalPath : root.selectedUrl; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
 
                             Text { text: lang.t("size"); color: AppTheme.textMuted; font.pixelSize: 11 }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 7
-                                GBusyIndicator { visible: root.selectedIsDir && fileProperties.calculating; running: visible; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
+                                GBusyIndicator { visible: fileProperties.calculating; running: visible; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
                                 Text {
-                                    text: root.selectedLocalPath.length > 0
+                                    text: propertiesDialog.localSelection
                                           ? (fileProperties.calculating
                                              ? (lang.language === "tr" ? "Hesaplanıyor…" : "Calculating…")
                                              : fileProperties.formatBytes(fileProperties.totalSize))
-                                          : directory.formatBytes(root.selectedSize)
+                                          : propertiesDialog.multiple ? (lang.language === "tr" ? "Kullanılamıyor" : "Unavailable") : directory.formatBytes(root.selectedSize)
                                     color: AppTheme.text; font.pixelSize: 11
                                 }
                             }
 
-                            Text { visible: root.selectedIsDir && root.selectedLocalPath.length > 0; text: lang.language === "tr" ? "İçerik" : "Contents"; color: AppTheme.textMuted; font.pixelSize: 11 }
+                            Text { visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders); text: lang.language === "tr" ? "İçerik" : "Contents"; color: AppTheme.textMuted; font.pixelSize: 11 }
                             Text {
-                                visible: root.selectedIsDir && root.selectedLocalPath.length > 0
+                                visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders)
                                 text: fileProperties.calculating ? "…" : (fileProperties.fileCount + (lang.language === "tr" ? " dosya · " : " files · ") + fileProperties.folderCount + (lang.language === "tr" ? " klasör" : " folders"))
                                 color: AppTheme.text; font.pixelSize: 11
                             }
 
-                            Text { visible: root.selectedLocalPath.length > 0; text: lang.language === "tr" ? "Oluşturma" : "Created"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: root.selectedLocalPath.length > 0; text: fileProperties.created && !isNaN(fileProperties.created.getTime()) ? Qt.formatDateTime(fileProperties.created, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: lang.language === "tr" ? "Oluşturma" : "Created"; color: AppTheme.textMuted; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: fileProperties.created && !isNaN(fileProperties.created.getTime()) ? Qt.formatDateTime(fileProperties.created, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
 
-                            Text { text: lang.t("modified"); color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { text: root.selectedLocalPath.length > 0 && fileProperties.modified ? Qt.formatDateTime(fileProperties.modified, "dd.MM.yyyy HH:mm") : (root.selectedModified ? Qt.formatDateTime(root.selectedModified, "dd.MM.yyyy HH:mm") : "—"); color: AppTheme.text; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple; text: lang.t("modified"); color: AppTheme.textMuted; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple; text: root.selectedLocalPath.length > 0 && fileProperties.modified ? Qt.formatDateTime(fileProperties.modified, "dd.MM.yyyy HH:mm") : (root.selectedModified ? Qt.formatDateTime(root.selectedModified, "dd.MM.yyyy HH:mm") : "—"); color: AppTheme.text; font.pixelSize: 11 }
 
-                            Text { visible: root.selectedLocalPath.length > 0; text: lang.language === "tr" ? "Son erişim" : "Last accessed"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: root.selectedLocalPath.length > 0; text: fileProperties.accessed && !isNaN(fileProperties.accessed.getTime()) ? Qt.formatDateTime(fileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: lang.language === "tr" ? "Son erişim" : "Last accessed"; color: AppTheme.textMuted; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: fileProperties.accessed && !isNaN(fileProperties.accessed.getTime()) ? Qt.formatDateTime(fileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
 
-                            Text { visible: root.selectedLocalPath.length > 0; text: lang.language === "tr" ? "İzinler" : "Permissions"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: root.selectedLocalPath.length > 0; text: fileProperties.permissionsText.length ? fileProperties.permissionsText : "—"; color: AppTheme.text; font.pixelSize: 11 }
+                            Text { visible: propertiesDialog.localSelection; text: lang.language === "tr" ? "İzinler" : "Permissions"; color: AppTheme.textMuted; font.pixelSize: 11 }
+                            Text { visible: propertiesDialog.localSelection; text: fileProperties.permissionsText.length ? fileProperties.permissionsText : "—"; color: AppTheme.text; font.pixelSize: 11 }
 
-                            Text { text: lang.t("mime_type"); color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { text: root.selectedMimeType || "—"; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                            Text { visible: !propertiesDialog.multiple; text: lang.t("mime_type"); color: AppTheme.textMuted; font.pixelSize: 11 }
+                            Text { visible: !propertiesDialog.multiple; text: root.selectedMimeType || "—"; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                     }
 
                     Text {
-                        visible: root.selectedLocalPath.length > 0
+                        visible: propertiesDialog.localSelection
                         text: lang.language === "tr" ? "ERİŞİM İZİNLERİ" : "ACCESS PERMISSIONS"
                         color: AppTheme.textMuted
                         font.pixelSize: 10
@@ -7575,7 +7697,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                        visible: root.selectedLocalPath.length > 0
+                        visible: propertiesDialog.localSelection
                         Layout.fillWidth: true
                         Layout.preferredHeight: permissionsContent.implicitHeight + 32
                         radius: 16
@@ -7595,30 +7717,44 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 3
                                     Text { text: lang.language === "tr" ? "Sahibi" : "Owner"; color: AppTheme.textMuted; font.pixelSize: 10 }
-                                    GComboBox {
+                                    GAccountPicker {
+                                        id: permissionOwnerPicker
                                         objectName: "permissionOwnerCombo"
                                         Layout.fillWidth: true
                                         implicitWidth: 160
                                         implicitHeight: 34
                                         model: propertiesDialog.ownerChoices
-                                        currentIndex: propertiesDialog.ownerChoices.indexOf(propertiesDialog.ownerDraft)
+                                        value: propertiesDialog.ownerDraft
+                                        allowKeep: propertiesDialog.multiple
+                                        keepText: propertiesDialog.multiple
+                                                  ? (fileProperties.ownerName || (lang.language === "tr" ? "Farklı" : "Mixed"))
+                                                    + (lang.language === "tr" ? " · Koru" : " · Keep")
+                                                  : (lang.language === "tr" ? "Kullanıcı ara…" : "Find a user…")
+                                        Accessible.name: lang.language === "tr" ? "Sahibi" : "Owner"
                                         enabled: propertiesDialog.canEditAccess && count > 1
-                                        onActivated: propertiesDialog.ownerDraft = currentText
+                                        onEdited: function(value) { propertiesDialog.ownerDraft = value }
                                     }
                                 }
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 3
                                     Text { text: lang.language === "tr" ? "Grup" : "Group"; color: AppTheme.textMuted; font.pixelSize: 10 }
-                                    GComboBox {
+                                    GAccountPicker {
+                                        id: permissionGroupPicker
                                         objectName: "permissionGroupCombo"
                                         Layout.fillWidth: true
                                         implicitWidth: 160
                                         implicitHeight: 34
                                         model: propertiesDialog.groupChoices
-                                        currentIndex: propertiesDialog.groupChoices.indexOf(propertiesDialog.groupDraft)
+                                        value: propertiesDialog.groupDraft
+                                        allowKeep: propertiesDialog.multiple
+                                        keepText: propertiesDialog.multiple
+                                                  ? (fileProperties.groupName || (lang.language === "tr" ? "Farklı" : "Mixed"))
+                                                    + (lang.language === "tr" ? " · Koru" : " · Keep")
+                                                  : (lang.language === "tr" ? "Grup ara…" : "Find a group…")
+                                        Accessible.name: lang.language === "tr" ? "Grup" : "Group"
                                         enabled: propertiesDialog.canEditAccess && count > 1
-                                        onActivated: propertiesDialog.groupDraft = currentText
+                                        onEdited: function(value) { propertiesDialog.groupDraft = value }
                                     }
                                 }
                                 ColumnLayout {
@@ -7638,16 +7774,25 @@ Rectangle {
                                         validator: RegularExpressionValidator { regularExpression: /0?[0-7]{3}/ }
                                         inputMethodHints: Qt.ImhDigitsOnly
                                         function syncModeText() {
-                                            text = "0" + propertiesDialog.permissionDraft.toString(8).padStart(3, "0")
+                                            text = propertiesDialog.multiple && fileProperties.mixedPermissionMask && propertiesDialog.permissionMask !== 511
+                                                 ? "" : "0" + propertiesDialog.permissionDraft.toString(8).padStart(3, "0")
                                         }
+                                        placeholderText: lang.language === "tr" ? "Farklı" : "Mixed"
                                         Component.onCompleted: syncModeText()
                                         onTextEdited: {
-                                            if (acceptableInput) propertiesDialog.permissionDraft = parseInt(text, 8)
+                                            propertiesDialog.modeEdited = true
+                                            if (acceptableInput) {
+                                                propertiesDialog.permissionDraft = parseInt(text, 8)
+                                                propertiesDialog.permissionMask = 511
+                                            }
                                         }
-                                        onActiveFocusChanged: if (!activeFocus) syncModeText()
+                                        onActiveFocusChanged: if (!activeFocus) { syncModeText(); propertiesDialog.modeEdited = false }
                                         onAccepted: propertiesDialog.applyAccessDraft()
                                         Connections {
                                             target: propertiesDialog
+                                            function onPermissionMaskChanged() {
+                                                if (!permissionModeInput.activeFocus) permissionModeInput.syncModeText()
+                                            }
                                             function onPermissionDraftChanged() {
                                                 if (!permissionModeInput.activeFocus
                                                         || (permissionModeInput.acceptableInput
@@ -7668,7 +7813,9 @@ Rectangle {
                                 Repeater {
                                     model: [lang.language === "tr" ? "Okuma" : "Read",
                                             lang.language === "tr" ? "Yazma" : "Write",
-                                            root.selectedIsDir ? (lang.language === "tr" ? "Dizine girme" : "Enter folder")
+                                            propertiesDialog.multiple && propertiesDialog.hasFolders
+                                                ? (lang.language === "tr" ? "Çalıştırma / Giriş" : "Execute / Enter")
+                                                : root.selectedIsDir ? (lang.language === "tr" ? "Dizine girme" : "Enter folder")
                                                                : (lang.language === "tr" ? "Çalıştırma" : "Execute")]
                                     Text {
                                         required property string modelData
@@ -7712,13 +7859,21 @@ Rectangle {
                                                 anchors.centerIn: parent
                                                 width: 28
                                                 enabled: propertiesDialog.canEditAccess
-                                                checked: (propertiesDialog.permissionDraft & parent.modelData) !== 0
+                                                tristate: propertiesDialog.multiple
+                                                checkState: propertiesDialog.multiple
+                                                            && (fileProperties.mixedPermissionMask & parent.modelData)
+                                                            && !(propertiesDialog.permissionMask & parent.modelData)
+                                                            ? Qt.PartiallyChecked
+                                                            : (propertiesDialog.permissionDraft & parent.modelData) ? Qt.Checked : Qt.Unchecked
+                                                nextCheckState: function() { return checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked }
                                                 Accessible.name: permissionRow.modelData.label + " "
                                                         + (lang.language === "tr" ? ["Okuma", "Yazma", root.selectedIsDir ? "Dizine girme" : "Çalıştırma"]
                                                                                   : ["Read", "Write", root.selectedIsDir ? "Enter folder" : "Execute"])[parent.index]
-                                                onToggled: {
+                                                onClicked: {
                                                     const bit = parent.modelData
-                                                    propertiesDialog.permissionDraft = checked
+                                                    const enabledBit = checkState === Qt.Checked
+                                                    propertiesDialog.permissionMask |= bit
+                                                    propertiesDialog.permissionDraft = enabledBit
                                                             ? propertiesDialog.permissionDraft | bit
                                                             : propertiesDialog.permissionDraft & ~bit
                                                 }
@@ -7730,7 +7885,7 @@ Rectangle {
 
                             GCheckBox {
                                 objectName: "allowFileExecution"
-                                visible: !root.selectedIsDir
+                                visible: !propertiesDialog.multiple && !root.selectedIsDir
                                 Layout.fillWidth: true
                                 text: lang.language === "tr" ? "Dosyanın program olarak çalıştırılmasına izin ver"
                                                              : "Allow executing this file as a program"
@@ -7747,7 +7902,7 @@ Rectangle {
 
                             GCheckBox {
                                 objectName: "recursiveAccessPermissions"
-                                visible: root.selectedIsDir
+                                visible: propertiesDialog.hasFolders
                                 Layout.fillWidth: true
                                 enabled: propertiesDialog.canEditAccess
                                 text: lang.language === "tr" ? "Alt dosya ve klasörlere de uygula" : "Apply to enclosed files and folders"
@@ -7757,7 +7912,7 @@ Rectangle {
 
                             Text {
                                 objectName: "folderTraversalWarning"
-                                visible: root.selectedIsDir && (propertiesDialog.permissionDraft & 73) === 0
+                                visible: propertiesDialog.hasFolders && (!propertiesDialog.multiple || (propertiesDialog.permissionMask & 73) === 73) && (propertiesDialog.permissionDraft & 73) === 0
                                 Layout.fillWidth: true
                                 text: lang.language === "tr"
                                       ? "Bu izinler klasöre girme hakkını kaldırır. Dosyalar boşalmaz; ancak içerikleri ve boyut bilgileri okunamaz. Klasörler için genellikle 0755 veya 0700 kullanılır."
@@ -7811,7 +7966,11 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 wrapMode: Text.Wrap
-                                text: fileProperties.linkType === "symlink"
+                                text: propertiesDialog.multiple
+                                      ? (lang.language === "tr"
+                                         ? "Yalnızca değiştirdiğin izinler, sahip ve grup seçili öğelere uygulanır. Çizgili kutular farklı izinleri gösterir. Sembolik bağlantılar ve özel dosyalar atlanır; sabit bağlantılar aynı inode izinlerini paylaşır. Özyinelemeli çalıştırma izni klasörlere ve zaten çalıştırılabilir dosyalara uygulanır. İçerik sayısı alt öğeleri de içerir."
+                                         : "Only edited permissions, owner and group apply to the selected items. Dashed boxes indicate mixed permissions. Symbolic links and special files are skipped; hard links share inode permissions. Recursive execute applies to folders and files already executable. Contents includes descendants.")
+                                      : fileProperties.linkType === "symlink"
                                       ? (lang.language === "tr" ? "Sembolik bağlantının izinleri değiştirilemez. Hedefin özelliklerini açabilirsin."
                                                                : "Symbolic link permissions cannot be edited. Open the target's properties instead.")
                                       : !fileProperties.administratorAvailable
@@ -7838,7 +7997,7 @@ Rectangle {
                     }
 
                     Text {
-                        visible: root.selectedLocalPath.length > 0 && fileProperties.linkType.length > 0
+                        visible: propertiesDialog.localSelection && fileProperties.linkType.length > 0
                         text: lang.language === "tr" ? "BAĞLANTI" : "LINK"
                         color: AppTheme.textMuted
                         font.pixelSize: 10
@@ -7847,7 +8006,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                        visible: root.selectedLocalPath.length > 0 && fileProperties.linkType.length > 0
+                        visible: propertiesDialog.localSelection && fileProperties.linkType.length > 0
                         Layout.fillWidth: true
                         Layout.preferredHeight: linkDetails.implicitHeight + 30
                         radius: 16
@@ -7956,7 +8115,7 @@ Rectangle {
                     }
 
                     Text {
-                        visible: !root.selectedIsDir
+                        visible: !propertiesDialog.multiple && !root.selectedIsDir
                         text: lang.language === "tr" ? "VARSAYILAN UYGULAMA" : "DEFAULT APPLICATION"
                         color: AppTheme.textMuted
                         font.pixelSize: 10
@@ -7965,7 +8124,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                        visible: !root.selectedIsDir
+                        visible: !propertiesDialog.multiple && !root.selectedIsDir
                         Layout.fillWidth: true
                         Layout.preferredHeight: 128
                         radius: 16
@@ -8016,7 +8175,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Text {
                     Layout.fillWidth: true
-                    text: root.selectedIsDir && root.selectedLocalPath.length > 0
+                    text: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
                           ? (lang.language === "tr" ? "Simgeyi başlıktan değiştirebilirsin" : "You can change the icon from the header")
                           : ""
                     color: AppTheme.textFaint
@@ -8024,8 +8183,8 @@ Rectangle {
                 }
                 GModalButton {
                     objectName: "applyFilePermissions"
-                    visible: root.selectedLocalPath.length > 0
-                    enabled: propertiesDialog.canEditAccess && propertiesDialog.permissionsDirty && permissionModeInput.acceptableInput
+                    visible: propertiesDialog.localSelection
+                    enabled: propertiesDialog.canEditAccess && propertiesDialog.permissionsDirty && propertiesDialog.validMode
                     primary: true
                     text: lang.language === "tr" ? "Uygula" : "Apply"
                     onClicked: propertiesDialog.applyAccessDraft()

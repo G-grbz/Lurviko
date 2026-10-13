@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import QtCore
 import Lurviko.Backend
 import "components"
@@ -174,9 +175,75 @@ ApplicationWindow {
     property string homeForwardLocation: launchLocation
     // Empty means the Discover/home page; otherwise this mirrors the visible browser pane.
     property string sidebarLocation: launchLocation
+    // One playback engine, two expanded presentations. Neither creates audio.
+    property bool musicExpanded: false
+    property bool musicDetached: false
+    property int embeddedMusicSideTab: 0
+    property int detachedMusicSideTab: 0
+    property bool embeddedMusicRemainingTime: false
+    property bool detachedMusicRemainingTime: false
+
+    function openExpandedMusic() {
+        if (!globalMusicPlayer.opened)
+            return
+        // Keep the expanded view in the Music workspace, not on top of files.
+        if (sidebarLocation !== "category:/music")
+            browse("category:/music")
+        globalMusicPlayer.restorePanel()
+        globalMusicPlayer.queueOpen = false
+        musicDetached = false
+        musicExpanded = true
+    }
+
+    function openDetachedMusic() {
+        if (!globalMusicPlayer.opened)
+            return
+        globalMusicPlayer.restorePanel()
+        musicExpanded = false
+        musicDetached = true
+        if (musicDetachedWindow.visibility === Window.Minimized)
+            musicDetachedWindow.visibility = musicDetachedWindow.restoreVisibility
+        musicDetachedWindow.raise()
+        musicDetachedWindow.requestActivate()
+    }
+
+    function openNormalMusic() {
+        musicExpanded = false
+        musicDetached = false
+        globalMusicPlayer.restorePanel()
+    }
+
+    function minimizeExpandedMusic() {
+        if (!globalMusicPlayer.opened)
+            return
+        globalMusicPlayer.minimize()
+        musicExpanded = false
+        musicDetached = false
+        root.show()
+        root.raise()
+        root.requestActivate()
+    }
+
+    function attachDetachedMusic() {
+        if (!globalMusicPlayer.opened)
+            return
+        // Do not clear detached mode before navigation: it suppresses the
+        // ordinary background-playback policy during this visual handoff.
+        if (sidebarLocation !== "category:/music")
+            browse("category:/music")
+        musicExpanded = true
+        musicDetached = false
+        root.show()
+        root.raise()
+        root.requestActivate()
+    }
 
     onSidebarLocationChanged: {
-        if (!globalMusicPlayer.opened)
+        if (musicExpanded && sidebarLocation !== "category:/music")
+            musicExpanded = false
+        // A detached player stays active while browsing (it is an independent
+        // music workspace); closing the window only closes its presentation.
+        if (musicDetached || !globalMusicPlayer.opened)
             return
         if (sidebarLocation === "category:/music") {
             globalMusicPlayer.restorePanel()
@@ -453,6 +520,73 @@ ApplicationWindow {
                     }
                 }
             }
+
+            Loader {
+                id: embeddedMusicLoader
+                z: 400
+                anchors.fill: parent
+                anchors.margins: 1
+                active: root.musicExpanded && root.sidebarLocation === "category:/music"
+                        && globalMusicPlayer.opened
+                sourceComponent: MusicExpandedView {
+                    width: embeddedMusicLoader.width
+                    height: embeddedMusicLoader.height
+                    player: globalMusicPlayer
+                    lang: root.appLang
+                    sideTab: root.embeddedMusicSideTab
+                    showRemainingTime: root.embeddedMusicRemainingTime
+                    onSideTabChanged: root.embeddedMusicSideTab = sideTab
+                    onShowRemainingTimeChanged: root.embeddedMusicRemainingTime = showRemainingTime
+                    onCloseRequested: root.musicExpanded = false
+                    onMinimizeRequested: root.minimizeExpandedMusic()
+                    onDetachRequested: root.openDetachedMusic()
+                    onAttachRequested: root.openExpandedMusic()
+                }
+            }
+        }
+    }
+
+    // Native top-level Window; closing it does NOT destroy the shared player.
+    Window {
+        id: musicDetachedWindow
+        // An independent taskbar window, not a transient child of the browser.
+        transientParent: null
+        flags: Qt.Window
+        property int restoreVisibility: Window.Windowed
+        onVisibilityChanged: {
+            if (visibility === Window.Windowed || visibility === Window.Maximized
+                    || visibility === Window.FullScreen)
+                restoreVisibility = visibility
+        }
+        title: "Lurviko — " + (globalMusicPlayer.currentTitle || "Music")
+        width: 1140
+        height: 770
+        minimumWidth: 780
+        minimumHeight: 540
+        visible: root.musicDetached && globalMusicPlayer.opened
+        color: AppTheme.workspace
+        onClosing: function(close) {
+            root.musicDetached = false
+        }
+        Loader {
+            id: detachedMusicLoader
+            anchors.fill: parent
+            active: root.musicDetached && globalMusicPlayer.opened
+            sourceComponent: MusicExpandedView {
+                width: detachedMusicLoader.width
+                height: detachedMusicLoader.height
+                player: globalMusicPlayer
+                lang: root.appLang
+                detached: true
+                sideTab: root.detachedMusicSideTab
+                showRemainingTime: root.detachedMusicRemainingTime
+                onSideTabChanged: root.detachedMusicSideTab = sideTab
+                onShowRemainingTimeChanged: root.detachedMusicRemainingTime = showRemainingTime
+                onCloseRequested: root.musicDetached = false
+                onMinimizeRequested: root.minimizeExpandedMusic()
+                onDetachRequested: root.openDetachedMusic()
+                onAttachRequested: root.attachDetachedMusic()
+            }
         }
     }
 
@@ -475,6 +609,14 @@ ApplicationWindow {
         contentIndexSource: root.appContentIndex
         z: 12000
         embeddedMode: root.activeMusicDockHost !== null && root.activeMusicDockHost.embeddedPlayer
+        expandedPresentation: root.musicExpanded && root.sidebarLocation === "category:/music"
+        onRequestNormal: root.openNormalMusic()
+        onRequestExpanded: root.openExpandedMusic()
+        onRequestDetached: root.openDetachedMusic()
+        onRequestClose: {
+            root.musicExpanded = false
+            root.musicDetached = false
+        }
         x: {
             const host = root.activeMusicDockHost || root.activeMusicPlayerArea
             if (!host)

@@ -68,14 +68,9 @@ Rectangle {
         anchors.rightMargin: 8
         spacing: 10
 
-        Rectangle {
+        Item {
             Layout.preferredWidth: Math.max(34, control.iconSize + 12)
             Layout.preferredHeight: Math.max(34, control.iconSize + 12)
-            radius: 11
-            color: control.active ? Qt.rgba(AppTheme.accent.r, AppTheme.accent.g, AppTheme.accent.b, AppTheme.dark ? 0.24 : 0.12)
-                                  : (itemMouse.containsMouse ? AppTheme.surfaceRaised : "transparent")
-            border.width: control.active ? 1 : 0
-            border.color: AppTheme.accentBorder
 
             CrispIcon {
                 anchors.centerIn: parent

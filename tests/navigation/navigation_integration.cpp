@@ -55,6 +55,7 @@ int main(int argc, char **argv) {
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
+    engine.addImageProvider("folderart", new FolderIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", base);
     engine.loadData(R"qml(
 import QtQuick
@@ -193,5 +194,32 @@ ApplicationWindow {
     invoke(pane, "showSelectedLinkTarget", false);
     require(until([&] { return !directory->loading() && pane->property("selectedUrl").toString() == QUrl::fromLocalFile(links + "/two/second").toString(); }), "cross-folder link target reveals in same tab");
     require(pane->property("searchVisible").toBool() && searchState() == "left", "cross-folder target preserves Ctrl+F and query");
-    std::fprintf(stderr, "PASS: Grid/List navigation, chained symlinks and revealing targets outside the active search\n");
+    // Exercise the actual category signal handlers, not a duplicate reveal
+    // implementation: both media and music must select and scroll to the file.
+    const QString containing = base + "/folder-090";
+    const QString mediaUrl = QUrl::fromLocalFile(containing + "/file-99.txt").toString();
+    for (bool gridMode : {true, false}) {
+        pane->setProperty("gridMode", gridMode);
+        invoke(pane, "navigateTo", QStringLiteral("category:/videos"));
+        require(until([&] { return findView(pane, "mediaGalleryView") != nullptr; }), "video category view loads");
+        auto gallery = findView(pane, "mediaGalleryView");
+        require(QMetaObject::invokeMethod(gallery, "revealRequested",
+            Q_ARG(QString, containing), Q_ARG(QString, mediaUrl)), "video folder action emits item and parent");
+        require(until([&] { return !directory->loading() && pane->property("selectedUrl").toString() == mediaUrl; }),
+            "video containing-folder action selects the exact item");
+        pause(150);
+        auto view = findView(pane, gridMode ? "fileGridView" : "fileListView");
+        require(view && view->property("contentY").toDouble() > 500, "video reveal scrolls to the selected item");
+        invoke(pane, "navigateTo", base);
+        require(until([&] { return !directory->loading() && directory->rowCount() == 300; }), "leave revealed folder");
+        auto music = findView(pane, "musicLibraryView");
+        require(music && QMetaObject::invokeMethod(music, "revealRequested", Q_ARG(QString, mediaUrl)),
+            "music folder action emits item URL");
+        require(until([&] { return !directory->loading() && pane->property("selectedUrl").toString() == mediaUrl; }),
+            "music containing-folder action selects the exact item");
+        pause(150);
+        require(view->property("contentY").toDouble() > 500, "music reveal scrolls to the selected item");
+        require(page->property("currentTab").toInt() == 0, "category reveals stay in the same tab");
+    }
+    std::fprintf(stderr, "PASS: Grid/List navigation, symlink targets and music/video containing-folder selection and scrolling\n");
 }

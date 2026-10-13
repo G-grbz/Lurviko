@@ -19,6 +19,8 @@ Image {
     property string trackedMetadata: ""
     property string trackedCandidate: ""
     property bool componentReady: false
+    readonly property bool displayReady: status === Image.Ready
+        && (fileIdentity.length === 0 || trackedIdentity === fileIdentity)
 
     readonly property bool isVideo: {
         const suffix = fileSuffix.toLowerCase()

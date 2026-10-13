@@ -294,6 +294,54 @@ private slots:
         QVERIFY(::stat(QFile::encodeName(inside.fileName()).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0600));
         QVERIFY(inside.open(QIODevice::ReadOnly)); QCOMPARE(inside.readAll(), QByteArray("keep"));
     }
+    void pinnedFileSurvivesPathReplacement() {
+        QTemporaryDir temporary;
+        const QString file = temporary.path() + "/file.svg";
+        const QString outside = temporary.path() + "/outside.svg";
+        for (const auto &path : {file, outside}) {
+            QFile output(path); QVERIFY(output.open(QIODevice::WriteOnly));
+            output.write("unchanged-svg"); output.close();
+            QVERIFY(::chmod(QFile::encodeName(path).constData(), 0600) == 0);
+        }
+        SecurityTestDoubles::replacePath = QFile::encodeName(file);
+        SecurityTestDoubles::replacementTarget = QFile::encodeName(outside);
+        auto task = std::make_shared<FileAccessTask>();
+        FileAccessSecurity::applyLocalAccess(file, 0744, uid_t(-1), gid_t(-1), false, task);
+        SecurityTestDoubles::replacePath.clear();
+        SecurityTestDoubles::replacementTarget.clear();
+        QCOMPARE(task->failed.load(), 0); QCOMPARE(task->changed.load(), 1);
+        struct stat original {}, target {};
+        QVERIFY(::stat(QFile::encodeName(file + ".original").constData(), &original) == 0);
+        QVERIFY(::stat(QFile::encodeName(outside).constData(), &target) == 0);
+        QCOMPARE(original.st_mode & 0777, mode_t(0744));
+        QCOMPARE(target.st_mode & 0777, mode_t(0600));
+        QFile preserved(outside); QVERIFY(preserved.open(QIODevice::ReadOnly));
+        QCOMPARE(preserved.readAll(), QByteArray("unchanged-svg"));
+    }
+    void pinnedAdministratorRootSurvivesPathReplacement() {
+        QTemporaryDir fixture;
+        const QString root = fixture.filePath("selected");
+        const QString renamed = fixture.filePath("selected-original");
+        const QString outside = fixture.filePath("outside");
+        QVERIFY(QDir().mkpath(root)); QVERIFY(QDir().mkpath(outside));
+        QFile own(root + "/own.svg"); QVERIFY(own.open(QIODevice::WriteOnly)); own.write("original-svg"); own.close();
+        QFile victim(outside + "/victim.svg"); QVERIFY(victim.open(QIODevice::WriteOnly)); victim.write("outside-svg"); victim.close();
+        QVERIFY(::chmod(QFile::encodeName(root).constData(), 0700) == 0);
+        QVERIFY(::chmod(QFile::encodeName(outside).constData(), 0700) == 0);
+        QVERIFY(::chmod(QFile::encodeName(victim.fileName()).constData(), 0600) == 0);
+        const int fd = ::open(QFile::encodeName(root).constData(), O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        QVERIFY(fd >= 0);
+        QVERIFY(QDir().rename(root, renamed));
+        QVERIFY(QFile::link(outside, root));
+        const auto task = std::make_shared<FileAccessTask>();
+        FileAccessSecurity::applyDescriptorAccess(fd, root, 0744, uid_t(-1), gid_t(-1), true, task);
+        ::close(fd);
+        QCOMPARE(task->failed.load(), 0); QCOMPARE(task->changed.load(), 2);
+        struct stat st {};
+        QVERIFY(::stat(QFile::encodeName(renamed).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0744));
+        QVERIFY(::stat(QFile::encodeName(victim.fileName()).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0600));
+        QVERIFY(victim.open(QIODevice::ReadOnly)); QCOMPARE(victim.readAll(), QByteArray("outside-svg"));
+    }
     void localAccessPreservesSpecialBits() {
         QTemporaryDir fixture;
         const QString root = fixture.filePath("tree"); QVERIFY(QDir().mkpath(root));
@@ -307,6 +355,33 @@ private slots:
         QVERIFY(::stat(QFile::encodeName(root).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(03700));
         QVERIFY(::stat(QFile::encodeName(program.fileName()).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(04700));
         QVERIFY(program.open(QIODevice::ReadOnly)); QCOMPARE(program.readAll(), QByteArray("unchanged"));
+    }
+    void localAccessEditsOnlyRequestedBits() {
+        QTemporaryDir fixture;
+        const QString root = fixture.filePath("tree"); QVERIFY(QDir().mkpath(root));
+        const QString plain = root + "/plain", program = root + "/program";
+        for (const auto &path : {plain, program}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("preserve");
+        }
+        QVERIFY(::chmod(QFile::encodeName(root).constData(), 03755) == 0);
+        QVERIFY(::chmod(QFile::encodeName(plain).constData(), 0640) == 0);
+        QVERIFY(::chmod(QFile::encodeName(program).constData(), 04704) == 0);
+        auto task = std::make_shared<FileAccessTask>();
+        FileAccessSecurity::applyLocalAccess(root, 0020, uid_t(-1), gid_t(-1), true, task, 0020);
+        QCOMPARE(task->failed.load(), 0); QCOMPARE(task->changed.load(), 3);
+        struct stat st {};
+        QVERIFY(::stat(QFile::encodeName(root).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(03775));
+        QVERIFY(::stat(QFile::encodeName(plain).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(0660));
+        QVERIFY(::stat(QFile::encodeName(program).constData(), &st) == 0); QCOMPARE(st.st_mode & 07777, mode_t(04724));
+        // Ownership-only edits must not copy a common/zero mode across the tree.
+        task = std::make_shared<FileAccessTask>();
+        FileAccessSecurity::applyLocalAccess(root, 0000, ::getuid(), ::getgid(), true, task, 0);
+        QCOMPARE(task->failed.load(), 0); QCOMPARE(task->changed.load(), 3);
+        QVERIFY(::stat(QFile::encodeName(plain).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0660));
+        QVERIFY(::stat(QFile::encodeName(program).constData(), &st) == 0); QCOMPARE(st.st_mode & 0777, mode_t(0724));
+        for (const auto &path : {plain, program}) {
+            QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); QCOMPARE(file.readAll(), QByteArray("preserve"));
+        }
     }
     void archiveOptionsAreOperands() {
         QTemporaryDir first; QTemporaryDir second;

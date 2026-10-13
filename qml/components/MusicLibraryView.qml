@@ -2,7 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
+import QtQuick.Window
 import Lurviko.App
+import "MusicArtists.js" as Artists
 
 Item {
     id: root
@@ -26,6 +28,106 @@ Item {
     property int groupReturnIndex: 0
     property real groupReturnOffset: 0
     property bool groupBackPending: false
+    property var contextTrack: null
+    property var hoverTrack: null
+    property var hoverAnchor: null
+    property var pendingHoverTrack: null
+    property var pendingHoverAnchor: null
+    signal revealRequested(string itemUrl)
+
+    function requestHoverPreview(track, anchor) {
+        if (!visible || !AppTheme.musicHoverEnabled || !track || !track.itemUrl
+                || !anchor || libraryGrid.moving || wheelScrollAnimation.running) return
+        if ((hoverTrack && hoverTrack.itemUrl === track.itemUrl && hoverAnchor === anchor)
+                || (pendingHoverTrack && pendingHoverTrack.itemUrl === track.itemUrl && pendingHoverAnchor === anchor)) {
+            hoverClose.stop()
+            return
+        }
+        dismissHoverPreview()
+        pendingHoverTrack = track
+        pendingHoverAnchor = anchor
+        hoverDelay.restart()
+    }
+    function dismissHoverPreview() {
+        if (!hoverTrack && !pendingHoverTrack && !hoverDelay.running && !hoverClose.running) return
+        hoverDelay.stop()
+        hoverClose.stop()
+        hoverTrack = null
+        hoverAnchor = null
+        pendingHoverTrack = null
+        pendingHoverAnchor = null
+    }
+    function scheduleHoverClose() {
+        hoverDelay.stop()
+        pendingHoverTrack = null
+        pendingHoverAnchor = null
+        hoverClose.restart()
+    }
+    Timer {
+        id: hoverDelay
+        interval: AppTheme.musicHoverDelayMs
+        onTriggered: {
+            if (!root.visible || !AppTheme.musicHoverEnabled || !root.pendingHoverAnchor
+                    || !root.pendingHoverAnchor.visible || libraryGrid.moving) return
+            root.hoverTrack = root.pendingHoverTrack
+            root.hoverAnchor = root.pendingHoverAnchor
+            root.pendingHoverTrack = null
+            root.pendingHoverAnchor = null
+        }
+    }
+    Timer {
+        id: hoverClose
+        interval: 170
+        onTriggered: {
+            if (hoverCard.item && hoverCard.item.pointerInside) return
+            root.dismissHoverPreview()
+        }
+    }
+    Connections {
+        target: AppTheme
+        function onMusicHoverEnabledChanged() { if (!AppTheme.musicHoverEnabled) root.dismissHoverPreview() }
+    }
+    Loader {
+        id: hoverCard
+        objectName: "musicHoverLoader"
+        // A visual preview must not become a child of the application's popup
+        // overlay: Qt keeps that overlay active even for an inactive Loader.
+        parent: root
+        z: 15000
+        visible: active
+        active: root.visible && !!root.hoverTrack && !!root.hoverAnchor
+        sourceComponent: MusicHoverPreview {
+            track: root.hoverTrack || ({})
+            lang: root.lang
+            anchorItem: root.hoverAnchor
+            viewport: hoverCard.parent
+            audioAllowed: !root.player || !root.player.playing
+            previewVolume: root.player && root.player.muted ? 0
+                         : root.player && root.player.volume !== undefined ? root.player.volume : 0.35
+        }
+    }
+
+    function showTrackMenu(track, anchor, x, y) {
+        if (!track || !track.itemUrl) return
+        dismissHoverPreview()
+        contextTrack = track
+        trackMenu.popup(anchor, x, y)
+    }
+
+    GMenu {
+        id: trackMenu
+        objectName: "musicTrackMenu"
+        GMenuItem {
+            objectName: "musicOpenContainingFolder"
+            text: root.tr("İçeren klasörü aç", "Open containing folder")
+            onTriggered: root.revealRequested(String(root.contextTrack.itemUrl))
+        }
+        GMenuItem {
+            objectName: "musicOpenExternally"
+            text: root.tr("Harici uygulamada aç", "Open externally")
+            onTriggered: Qt.openUrlExternally(String(root.contextTrack.itemUrl))
+        }
+    }
 
     readonly property var allTracks: visible && manager ? manager.tracks : []
     readonly property var genreOptions: {
@@ -274,17 +376,20 @@ Item {
         const result = []
         for (let i = 0; i < tracks.length; ++i) {
             const track = tracks[i]
-            const artist = artistTitle(track)
-            const key = artist.toLocaleLowerCase()
-            if (map[key] === undefined) {
-                map[key] = result.length
-                result.push({kind: "artist", title: artist, tracks: [], artwork: "", albums: ({})})
+            const names = Artists.split(track.artist)
+            if (!names.length) names.push(artistTitle(track))
+            for (const artist of names) {
+                const key = Artists.key(artist)
+                if (map[key] === undefined) {
+                    map[key] = result.length
+                    result.push({kind: "artist", title: artist, tracks: [], artwork: "", albums: ({})})
+                }
+                const group = result[map[key]]
+                group.tracks.push(track)
+                group.albums[albumTitle(track)] = true
+                if (!group.artwork.length && normalized(track.thumbnailSource).length)
+                    group.artwork = normalized(track.thumbnailSource)
             }
-            const group = result[map[key]]
-            group.tracks.push(track)
-            group.albums[albumTitle(track)] = true
-            if (!group.artwork.length && normalized(track.thumbnailSource).length)
-                group.artwork = normalized(track.thumbnailSource)
         }
         for (let i = 0; i < result.length; ++i) {
             const albumCount = Object.keys(result[i].albums).length
@@ -317,7 +422,9 @@ Item {
         for (let i = 0; i < tracks.length; ++i) {
             const track = tracks[i]
             albums[artistTitle(track) + "\u0001" + albumTitle(track)] = true
-            artists[artistTitle(track)] = true
+            const names = Artists.split(track.artist)
+            if (!names.length) names.push(artistTitle(track))
+            for (const artist of names) artists[Artists.key(artist)] = true
             const genre = genreKey(track.genre)
             if (genre.length) genres[genre] = true
             if (!!track.favorite) favorites += 1
@@ -348,14 +455,19 @@ Item {
             if (groupSelection.kind === "playlist") {
                 const byUrl = ({})
                 for (const track of allTracks) byUrl[String(track.itemUrl || "")] = track
-                tracks = (groupSelection.tracks || []).map(function(item) {
+                const list = player.playlists.find(function(entry) { return entry.name === root.groupSelection.title })
+                // Appending in either player must also refresh a playlist that
+                // is already open, rather than using its old browse snapshot.
+                tracks = (list ? list.items || [] : []).map(function(item) {
                     return byUrl[String(item.itemUrl || "")] || item
                 }).filter(function(item) { return root.passesFilters(item) })
             } else {
                 tracks = tracks.filter(function(track) {
+                    if (root.groupSelection.kind === "artist")
+                        return Artists.contains(track.artist, root.groupSelection.artist)
+                            || (!Artists.split(track.artist).length && root.artistTitle(track) === root.groupSelection.artist)
                     return root.artistTitle(track).toLocaleLowerCase() === root.groupSelection.artist.toLocaleLowerCase()
-                        && (root.groupSelection.kind === "artist"
-                            || root.albumTitle(track).toLocaleLowerCase() === root.groupSelection.title.toLocaleLowerCase())
+                        && root.albumTitle(track).toLocaleLowerCase() === root.groupSelection.title.toLocaleLowerCase()
                 })
             }
         }
@@ -457,6 +569,7 @@ Item {
     function activate(item) {
         if (!item || !player)
             return
+        dismissHoverPreview()
         if (item.kind === "playlist") {
             player.playPlaylist(Number(item.playlistIndex))
             return
@@ -476,7 +589,8 @@ Item {
         if (!first || !items.length)
             return
         player.openUrl(String(first.itemUrl || ""), String(first.name || item.title || ""),
-                       String(first.thumbnailSource || item.artwork || ""), items)
+                       String(first.thumbnailSource || item.artwork || ""), items,
+                       !(groupSelection && groupSelection.kind === "playlist"))
     }
 
     onAllTracksChanged: if (visible && !rebuildTimer.running) rebuildTimer.start()
@@ -486,7 +600,8 @@ Item {
     onSortModeChanged: rebuildTimer.restart()
     onSortAscendingChanged: rebuildTimer.restart()
     Component.onCompleted: { updateGridLayout(); rebuildTimer.restart() }
-    onVisibleChanged: { if (!visible) viewItems = []; else rebuildTimer.restart() }
+    onVisibleChanged: { if (!visible) { dismissHoverPreview(); viewItems = [] } else rebuildTimer.restart() }
+    onViewItemsChanged: dismissHoverPreview()
 
     Connections {
         target: player
@@ -509,8 +624,7 @@ Item {
             icon.source: AppTheme.icon("nav-back.svg")
             icon.width: 14; icon.height: 14
             onClicked: root.closeGroup()
-            ToolTip.visible: hovered
-            ToolTip.text: root.tr("Kütüphaneye dön", "Back to library")
+            Accessible.name: root.tr("Kütüphaneye dön", "Back to library")
         }
         Text {
             Layout.fillWidth: true
@@ -550,6 +664,8 @@ Item {
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         cacheBuffer: Math.max(0, Math.min(600, height))
+        onContentYChanged: root.dismissHoverPreview()
+        onMovementStarted: root.dismissHoverPreview()
         onDraggingChanged: if (dragging) wheelScrollAnimation.stop()
 
         WheelHandler {
@@ -558,6 +674,7 @@ Item {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             acceptedModifiers: Qt.NoModifier
             onWheel: function(event) {
+                root.dismissHoverPreview()
                 root.scrollFromWheel(event, libraryGrid, libraryGrid.cellHeight)
                 event.accepted = true
             }
@@ -604,6 +721,8 @@ Item {
             id: trackCell
             readonly property var entry: parent && parent.entry ? parent.entry : ({})
             readonly property var track: entry.track || ({})
+            opacity: AppTheme.itemIsHidden(track.name || track.fileName, track.localPath || track.itemUrl, track.hidden)
+                ? AppTheme.hiddenItemOpacity : 1.0
             readonly property bool nowPlaying: !!root.player
                 && String(root.player.currentUrl || "") === String(track.itemUrl || "") && !!track.itemUrl
             Rectangle {
@@ -617,10 +736,21 @@ Item {
                 border.color: trackCell.nowPlaying ? AppTheme.accentBorder : AppTheme.border
                 MouseArea {
                     id: trackMouse
+                    objectName: "musicTrackMouse"
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.activate(trackCell.entry)
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onEntered: root.requestHoverPreview(trackCell.track, trackCardSurface)
+                    onExited: root.scheduleHoverClose()
+                    onPositionChanged: if (containsMouse && !pressed) root.requestHoverPreview(trackCell.track, trackCardSurface)
+                    onClicked: function(event) {
+                        root.dismissHoverPreview()
+                        if (event.button === Qt.RightButton)
+                            root.showTrackMenu(trackCell.track, trackMouse, event.x, event.y)
+                        else
+                            root.activate(trackCell.entry)
+                    }
                 }
                 Rectangle {
                     id: trackArtwork
@@ -631,26 +761,22 @@ Item {
                     height: width
                     radius: 8
                     color: AppTheme.surfaceRaised
-                    layer.enabled: trackCover.status === Image.Ready
+                    // A size change can reload the image during geometry notification.
+                    // Keep the mask layers alive until the whole delegate is destroyed.
+                    layer.enabled: true
                     layer.smooth: true
                     layer.samples: 4
                     layer.effect: MultiEffect { maskEnabled: true; maskSource: trackMask }
-                    Image {
+                    MusicArtwork {
                         id: trackCover
+                        objectName: "musicTrackCover"
                         anchors.fill: parent
-                        source: String(trackCell.entry.artwork || "")
-                        sourceSize: Qt.size(256, 256)
+                        artworkSource: String(trackCell.entry.artwork || "")
+                        sourceSize: Qt.size(AppTheme.previewResolution(width, Screen.devicePixelRatio), AppTheme.previewResolution(height, Screen.devicePixelRatio))
                         asynchronous: true
                         cache: true
                         fillMode: Image.PreserveAspectCrop
                         visible: status === Image.Ready
-                    }
-                    CrispIcon {
-                        anchors.centerIn: parent
-                        width: Math.min(24, parent.width * 0.45)
-                        height: width
-                        source: AppTheme.discoveryIcon(AppTheme.categoryDefaultIcon("music"), AppTheme.categoryDefaultIcon("music"))
-                        visible: trackCover.status !== Image.Ready
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -723,13 +849,10 @@ Item {
                     icon.width: 14; icon.height: 14
                     icon.color: checked ? AppTheme.accent : AppTheme.textMuted
                     onClicked: root.manager.toggleFavorite(String(trackCell.track.itemUrl || ""))
-                    ToolTip.visible: hovered
-                    ToolTip.text: checked ? root.tr("Favorilerden çıkar", "Remove from favorites")
+                    Accessible.name: checked ? root.tr("Favorilerden çıkar", "Remove from favorites")
                                           : root.tr("Favorilere ekle", "Add to favorites")
                 }
-                ToolTip.visible: trackMouse.containsMouse && !trackFavorite.hovered
-                ToolTip.delay: 800
-                ToolTip.text: trackCell.entry.title + "\n" + trackCell.entry.subtitle
+                Accessible.name: trackCell.entry.title + "\n" + trackCell.entry.subtitle
             }
         }
     }
@@ -763,25 +886,21 @@ Item {
                     height: width
                     radius: collectionCell.entry.kind === "artist" ? width / 2 : 10
                     color: AppTheme.surfaceRaised
-                    layer.enabled: collectionCover.status === Image.Ready
+                    // Do not destroy the effect source while it handles a resize.
+                    layer.enabled: true
                     layer.smooth: true
                     layer.samples: 4
                     layer.effect: MultiEffect { maskEnabled: true; maskSource: collectionMask }
-                    Image {
+                    MusicArtwork {
                         id: collectionCover
+                        objectName: "musicCollectionCover"
                         anchors.fill: parent
-                        source: String(collectionCell.entry.artwork || "")
-                        sourceSize: Qt.size(384, 384)
+                        artworkSource: String(collectionCell.entry.artwork || "")
+                        sourceSize: Qt.size(AppTheme.previewResolution(width, Screen.devicePixelRatio), AppTheme.previewResolution(height, Screen.devicePixelRatio))
                         asynchronous: true
                         cache: true
                         fillMode: Image.PreserveAspectCrop
                         visible: status === Image.Ready
-                    }
-                    CrispIcon {
-                        anchors.centerIn: parent
-                        width: 32; height: 32
-                        source: AppTheme.icon(collectionCell.entry.kind === "playlist" ? "music-playlist.svg" : "audio.svg")
-                        visible: collectionCover.status !== Image.Ready
                     }
                 }
                 Rectangle {
@@ -802,8 +921,7 @@ Item {
                     icon.source: AppTheme.icon("viewer-play.svg")
                     icon.width: 16; icon.height: 16
                     onClicked: root.activate(collectionCell.entry)
-                    ToolTip.visible: hovered
-                    ToolTip.text: root.tr("Çal", "Play")
+                    Accessible.name: root.tr("Çal", "Play")
                     background: Rectangle { radius: 16; color: AppTheme.accentSoft; border.color: AppTheme.accentBorder }
                 }
                 Column {
@@ -846,9 +964,7 @@ Item {
                         elide: Text.ElideRight
                     }
                 }
-                ToolTip.visible: collectionMouse.containsMouse
-                ToolTip.delay: 800
-                ToolTip.text: collectionCell.entry.title + "\n" + collectionCell.entry.subtitle
+                Accessible.name: collectionCell.entry.title + "\n" + collectionCell.entry.subtitle
             }
         }
     }

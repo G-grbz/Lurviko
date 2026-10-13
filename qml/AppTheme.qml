@@ -2,12 +2,14 @@ pragma Singleton
 
 import QtQuick
 import QtCore
+import "FolderArtwork.js" as FolderArtwork
 
 QtObject {
     property Settings settings: Settings {
         category: "Appearance"
         property bool darkMode: false
         property bool systemIcons: false
+        property bool coloredFolderIcons: false
         property bool kioProgressEnabled: false
         property int sidebarIconSize: 19
         property int homeIconSize: 28
@@ -21,6 +23,23 @@ QtObject {
     property Settings interactionSettings: Settings {
         category: "Interaction"
         property bool singleClickOpen: false
+    }
+
+    property Settings musicPreviewSettings: Settings {
+        category: "MusicPreview"
+        property bool hoverEnabled: true
+        property bool hoverAnimationsEnabled: true
+        property int hoverDelayMs: 600
+    }
+    readonly property bool musicHoverEnabled: musicPreviewSettings.hoverEnabled
+    readonly property bool musicHoverAnimationsEnabled: musicPreviewSettings.hoverAnimationsEnabled
+    readonly property int musicHoverDelayMs: Math.max(120, Math.min(1200, musicPreviewSettings.hoverDelayMs))
+    readonly property var hoverDelayOptions: [120, 200, 360, 500, 600, 700, 1000, 1200]
+    function setMusicHoverPreferences(enabled, animations, delayMs) {
+        musicPreviewSettings.hoverEnabled = !!enabled
+        musicPreviewSettings.hoverAnimationsEnabled = !!animations
+        musicPreviewSettings.hoverDelayMs = Math.max(120, Math.min(1200, Math.round(delayMs)))
+        musicPreviewSettings.sync()
     }
 
     // Share the existing preference across tabs and panes without changing its saved key.
@@ -53,6 +72,18 @@ QtObject {
     readonly property bool skipHiddenNameConfirmation: browserInteractionSettings.skipHiddenNameConfirmation
     readonly property bool dark: settings.darkMode
     readonly property bool useSystemIcons: settings.systemIcons
+    readonly property bool useColoredFolderIcons: settings.coloredFolderIcons
+    readonly property real hiddenItemOpacity: 0.70
+    function bundledFolderIcon(name, identity) {
+        return icon(useColoredFolderIcons ? FolderArtwork.iconName(name) : "folder.svg")
+    }
+    function itemIsHidden(name, path, knownHidden) {
+        if (knownHidden === true || String(name || "").startsWith(".")) return true
+        var value = String(path || "").replace(/\/$/, "")
+        var leaf = value.substring(value.lastIndexOf("/") + 1)
+        try { leaf = decodeURIComponent(leaf) } catch (error) {}
+        return leaf.startsWith(".")
+    }
     readonly property bool kioProgressEnabled: settings.kioProgressEnabled
     readonly property int sidebarIconSize: Math.max(14, Math.min(32, settings.sidebarIconSize))
     readonly property int homeIconSize: Math.max(20, Math.min(44, settings.homeIconSize))
@@ -66,6 +97,11 @@ QtObject {
     readonly property int fileTitleLines: Math.max(1, Math.min(4, settings.fileTitleLines))
     readonly property int fileSubtitleLines: Math.max(1, Math.min(4, settings.fileSubtitleLines))
     function fileLabelLineHeight(pixels) { return Math.ceil(pixels * 1.5) }
+    function previewResolution(extent, devicePixelRatio) {
+        // Match physical display pixels, with reusable 64-pixel size buckets.
+        const pixels = Math.max(1, extent) * Math.max(1, devicePixelRatio)
+        return Math.max(96, Math.min(512, Math.ceil(pixels / 64) * 64))
+    }
     function fileLabelExtraHeight(titlePixels, subtitlePixels) {
         return (fileTitleLines - 1) * fileLabelLineHeight(titlePixels)
              + (fileSubtitleLines - 1) * fileLabelLineHeight(subtitlePixels)
@@ -163,6 +199,7 @@ QtObject {
     function toggle() { settings.darkMode = !settings.darkMode }
     function setSingleClickOpen(enabled) { interactionSettings.singleClickOpen = !!enabled }
     function setSystemIcons(enabled) { settings.systemIcons = enabled }
+    function setColoredFolderIcons(enabled) { settings.coloredFolderIcons = !!enabled }
     function setSkipPermanentDeleteConfirmation(enabled) { browserInteractionSettings.skipPermanentDeleteConfirmation = enabled }
     function setSkipHiddenNameConfirmation(enabled) { browserInteractionSettings.skipHiddenNameConfirmation = enabled }
     function setKioProgressEnabled(enabled) { settings.kioProgressEnabled = enabled }
@@ -407,6 +444,7 @@ QtObject {
             return systemIcon(raw.substring(7))
         if (raw.indexOf("image://systemicon/") === 0
                 || raw.indexOf("image://bundledicon/") === 0
+                || raw.indexOf("image://folderart/") === 0
                 || raw.indexOf("qrc:/") === 0)
             return raw
         if (!/^[A-Za-z0-9._+-]+$/.test(raw))
@@ -419,13 +457,15 @@ QtObject {
             "music-chevron-up.svg", "music-expand.svg", "music-minimize.svg", "music-playlist.svg",
             "music-queue.svg", "music-refresh.svg", "music-repeat.svg", "music-repeat-one.svg",
             "music-shuffle.svg", "music-stop.svg", "music-heart.svg", "music-heart-filled.svg",
-            "viewer-external.svg", "viewer-fit.svg", "viewer-folder.svg",
+            "clone.svg", "viewer-external.svg", "viewer-fit.svg", "viewer-folder.svg",
             "viewer-forward.svg", "viewer-next.svg", "viewer-pause.svg", "viewer-play.svg",
             "viewer-prev.svg", "viewer-rewind.svg", "viewer-rotate-left.svg", "viewer-rotate-right.svg",
             "viewer-fullscreen.svg", "viewer-fullscreen-exit.svg", "viewer-volume.svg", "viewer-volume-muted.svg",
             "viewer-zoom-in.svg", "viewer-zoom-out.svg"]
         if (monochrome.indexOf(raw) !== -1)
             return "image://bundledicon/" + raw + "|" + encodeURIComponent(String(foreground === undefined ? text : foreground))
+        if (/^(?:folder|(?:blue|green|orange|pink|purple|red|turquoise|yellow)-(?:folder|documents|download|music|picture|video))\.svg$/.test(raw))
+            return "image://folderart/" + raw
         return "qrc:/qt/qml/Lurviko/App/assets/icons/" + raw
     }
 }

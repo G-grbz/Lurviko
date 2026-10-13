@@ -55,6 +55,7 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new FixtureImages);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
+    engine.addImageProvider("folderart", new FolderIconProvider);
     engine.loadData(R"qml(
 import QtQuick
 import QtQuick.Controls

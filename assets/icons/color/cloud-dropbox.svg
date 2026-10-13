@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64" viewBox="0 0 64 64" version="1.1" role="img" aria-labelledby="dropbox-title">
+  <title id="dropbox-title">Dropbox</title>
+  <desc>Mevcut Dropbox biçiminde safir / menekşe mavisi cam yüzey.</desc>
+  <defs>
+    <path id="dropbox-shape" d="m6.2 3.5 5.8 3.7-5.8 3.7L.5 7.2zM17.8 3.5l5.7 3.7-5.7 3.7L12 7.2zM6.2 11.8l5.8 3.7-5.8 3.7-5.7-3.7zM17.8 11.8l5.7 3.7-5.7 3.7-5.8-3.7zM6.3 20.4l5.7-3.7 5.7 3.7-5.7 3.1z" />
+    <linearGradient id="dropbox-body" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0" stop-color="#b6c8fc" stop-opacity="1" />
+      <stop offset=".38" stop-color="#7b93df" stop-opacity="1" />
+      <stop offset=".47" stop-color="#566fc3" stop-opacity="1" />
+      <stop offset=".54" stop-color="#7b93df" stop-opacity="1" />
+      <stop offset="1" stop-color="#d6dffd" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="dropbox-reflection" x1="100%" y1="0%" x2="30%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72" />
+      <stop offset=".32" stop-color="#ffffff" stop-opacity=".22" />
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".025" />
+      <stop offset=".74" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="dropbox-lower-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#d6dffd" stop-opacity="0" />
+      <stop offset=".55" stop-color="#d6dffd" stop-opacity=".03" />
+      <stop offset=".78" stop-color="#d6dffd" stop-opacity=".18" />
+      <stop offset="1" stop-color="#d6dffd" stop-opacity=".68" />
+    </linearGradient>
+    <radialGradient id="dropbox-glint" cx="86%" cy="6%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".42" />
+      <stop offset=".46" stop-color="#ffffff" stop-opacity=".10" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="dropbox-edge" x1="0%" y1="0%" x2="65%" y2="100%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#b6c8fc" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#354799" stop-opacity=".18" />
+      <stop offset="1" stop-color="#d6dffd" stop-opacity=".66" />
+    </linearGradient>
+  </defs>
+  <g id="cloud-dropbox-normalized" transform="matrix(2.417501052 0 0 2.417501052 2.989987365 -0.6396894714)">
+    <g>
+      <use fill="url(#dropbox-body)" xlink:href="#dropbox-shape" />
+      <use fill="url(#dropbox-reflection)" xlink:href="#dropbox-shape" />
+      <use fill="url(#dropbox-lower-glow)" xlink:href="#dropbox-shape" />
+      <use fill="url(#dropbox-glint)" xlink:href="#dropbox-shape" />
+      <use fill="none" stroke="url(#dropbox-edge)" stroke-width="0.16" stroke-linejoin="round" xlink:href="#dropbox-shape" />
+    </g>
+  </g>
+</svg>

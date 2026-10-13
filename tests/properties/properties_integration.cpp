@@ -168,10 +168,84 @@ int main(int argc, char **argv) {
     { QFile svg(svgPath); require(svg.open(QIODevice::ReadOnly) && svg.readAll() == svgBytes, "SVG bytes unchanged after removing and restoring folder access"); }
     std::fprintf(stderr, "PASS: folder 0644 access error, editor recovery and unchanged SVG contents\n");
 
+    const QString bulkBase = QString::fromLocal8Bit(qgetenv("LURVIKO_PROPERTIES_TEST_ROOT")) + "/bulk";
+    const QString tree = bulkBase + "/tree", first = tree + "/first", second = tree + "/second", third = bulkBase + "/third";
+    require(QDir().mkpath(tree), "bulk tree created");
+    const QStringList bulkFiles{first, second, third};
+    const QList<int> originalModes{0640, 0704, 0600};
+    for (int i = 0; i < bulkFiles.size(); ++i) {
+        QFile file(bulkFiles[i]); require(file.open(QIODevice::WriteOnly), "bulk fixture opens");
+        file.write(QByteArray(5 + i, 'a' + i)); file.close();
+        require(::chmod(QFile::encodeName(bulkFiles[i]).constData(), originalModes[i]) == 0, "bulk mode set");
+    }
+    require(::chmod(QFile::encodeName(tree).constData(), 0755) == 0, "bulk directory mode set");
+    const QString bulkLink = bulkBase + "/outside-link";
+    require(::symlink(QFile::encodeName(path).constData(), QFile::encodeName(bulkLink).constData()) == 0, "bulk external link created");
+    manager.inspectSelection({tree, first, QUrl::fromLocalFile(first).toString(), third, bulkLink});
+    require(manager.multiple() && manager.selectionCount() == 4 && manager.selectedFolders() == 1
+            && manager.selectedFiles() == 2 && manager.selectedLinks() == 1, "selection counts deduplicate paths and classify links separately");
+    require(manager.commonLocation().isEmpty() && until([&] { return !manager.calculating(); }), "mixed locations and asynchronous totals settle");
+    require(manager.totalSize() == 18 && manager.fileCount() == 3 && manager.folderCount() == 1,
+            "parent/child selection counted once and external symlink target excluded from total");
+    require(manager.permissionsEditable() && manager.mixedPermissionMask() != 0, "mixed editable modes recognized");
+    require(!manager.setPermissionMode(0777) && !manager.setFolderIcon("folder") && !manager.setLinkTarget(path),
+            "single-item setters cannot accidentally modify one item of a bulk selection");
+    require(manager.applySelectionAccess(0020, 0020, "", "", true)
+            && until([&] { return !manager.accessBusy(); }), "bulk recursive bit edit finishes");
+    require(manager.accessFailed() == 0 && manager.accessCompleted() == 4
+            && modeOf(first) == 0660 && modeOf(second) == 0724 && modeOf(third) == 0620
+            && modeOf(tree) == 0775 && modeOf(path) == 0600,
+            "only requested bit changes; recursive duplicates and symlink targets stay safe");
+    manager.inspectSelection(bulkFiles);
+    const QString bulkOwner = manager.ownerName(), bulkGroup = manager.groupName();
+    require(manager.applySelectionAccess(0, 0, bulkOwner, bulkGroup)
+            && until([&] { return !manager.accessBusy(); }) && manager.accessFailed() == 0,
+            "bulk ownership-only operation is supported");
+    require(modeOf(first) == 0660 && modeOf(second) == 0724 && modeOf(third) == 0620,
+            "ownership-only operation preserves each item's distinct mode");
+    for (const auto &name : manager.availableGroups()) {
+        if (name == bulkGroup) continue;
+        const auto group = ::getgrnam(name.toLocal8Bit().constData()); if (!group) continue;
+        const gid_t expected = group->gr_gid;
+        require(manager.applySelectionAccess(0, 0, "", name)
+                && until([&] { return !manager.accessBusy(); }) && manager.accessFailed() == 0, "bulk member-group changes succeed");
+        for (const auto &item : bulkFiles) {
+            struct stat st {}; require(::stat(QFile::encodeName(item).constData(), &st) == 0 && st.st_gid == expected,
+                                       "bulk group is actually saved for every selected file");
+        }
+        require(manager.applySelectionAccess(0, 0, "", bulkGroup)
+                && until([&] { return !manager.accessBusy(); }) && manager.accessFailed() == 0, "bulk original groups restored");
+        break;
+    }
+    require(!manager.applySelectionAccess(0777, -1, "", "")
+            && !manager.applySelectionAccess(0, 0, "lurviko-no-such-user", ""), "invalid masks and owners rejected before changing anything");
+    if (::geteuid() != 0)
+        require(!manager.applySelectionAccess(0, 0, "root", ""), "bulk ownership escalation needs administrator authentication");
+    manager.inspectSelection({first, bulkBase + "/missing"});
+    require(!manager.applySelectionAccess(0777, 0777, "", "") && modeOf(first) == 0660,
+            "missing item refuses the entire batch before any mutation");
+    manager.inspectSelection({first, "smb://example.invalid/share/file"});
+    require(!manager.allLocal() && !manager.permissionsEditable() && !manager.applySelectionAccess(0777, 0777, "", ""),
+            "remote/mixed selection cannot be mistaken for local paths");
+    if (manager.administratorAvailable()) {
+        manager.inspectSelection({third, tree});
+        require(manager.applySelectionAccess(0777, 0777, "", "", true, true)
+                && until([&] { return !manager.accessBusy(); }) && manager.accessFailed() == 0,
+                "descriptor-based administrator helper handles writable trees without path-based jobs");
+        require(modeOf(third) == 0777 && modeOf(first) == 0666 && modeOf(path) == 0600,
+                "helper changes selected roots/descendants but never the external symlink target");
+    }
+    for (int i = 0; i < bulkFiles.size(); ++i) {
+        QFile file(bulkFiles[i]); require(file.open(QIODevice::ReadOnly) && file.readAll() == QByteArray(5 + i, 'a' + i),
+                                        "bulk permission and ownership changes preserve file contents");
+    }
+    std::fprintf(stderr, "PASS: bulk totals, mixed permissions, ownership changes, recursion, administrator helper and selection boundaries\n");
+
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
+    engine.addImageProvider("folderart", new FolderIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", base);
     engine.loadData(R"qml(
 import QtQuick
@@ -333,5 +407,74 @@ ApplicationWindow {
     QMetaObject::invokeMethod(popup, "close");
     select(longName); window->grabWindow().save("/tmp/lurviko-filename-padding.png");
     std::fprintf(stderr, "PASS: real properties UI draft, execute toggle, Apply and reopening; light/dark previews saved\n");
+    eval("root.selectAll(); itemContextMenu.open()"); pause(200);
+    require(eval(R"js((function() {
+        for (let i = 0; i < itemContextMenu.count; ++i) {
+            const item = itemContextMenu.itemAt(i);
+            if (item && item.shortcutAction === "properties") return item.visible && item.enabled;
+        }
+        return false;
+    })())js").toBool(), "context menu exposes Properties for a multi-selection");
+    eval("itemContextMenu.close(); root.showPropertiesForSelection()");
+    require(until([&] { return popup->property("visible").toBool() && popup->property("multiple").toBool(); }),
+            "Properties shortcut/action opens for multiple selected items");
+    require(!apply->property("enabled").toBool() && ownerCombo->property("value").toString().isEmpty()
+            && groupCombo->property("value").toString().isEmpty(), "bulk drafts initially preserve all ownership and permission values");
+    require(modeInput->property("text").toString().isEmpty() && !execution->isVisible(),
+            "mixed octal mode has no misleading first-item value or single-file execution control");
+    auto uiProperties = eval("fileProperties").value<QObject *>();
+    require(uiProperties && until([&] { return !uiProperties->property("calculating").toBool(); })
+            && uiProperties->property("selectionCount").toInt() == 2
+            && uiProperties->property("selectedFolders").toInt() == 1, "bulk UI uses an aggregate selection snapshot");
+    auto ownerExecute = findItem(window->contentItem(), "permissionOwnerExecute");
+    require(ownerExecute && ownerExecute->property("checkState").toInt() == Qt::PartiallyChecked,
+            "different permission bits display indeterminate checkboxes");
+    flick->setProperty("contentY", 0);
+    const QPointF bitPosition = ownerExecute->mapToItem(scroll, QPointF());
+    flick->setProperty("contentY", flick->property("contentY").toDouble() + bitPosition.y() - scroll->height() / 2);
+    pause(120); click(ownerExecute);
+    require(popup->property("permissionMask").toInt() == 0100 && apply->property("enabled").toBool(),
+            "clicking an indeterminate permission edits only that bit");
+    const int oldFileMode = modeOf(path), oldFolderMode = modeOf(folder);
+    click(apply);
+    require(until([&] { return modeOf(path) == (oldFileMode | 0100) && !uiProperties->property("accessBusy").toBool(); })
+            && modeOf(folder) == oldFolderMode && !apply->property("enabled").toBool(),
+            "bulk UI Apply updates selected files, preserves unrelated folder bits and clears saved drafts");
+    // Exercise the editable field with the keep-values row present. This also
+    // verifies group-only Apply works with a blank mixed permission mode.
+    const int groupChoiceCount = eval("propertiesDialog.groupChoices.length").toInt();
+    for (int i = 1; i < groupChoiceCount; ++i) {
+        const QString choice = eval(QString("propertiesDialog.groupChoices[%1]").arg(i)).toString();
+        if (choice == bulkGroup) continue;
+        const auto group = ::getgrnam(choice.toLocal8Bit().constData()); if (!group) continue;
+        const gid_t expected = group->gr_gid;
+        auto groupEditor = findItem(groupCombo, "accountEditor");
+        require(groupEditor, "bulk group has an editable text field");
+        groupEditor->forceActiveFocus();
+        groupEditor->setProperty("text", choice);
+        require(QMetaObject::invokeMethod(groupEditor, "textEdited"), "bulk group text edit activates");
+        require(popup->property("groupDraft").toString() == choice
+                && popup->property("permissionMask").toInt() == 0 && apply->property("enabled").toBool(),
+                "group-only draft is applicable without assigning a common permission mode");
+        click(apply);
+        require(until([&] { return !uiProperties->property("accessBusy").toBool(); }), "bulk UI group changes finish");
+        for (const auto &item : {path, folder}) {
+            struct stat st {}; require(::stat(QFile::encodeName(item).constData(), &st) == 0 && st.st_gid == expected,
+                                       "bulk UI saves the chosen group on files and folders");
+        }
+        require(modeOf(path) == (oldFileMode | 0100) && modeOf(folder) == oldFolderMode,
+                "bulk UI group-only change does not overwrite different permission codes");
+        break;
+    }
+    modeInput->forceActiveFocus(); modeInput->setProperty("text", "0640");
+    QMetaObject::invokeMethod(modeInput, "textEdited");
+    require(popup->property("permissionMask").toInt() == 0777, "typing full octal mode explicitly edits all ordinary bits");
+    modeInput->setProperty("text", "06"); QMetaObject::invokeMethod(modeInput, "textEdited");
+    require(!apply->property("enabled").toBool(), "incomplete bulk octal mode cannot apply");
+    modeInput->setProperty("text", "0640"); QMetaObject::invokeMethod(modeInput, "textEdited");
+    modeInput->setFocus(false); pause(100);
+    window->grabWindow().save("/tmp/lurviko-bulk-properties-dark.png");
+    QMetaObject::invokeMethod(popup, "close");
+    std::fprintf(stderr, "PASS: bulk Properties UI, mixed-state editing, Apply and octal validation\n");
     return 0;
 }

@@ -12,6 +12,13 @@ Item {
         width: 1020
         height: 700
         visible: true
+        property bool renameRegressionActive: false
+        Shortcut {
+            sequence: "F2"
+            enabled: window.renameRegressionActive && pane.renameShortcutAllowed
+            context: Qt.WindowShortcut
+            onActivated: pane.renameSelection()
+        }
         LanguageManager { id: language }
         QtObject {
             id: library
@@ -27,8 +34,15 @@ Item {
             id: player
             property var libraryManager: library
             property var playlists: []
+            property bool playing: true
             property bool opened: false
             property bool visible: false
+            property bool backgroundPlayback: true
+            property int queueLimit: 50
+            property var queue: []
+            property int currentIndex: 0
+            property int rebuildCount: 0
+            function rebuildPlaybackOrder(index) { ++rebuildCount }
         }
         QtObject { id: auth; property string googleAccessToken: ""; property string oneDriveAccessToken: "" }
         QtObject {
@@ -77,7 +91,14 @@ Item {
         TestCase {
             name: "MusicGenreFilter"
             when: windowShown
-            function initTestCase() { language.language = "en"; pane.navigateTo("category:/music") }
+            property var savedHoverPreferences
+            function initTestCase() {
+                savedHoverPreferences = [AppTheme.musicHoverEnabled, AppTheme.musicHoverAnimationsEnabled, AppTheme.musicHoverDelayMs]
+                AppTheme.setMusicHoverPreferences(false, false, 600)
+                language.language = "en"
+                pane.navigateTo("category:/music")
+            }
+            function cleanupTestCase() { AppTheme.setMusicHoverPreferences(...savedHoverPreferences) }
             function init() {
                 pane.navigateTo("category:/music")
                 library.tracks = [
@@ -106,6 +127,187 @@ Item {
                 tryCompare(grid, "count", 2)
                 verify(grid.model.some(function(item) { return item.track.itemUrl === "file:///music/amo.mp3" }),
                        "Unplayed example track must be included")
+            }
+            function test_file_rename_works_after_music_hover_and_page_switch() {
+                AppTheme.setMusicHoverPreferences(true, false, 120)
+                try {
+                    pane.musicLibraryTab = 0
+                    const view = findChild(pane, "musicLibraryView")
+                    verify(view !== null)
+                    tryVerify(function() { return view.viewItems.length === 3 })
+                    const grid = findChild(view, "musicLibraryGrid")
+                    grid.forceLayout()
+                    tryVerify(function() { return grid.itemAtIndex(0) !== null })
+                    const anchor = findChild(grid.itemAtIndex(0), "musicTrackMouse").parent
+                    view.requestHoverPreview(view.viewItems[0].track, anchor)
+                    tryVerify(function() { return view.hoverTrack !== null })
+                    compare(window.Overlay.overlay.visible, false)
+                    const sourceUrl = musicHoverRenameFixtureUrl.toString()
+                    const folder = sourceUrl.substring(0, sourceUrl.lastIndexOf("/"))
+                    pane.navigateTo(folder)
+                    tryVerify(function() { return pane.itemCount > 0 })
+                    let found = false
+                    for (let i = 0; i < pane.itemCount; ++i) {
+                        pane.selectIndex(i, Qt.NoModifier)
+                        if (pane.selectedUrl === sourceUrl) { found = true; break }
+                    }
+                    verify(found)
+                    compare(window.Overlay.overlay.visible, false)
+                    window.renameRegressionActive = true
+                    window.requestActivate()
+                    pane.forceActiveFocus()
+                    keyClick(Qt.Key_F2)
+                    tryCompare(pane, "inlineRenameUrl", sourceUrl)
+                    tryVerify(function() { return pane.inlineRenameEditor && pane.inlineRenameEditor.activeFocus })
+                    const editor = pane.inlineRenameEditor
+                    editor.selectAll()
+                    keyClick(Qt.Key_A)
+                    compare(editor.text, "a")
+                    editor.text = "renamed-after-preview.txt"
+                    keyClick(Qt.Key_Return)
+                    tryCompare(pane, "inlineRenameUrl", "")
+                    tryCompare(pane, "selectedUrl", folder + "/renamed-after-preview.txt")
+                } finally {
+                    window.renameRegressionActive = false
+                    pane.cancelInlineRename()
+                    AppTheme.setMusicHoverPreferences(false, false, 600)
+                }
+            }
+            function test_context_menu_rename_keeps_editor_open_data() {
+                return [{tag: "grid", list: false}, {tag: "list", list: true}]
+            }
+            function test_context_menu_rename_keeps_editor_open(data) {
+                const sourceUrl = musicHoverRenameFixtureUrl.toString()
+                const folder = sourceUrl.substring(0, sourceUrl.lastIndexOf("/"))
+                const oldGridMode = pane.gridMode
+                try {
+                    pane.gridMode = !data.list
+                    pane.navigateTo(folder)
+                    tryVerify(function() { return pane.itemCount > 0 })
+                    for (let i = 0; i < pane.itemCount; ++i) {
+                        pane.selectIndex(i, Qt.NoModifier)
+                        if (pane.selectedUrl === sourceUrl) break
+                    }
+                    compare(pane.selectedUrl, sourceUrl)
+                    const menu = findChild(pane, "itemContextMenu")
+                    const renameAction = findChild(pane, "contextRenameAction")
+                    verify(menu !== null && renameAction !== null)
+                    window.requestActivate()
+                    pane.forceActiveFocus()
+                    pane.openItemContextAt(pane, {x: 200, y: 150})
+                    tryCompare(menu, "opened", true)
+                    for (let i = 0; i < menu.count; ++i)
+                        if (menu.itemAt(i) === renameAction) menu.currentIndex = i
+                    wait(100)
+                    mouseClick(renameAction)
+                    tryCompare(menu, "visible", false)
+                    tryCompare(pane, "inlineRenameUrl", sourceUrl)
+                    tryVerify(function() { return pane.inlineRenameEditor && pane.inlineRenameEditor.activeFocus })
+                    wait(250)
+                    compare(pane.inlineRenameUrl, sourceUrl, "Menu focus restoration must not finish rename")
+                    compare(pane.inlineRenameEditor.activeFocus, true)
+                    pane.inlineRenameEditor.selectAll()
+                    keyClick(Qt.Key_A)
+                    compare(pane.inlineRenameEditor.text, "a")
+                } finally {
+                    pane.closeContextMenus()
+                    pane.cancelInlineRename()
+                    pane.gridMode = oldGridMode
+                }
+            }
+            function test_queue_settings_only_affect_future_random_queues() {
+                const queue = []
+                for (let i = 0; i < 300; ++i)
+                    queue.push({itemUrl: "file:///playlist/" + i + ".mp3"})
+                player.queue = queue
+                player.currentIndex = 125
+                player.opened = true
+                player.queueLimit = 50
+                player.rebuildCount = 0
+                const popup = findChild(pane, "musicCategorySettings")
+                verify(popup !== null)
+                try {
+                    popup.open()
+                    tryCompare(popup, "visible", true)
+                    popup.musicQueueDraft = 10
+                    mouseClick(findChild(popup, "saveCategorySettings"))
+                    compare(player.queueLimit, 10)
+                    compare(player.queue.length, 300)
+                    compare(player.currentIndex, 125)
+                    compare(player.rebuildCount, 0)
+                } finally {
+                    popup.close()
+                    player.opened = false
+                    player.queue = []
+                    player.queueLimit = 50
+                }
+            }
+            function test_music_settings_fit_the_modal_data() {
+                return [{tag: "narrow-tr", size: 420, language: "tr"},
+                        {tag: "normal-tr", size: 1020, language: "tr"},
+                        {tag: "narrow-en", size: 420, language: "en"},
+                        {tag: "normal-en", size: 1020, language: "en"}]
+            }
+            function test_music_settings_fit_the_modal(data) {
+                const previousWidth = window.width
+                const popup = findChild(pane, "musicCategorySettings")
+                try {
+                    window.width = data.size
+                    language.language = data.language
+                    popup.open()
+                    tryCompare(popup, "visible", true)
+                    wait(150)
+                    verify(popup.width <= window.width - 24)
+                    const scroll = findChild(popup, "musicCategorySettingsScroll")
+                    const content = findChild(popup, "musicSettingsScrollContent")
+                    const row = findChild(popup, "musicQueueSettingsRow")
+                    verify(scroll.width <= popup.width + 1, "Settings viewport expanded outside the modal")
+                    verify(content.width <= scroll.availableWidth + 1)
+                    verify(row.x + row.width <= content.width + 1, "Queue settings run off the right edge")
+                    if (data.tag === "normal-tr") {
+                        scroll.contentItem.contentY = Math.max(0, scroll.contentItem.contentHeight - scroll.contentItem.height)
+                        wait(100)
+                        grabImage(window.contentItem).save("/tmp/lurviko-music-settings.png")
+                    }
+                    compare(findChild(popup, "musicHoverEnabledCheck").text, language.t("hover_preview"))
+                } finally {
+                    popup.close()
+                    window.width = previousWidth
+                    language.language = "en"
+                    wait(180)
+                }
+            }
+            function test_music_hover_preferences_save_and_reopen() {
+                const popup = findChild(pane, "musicCategorySettings")
+                try {
+                    popup.open()
+                    tryCompare(popup, "visible", true)
+                    compare(popup.musicHoverDelayDraft, 600)
+                    popup.musicHoverDraft = true
+                    popup.musicHoverAnimationsDraft = true
+                    const combo = findChild(popup, "musicHoverDelayInput")
+                    combo.currentIndex = combo.valueModel.indexOf(1000)
+                    combo.activated(combo.currentIndex)
+                    mouseClick(findChild(popup, "saveCategorySettings"))
+                    compare(AppTheme.musicHoverEnabled, true)
+                    compare(AppTheme.musicHoverAnimationsEnabled, true)
+                    compare(AppTheme.musicHoverDelayMs, 1000)
+                    popup.open()
+                    tryCompare(popup, "visible", true)
+                    compare(popup.musicHoverDraft, true)
+                    compare(popup.musicHoverDelayDraft, 1000)
+                    compare(combo.valueModel[combo.currentIndex], 1000)
+                    combo.currentIndex = combo.valueModel.indexOf(200)
+                    combo.activated(combo.currentIndex)
+                    popup.close()
+                    compare(AppTheme.musicHoverDelayMs, 1000, "Cancelling must not save draft preferences")
+                    popup.open()
+                    tryCompare(popup, "visible", true)
+                    compare(combo.valueModel[combo.currentIndex], 1000, "Reopening must restore the saved control position")
+                } finally {
+                    popup.close()
+                    AppTheme.setMusicHoverPreferences(false, false, 600)
+                }
             }
             function test_metadata_updates_keep_the_selected_genre() {
                 pane.selectMusicGenre("Turkish Pop")

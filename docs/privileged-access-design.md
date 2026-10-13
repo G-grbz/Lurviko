@@ -1,4 +1,4 @@
-# Recursive administrator access: review and future helper
+# Recursive administrator access: descriptor helper
 
 ## Verified implementation (v1.1.1 preparation)
 
@@ -18,42 +18,48 @@ These calls do not pin the checked inode or request no-follow semantics. This
 confirms the stat/action window in Lurviko's administrator path; it does not
 establish the behavior of every distribution's patched KIO build.
 
-## Current mitigation
+## Implemented helper
 
-Before any recursive administrator KIO job, Lurviko checks the local tree using
-open directory descriptors, `openat(O_NOFOLLOW)` and `fstatat(AT_SYMLINK_NOFOLLOW)`.
-Directories must be owned by root or the selected target owner. Group-write and
-other-write directories are rejected, even with a sticky bit. Symlinks are not
-traversed. Failed reads and cancellation fail closed. No privileged job is
-started when the preflight fails. Non-recursive administrator behavior is
-unchanged.
+Permission and ownership changes now use the separately installed
+`lurviko-access-helper`, launched through `pkexec --disable-internal-agent`.
+The desktop polkit agent authenticates the administrator; the application never
+receives a password. Administrator locations and other KIO features are unchanged.
 
-This is a conservative policy check, not an atomic transaction. A trusted
-owner can change directories after checking; mutable ancestor paths, mount
-changes, hard links and later permission/ownership changes still need care.
-POSIX ACL write grants are bounded by the group mode mask, which this policy
-rejects when writable. Non-POSIX ACLs or remote filesystem semantics are not
-proved by checking ordinary Unix mode bits. Unreadable root-owned trees cannot
-be recursively changed through this fallback.
+The helper accepts one bounded JSON request with absolute selected paths,
+expected device/inode identities, numeric UID/GID, ordinary mode bits and a
+recursion flag. It pins every path component with `O_PATH|O_NOFOLLOW`, rejects
+changed selected roots, and validates every selected root before any mutation.
+All chmod/chown operations address open descriptors using `AT_EMPTY_PATH`.
+There is no privileged path-based mutation fallback. Directories are traversed
+as root and changed after their children, so recursive repair of a `0644`
+directory no longer requires the unprivileged application's search permission.
+Symbolic links and special files are skipped; traversal stays on the selected
+root's device. File contents are never opened for writing.
 
-## Future privileged helper (design only)
+The parent keeps a pipe open for the helper's lifetime. Cancellation or parent
+exit stops work at item boundaries. Progress is returned as bounded JSON lines.
+No shell commands, arbitrary executable hooks, password inputs or content payloads
+are accepted. Authentication cancellation and helper errors are shown in the
+selected UI language. Installation includes the helper in libexec, and the
+existing uninstall manifest tracks it.
 
-Use a small separately installed helper authorized by a dedicated polkit
-permission. The unprivileged application sends the operation, numeric UID/GID,
-ordinary mode bits, recursion policy and selected root identity. The helper
-opens and validates the root itself; do not accept a caller's path check as
-proof. Pin every parent and leaf with no-follow descriptors, compare device and
-inode identities, and apply `fchmod`/`fchown` to those descriptors. Avoid opening
-special devices/FIFOs and never truncate or write content. Traverse children
-with `openat`, stay on the root device by default, and modify directories after
-children. Define an explicit hard-link policy because an fd alone cannot
-prevent changes through another link to the same inode.
+## Limits and follow-up
 
-Benefits: checks and mutations address the same inode, a smaller privileged
-surface than running the UI as root, and consistent progress/cancellation.
-Costs: a packaged privileged binary and polkit policy, extra deployment/review
-work, file-descriptor limits, platform-specific syscall behavior and recovery
-from partial changes. Define cancellation at item boundaries and report changed,
-failed and skipped counts. Authorization must be tied to the D-Bus caller's
-identity, paths/root identity, requested operation and lifetime; avoid shell
-commands and arbitrary executable hooks. Keep denial as the default.
+Changes are not an atomic transaction: cancellation or an I/O failure can leave
+a partly updated selection. Open inodes can be renamed while the operation runs;
+a pin deliberately continues to refer to the original inode. Hard links share
+permissions and ownership with all links to the same inode. Device checks do not
+identify same-device bind mounts. The administrator is authorizing a root chmod/
+chown operation, not a promise that every pathname remains stationary.
+
+Descriptor chmod requires Linux 6.5+ and glibc 2.39+ (`fchmodat2`/`AT_EMPTY_PATH`).
+Unsupported systems fail rather than falling back to pathname mutation. The
+helper uses generic pkexec authorization; a dedicated packaged polkit action
+with a more descriptive authentication dialog is a possible later improvement.
+
+Tests cover replaced roots and regular files, external symbolic-link targets,
+malformed requests, changed root identities, cancellation, mount boundaries,
+ordinary-user UI/helper transport and unchanged SVG contents. The optional
+`python3 tests/run-administrator-access-tests.py --authenticate` case uses the
+real desktop polkit agent to repair an isolated temporary `0644` tree as root;
+it never modifies personal files or runs unattended in CI.

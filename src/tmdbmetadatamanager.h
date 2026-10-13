@@ -132,7 +132,7 @@ private:
                         const QJsonObject &english,
                         const QJsonObject &images);
 
-    void getJson(const QUrl &url, const JsonCallback &callback);
+    virtual void getJson(const QUrl &url, const JsonCallback &callback);
     void downloadImage(const QString &tmdbPath,
                        const QString &size,
                        const QString &targetPath,

@@ -17,6 +17,7 @@ Item {
         gallerySize: 230
         contentIndexModel: null
     }
+    SignalSpy { id: revealSpy; target: gallery; signalName: "revealRequested" }
     TestCase {
         id: tests
         name: "MediaGalleryExplore"
@@ -51,6 +52,17 @@ Item {
             view.positionViewAtIndex(1, ListView.Beginning)
             wait(220)
             return findChild(view.itemAtIndex(1), "galleryMediaCard")
+        }
+        function test_open_containing_folder_carries_the_target_item() {
+            const card = firstCard()
+            verify(card !== null)
+            const action = findChild(card, "mediaOpenContainingFolder")
+            verify(action !== null)
+            revealSpy.clear()
+            action.triggered()
+            compare(revealSpy.count, 1)
+            compare(revealSpy.signalArguments[0][0], card.itemData.parentPath)
+            compare(revealSpy.signalArguments[0][1], card.itemData.url)
         }
         function test_albums_group_by_parent_and_choose_recent_covers() {
             compare(gallery.albums.length, 3)

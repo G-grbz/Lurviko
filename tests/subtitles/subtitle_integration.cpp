@@ -105,6 +105,7 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new FixtureImages);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
+    engine.addImageProvider("folderart", new FolderIconProvider);
     engine.rootContext()->setContextProperty("fixturePath", path);
     engine.rootContext()->setContextProperty("fixtureUrl", QUrl::fromLocalFile(path));
     engine.loadData(R"qml(

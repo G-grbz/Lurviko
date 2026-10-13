@@ -307,6 +307,8 @@ Item {
                         id: cell
                         objectName: "categoryGroupedCard"
                         required property var modelData
+                        opacity: AppTheme.itemIsHidden(modelData.name, modelData.itemUrl, modelData.hidden)
+                            ? AppTheme.hiddenItemOpacity : 1.0
                         readonly property bool selected: {
                             const revision = root.selectionRevision
                             return root.isSelected ? root.isSelected(String(modelData.itemUrl || "")) : false
@@ -345,6 +347,7 @@ Item {
                                 Layout.preferredHeight: Layout.preferredWidth
 
                                 CrispIcon {
+                                    retainWhileLoading: false
                                     anchors.fill: parent
                                     source: AppTheme.systemIconAtSize(String(cell.modelData.iconSource || ""), width)
                                     visible: !cell.modelData.thumbnailSource || preview.status !== Image.Ready

@@ -52,7 +52,7 @@ struct IconRendering {
     QMutex mutex;
     // This cache survives delegate/image-cache eviction across navigation.
     // Costs are KiB, so large themes cannot grow memory without a bound.
-    QCache<QString, QImage> images{64 * 1024};
+    QCache<QString, QImage> images{32 * 1024};
     QHash<QString, std::shared_ptr<IconTask>> pending;
 
     IconRendering()

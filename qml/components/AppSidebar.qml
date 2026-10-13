@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import QtCore
 import Lurviko.App
 import Lurviko.Backend
@@ -743,7 +744,7 @@ Rectangle {
                         anchors.centerIn: parent
                         width: 16
                         height: 16
-                        source: AppTheme.icon("music-note.svg")
+                        source: "qrc:/qt/qml/Lurviko/App/assets/icons/music-note.svg"
                     }
                     Rectangle {
                         visible: sidebar.musicPlayer && sidebar.musicPlayer.playing
@@ -849,7 +850,8 @@ Rectangle {
                     Image {
                         id: miniArt
                         anchors.fill: parent
-                        source: sidebar.musicPlayer ? sidebar.musicPlayer.currentArtwork : ""
+                        source: miniMusicPopup.visible && sidebar.musicPlayer ? sidebar.musicPlayer.currentArtwork : ""
+                        sourceSize: Qt.size(AppTheme.previewResolution(width, Screen.devicePixelRatio), AppTheme.previewResolution(height, Screen.devicePixelRatio))
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -865,9 +867,16 @@ Rectangle {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Text {
+                    MusicArtistLinks {
+                        objectName: "miniMusicArtistLinks"
                         Layout.fillWidth: true
-                        text: sidebar.musicPlayer ? sidebar.musicPlayer.displayTitle : ""
+                        artistText: sidebar.musicPlayer ? String(sidebar.musicPlayer.trackMeta.artist || "") : ""
+                        suffixText: sidebar.musicPlayer ? " — " + String(sidebar.musicPlayer.trackMeta.title || sidebar.musicPlayer.currentTitle || "") : ""
+                        fallbackText: sidebar.musicPlayer ? sidebar.musicPlayer.displayTitle : ""
+                        onArtistRequested: function(artist) {
+                            if (sidebar.musicPlayer) sidebar.musicPlayer.openArtist(artist)
+                            miniMusicPopup.close()
+                        }
                         color: AppTheme.text
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
@@ -895,10 +904,10 @@ Rectangle {
                         border.width: parent.checked ? 1 : 0
                         border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                     }
-                    ToolTip.visible: hovered
-                    ToolTip.text: sidebar.musicPlayer && sidebar.musicPlayer.currentFavorite
+                    Accessible.name: sidebar.musicPlayer && sidebar.musicPlayer.currentFavorite
                                   ? (lang.language === "tr" ? "Favorilerden çıkar" : "Remove from favorites")
                                   : (lang.language === "tr" ? "Favorilere ekle" : "Add to favorites")
+                    GToolTip { text: parent.Accessible.name }
                 }
             }
 
@@ -953,10 +962,10 @@ Rectangle {
                         onTapped: if (sidebar.musicPlayer)
                                       sidebar.musicPlayer.showRemainingTime = !sidebar.musicPlayer.showRemainingTime
                     }
-                    ToolTip.visible: miniDurationHover.hovered
-                    ToolTip.text: sidebar.musicPlayer && sidebar.musicPlayer.showRemainingTime
+                    Accessible.name: sidebar.musicPlayer && sidebar.musicPlayer.showRemainingTime
                                   ? (lang.language === "tr" ? "Toplam süreyi göster" : "Show total duration")
                                   : (lang.language === "tr" ? "Kalan süreyi göster" : "Show remaining time")
+                    GToolTip { visible: miniDurationHover.hovered; text: parent.Accessible.name }
                 }
             }
 
@@ -974,6 +983,8 @@ Rectangle {
                     implicitWidth: 30; implicitHeight: 28
                     icon.source: AppTheme.icon("viewer-prev.svg")
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.previous()
+                    Accessible.name: lang.language === "tr" ? "Önceki parça" : "Previous track"
+                    GToolTip { text: parent.Accessible.name }
                 }
                 GToolButton {
                     background: Rectangle {
@@ -986,6 +997,10 @@ Rectangle {
                     implicitWidth: 34; implicitHeight: 30
                     icon.source: AppTheme.icon(sidebar.musicPlayer && sidebar.musicPlayer.playing ? "viewer-pause.svg" : "viewer-play.svg")
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.toggle()
+                    Accessible.name: sidebar.musicPlayer && sidebar.musicPlayer.playing
+                                   ? (lang.language === "tr" ? "Duraklat" : "Pause")
+                                   : (lang.language === "tr" ? "Oynat" : "Play")
+                    GToolTip { text: parent.Accessible.name }
                 }
                 GToolButton {
                     background: Rectangle {
@@ -998,6 +1013,8 @@ Rectangle {
                     implicitWidth: 30; implicitHeight: 28
                     icon.source: AppTheme.icon("viewer-next.svg")
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.next()
+                    Accessible.name: lang.language === "tr" ? "Sonraki parça" : "Next track"
+                    GToolTip { text: parent.Accessible.name }
                 }
                 GToolButton {
                     implicitWidth: 30; implicitHeight: 28
@@ -1005,6 +1022,8 @@ Rectangle {
                     checked: sidebar.musicPlayer && sidebar.musicPlayer.shuffleMode
                     icon.color: checked ? AppTheme.accent : AppTheme.text
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.toggleShuffle()
+                    Accessible.name: lang.language === "tr" ? "Karıştır" : "Shuffle"
+                    GToolTip { text: parent.Accessible.name }
                     background: Rectangle {
                         radius: 7
                         color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
@@ -1018,6 +1037,12 @@ Rectangle {
                     checked: sidebar.musicPlayer && sidebar.musicPlayer.repeatMode !== 0
                     icon.color: checked ? AppTheme.accent : AppTheme.text
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.cycleRepeatMode()
+                    Accessible.name: sidebar.musicPlayer && sidebar.musicPlayer.repeatMode === 2
+                                   ? (lang.language === "tr" ? "Tek parçayı tekrarla" : "Repeat one")
+                                   : sidebar.musicPlayer && sidebar.musicPlayer.repeatMode === 1
+                                   ? (lang.language === "tr" ? "Tümünü tekrarla" : "Repeat all")
+                                   : (lang.language === "tr" ? "Tekrarlama kapalı" : "Repeat off")
+                    GToolTip { text: parent.Accessible.name }
                     background: Rectangle {
                         radius: 7
                         color: parent.checked ? AppTheme.accentSoft : (parent.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
@@ -1034,13 +1059,13 @@ Rectangle {
                         Behavior on color { ColorAnimation { duration: 110 } }
                     }
                     implicitWidth: 30; implicitHeight: 28
-                    icon.source: AppTheme.icon("music-expand.svg")
+                    icon.source: AppTheme.icon("viewer-fullscreen.svg")
                     onClicked: {
-                        if (sidebar.musicPlayer) sidebar.musicPlayer.restorePanel()
+                        if (sidebar.musicPlayer) sidebar.musicPlayer.openNormal()
                         miniMusicPopup.close()
                     }
-                    ToolTip.visible: hovered
-                    ToolTip.text: lang.language === "tr" ? "Tam oynatıcı" : "Full player"
+                    Accessible.name: lang.language === "tr" ? "Normal oynatıcıya dön" : "Restore player"
+                    GToolTip { text: parent.Accessible.name }
                 }
             }
 
@@ -1059,6 +1084,8 @@ Rectangle {
                     icon.source: AppTheme.icon(sidebar.musicPlayer && (sidebar.musicPlayer.muted || sidebar.musicPlayer.volume <= 0.001)
                                                ? "viewer-volume-muted.svg" : "viewer-volume.svg")
                     onClicked: if (sidebar.musicPlayer) sidebar.musicPlayer.toggleMute()
+                    Accessible.name: lang.language === "tr" ? "Sesi aç / kapat" : "Mute / unmute"
+                    GToolTip { text: parent.Accessible.name }
                 }
                 GSlider {
                     id: miniVolume
@@ -1113,8 +1140,8 @@ Rectangle {
                         if (sidebar.musicPlayer) { sidebar.musicPlayer.restorePanel(); sidebar.musicPlayer.toggleQueue(0) }
                         miniMusicPopup.close()
                     }
-                    ToolTip.visible: hovered
-                    ToolTip.text: lang.language === "tr" ? "Kuyruk" : "Queue"
+                    Accessible.name: lang.language === "tr" ? "Kuyruk" : "Queue"
+                    GToolTip { text: parent.Accessible.name }
                 }
                 GToolButton {
                     background: Rectangle {
@@ -1130,8 +1157,8 @@ Rectangle {
                         if (sidebar.musicPlayer) { sidebar.musicPlayer.restorePanel(); sidebar.musicPlayer.toggleQueue(1) }
                         miniMusicPopup.close()
                     }
-                    ToolTip.visible: hovered
-                    ToolTip.text: lang.language === "tr" ? "Çalma listeleri" : "Playlists"
+                    Accessible.name: lang.language === "tr" ? "Çalma listeleri" : "Playlists"
+                    GToolTip { text: parent.Accessible.name }
                 }
                 Item { Layout.fillWidth: true }
                 GToolButton {
@@ -1148,8 +1175,8 @@ Rectangle {
                         if (sidebar.musicPlayer) sidebar.musicPlayer.closePlayer()
                         miniMusicPopup.close()
                     }
-                    ToolTip.visible: hovered
-                    ToolTip.text: lang.language === "tr" ? "Oynatıcıyı kapat" : "Close player"
+                    Accessible.name: lang.language === "tr" ? "Oynatıcıyı kapat" : "Close player"
+                    GToolTip { text: parent.Accessible.name }
                 }
             }
         }

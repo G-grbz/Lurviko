@@ -6,9 +6,10 @@
 #include <QUrl>
 #include <QStringList>
 #include <memory>
+#include <atomic>
 
-class KJob;
 class QTimer;
+class QProcess;
 struct FileAccessTask;
 
 class FilePropertiesManager : public QObject
@@ -41,6 +42,14 @@ class FilePropertiesManager : public QObject
     Q_PROPERTY(qulonglong inode READ inode NOTIFY propertiesChanged)
     Q_PROPERTY(int linkCount READ linkCount NOTIFY propertiesChanged)
     Q_PROPERTY(bool calculating READ calculating NOTIFY calculatingChanged)
+    Q_PROPERTY(bool multiple READ multiple NOTIFY propertiesChanged)
+    Q_PROPERTY(bool allLocal READ allLocal NOTIFY propertiesChanged)
+    Q_PROPERTY(int selectionCount READ selectionCount NOTIFY propertiesChanged)
+    Q_PROPERTY(int selectedFolders READ selectedFolders NOTIFY propertiesChanged)
+    Q_PROPERTY(int selectedFiles READ selectedFiles NOTIFY propertiesChanged)
+    Q_PROPERTY(int selectedLinks READ selectedLinks NOTIFY propertiesChanged)
+    Q_PROPERTY(QString commonLocation READ commonLocation NOTIFY propertiesChanged)
+    Q_PROPERTY(int mixedPermissionMask READ mixedPermissionMask NOTIFY permissionsChanged)
 
 public:
     explicit FilePropertiesManager(QObject *parent = nullptr);
@@ -75,8 +84,18 @@ public:
     qulonglong inode() const { return m_inode; }
     int linkCount() const { return m_linkCount; }
     bool calculating() const { return m_calculating; }
+    bool multiple() const { return m_selection.size() > 1; }
+    bool allLocal() const { return m_localFile; }
+    int selectionCount() const { return m_selection.size(); }
+    int selectedFolders() const { return m_selectedFolders; }
+    int selectedFiles() const { return m_selectedFiles; }
+    int selectedLinks() const { return m_selectedLinks; }
+    QString commonLocation() const { return m_commonLocation; }
+    int mixedPermissionMask() const { return m_mixedPermissionMask; }
 
     Q_INVOKABLE void inspect(const QString &urlOrPath);
+    Q_INVOKABLE void inspectSelection(const QStringList &urls);
+    Q_INVOKABLE void cancelInspection();
     Q_INVOKABLE bool setFolderIcon(const QString &iconName);
     Q_INVOKABLE bool setLinkTarget(const QString &target);
     Q_INVOKABLE bool setPermissionMode(int mode);
@@ -84,6 +103,9 @@ public:
     Q_INVOKABLE QStringList availableGroups(bool administrator = false) const;
     Q_INVOKABLE bool applyAccess(int mode, const QString &owner, const QString &group,
                                  bool recursive = false, bool administrator = false);
+    Q_INVOKABLE bool applySelectionAccess(int mode, int modeMask, const QString &owner,
+                                          const QString &group, bool recursive = false,
+                                          bool administrator = false);
     Q_INVOKABLE void cancelAccess();
     Q_INVOKABLE QString formatBytes(qint64 bytes) const;
 
@@ -103,11 +125,15 @@ private:
     void initializeAccess();
     void finishAccess(bool cancelled);
     void startAdministratorAccess(bool recursive);
-    void continueAdministratorAccess();
-    void listAdministratorTree(const QUrl &root);
     static QString readFolderIcon(const QString &path);
 
     QString m_path;
+    QStringList m_selection;
+    QString m_commonLocation;
+    int m_selectedFolders = 0;
+    int m_selectedFiles = 0;
+    int m_selectedLinks = 0;
+    int m_mixedPermissionMask = 0;
     QString m_name;
     bool m_directory = false;
     qint64 m_totalSize = 0;
@@ -128,10 +154,13 @@ private:
     QString m_accessOwner;
     QString m_accessGroup;
     int m_accessMode = 0;
-    struct AccessEntry { QUrl url; bool descendant = false; };
-    QList<AccessEntry> m_accessEntries;
+    qint64 m_accessOwnerId = -1;
+    qint64 m_accessGroupId = -1;
+    int m_accessModeMask = 0777;
+    int m_accessGeneration = 0;
+    QStringList m_accessPaths;
     std::shared_ptr<FileAccessTask> m_accessTask;
-    QPointer<KJob> m_accessJob;
+    QPointer<QProcess> m_accessProcess;
     QTimer *m_accessTimer = nullptr;
     QString m_iconName;
     QString m_linkType;
@@ -141,4 +170,5 @@ private:
     int m_linkCount = 1;
     bool m_calculating = false;
     int m_generation = 0;
+    std::shared_ptr<std::atomic_bool> m_statsCancelled;
 };

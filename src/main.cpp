@@ -37,6 +37,7 @@
 
 #include "storagemodel.h"
 #include "appmigration.h"
+#include <QSettings>
 #include "updatechecker.h"
 #include "videochapterreader.h"
 #include "directorymodel.h"
@@ -361,6 +362,10 @@ int main(int argc, char *argv[])
         else QMessageBox::warning(nullptr, QStringLiteral("Lurviko"), migrationError);
         return 1;
     }
+    {
+        QSettings settings;
+        migrateGroupedIconReferences(settings, QStringLiteral(LURVIKO_SOURCE_DIR "/assets/icons"));
+    }
     migrationLock.unlock();
     if (migrationOnly) return 0;
 
@@ -490,6 +495,7 @@ int main(int argc, char *argv[])
     engine.addImageProvider(QStringLiteral("gfilethumb"), new ThumbnailProvider);
     engine.addImageProvider(QStringLiteral("systemicon"), new SystemIconProvider);
     engine.addImageProvider(QStringLiteral("bundledicon"), new BundledIconProvider);
+    engine.addImageProvider(QStringLiteral("folderart"), new FolderIconProvider);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, [] { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);

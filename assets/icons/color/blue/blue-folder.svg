@@ -1,0 +1,159 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="58" viewBox="0 0 64 58" version="1.1" role="img" aria-labelledby="blue-folder-title">
+  <title id="blue-folder-title">Mavi — Klasör</title>
+  <desc>blue cam klasör; referans ikonlardan alınan gradyan tonları.</desc>
+  <defs>
+    <linearGradient id="blue-folder-folder-back-body" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-folder-back-reflection" gradientUnits="userSpaceOnUse" x1="54.753499999999995" y1="15.0871" x2="27.336000000000002" y2="35.943799999999996">
+      <stop offset="0" stop-color="#e1f6ff" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#e1f6ff" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#e1f6ff" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#e1f6ff" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#e1f6ff" stop-opacity="0" />
+      <stop offset="1" stop-color="#e1f6ff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="blue-folder-folder-back-lower-glow" gradientUnits="userSpaceOnUse" x1="31.45" y1="55.390100000000004" x2="31.45" y2="38.682599999999994">
+      <stop offset="0" stop-color="#a2e6fc" stop-opacity="1" />
+      <stop offset="0.72590101" stop-color="#a2e6fc" stop-opacity="0.16470588" />
+      <stop offset="0.78715777" stop-color="#a2e6fc" stop-opacity="0.12156863" />
+      <stop offset="0.84562707" stop-color="#a2e6fc" stop-opacity="0.08627451" />
+      <stop offset="0.91712201" stop-color="#a2e6fc" stop-opacity="0.05882353" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="blue-folder-folder-back-glint" gradientUnits="userSpaceOnUse" cx=".927" cy=".0486" fx=".927" fy=".0486" r=".5" gradientTransform="matrix(55 0 0 41 4.5 12.5)">
+      <stop offset="0" stop-color="#e1f6ff" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#e1f6ff" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#e1f6ff" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#e1f6ff" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#e1f6ff" stop-opacity="0" />
+      <stop offset="1" stop-color="#e1f6ff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="blue-folder-folder-back-edge" x1="3.6118641" y1="14.073239" x2="34.905312" y2="62.217007" gradientTransform="scale(1.1559128,0.86511714)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e1f6ff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#87c5ed" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#1556a9" stop-opacity=".18" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity=".66" />
+    </linearGradient>
+    <path id="blue-folder-folder-back-shape" d="m 4.5,20.5 c 0,-4.7 3.3,-8 8,-8 h 7.9 c 2.7,0 4.4,0.8 6.2,2.8 L 30,19 h 21.5 c 5,0 8,3 8,8 v 18 c 0,5.3 -3.2,8.5 -8.5,8.5 H 13 C 7.7,53.5 4.5,50.3 4.5,45 Z" />
+    <linearGradient id="blue-folder-folder-paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fdff" stop-opacity=".94" />
+      <stop offset="1" stop-color="#97cef0" stop-opacity=".68" />
+    </linearGradient>
+    <linearGradient id="blue-folder-folder-front-body" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#87c5ed" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#3b80bf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-folder-front-reflection" gradientUnits="userSpaceOnUse" x1="54.753499999999995" y1="24.895506100000002" x2="27.336000000000002" y2="40.4266258">
+      <stop offset="0" stop-color="#e1f6ff" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#e1f6ff" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#e1f6ff" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#e1f6ff" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#e1f6ff" stop-opacity="0" />
+      <stop offset="1" stop-color="#e1f6ff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="blue-folder-folder-front-lower-glow" gradientUnits="userSpaceOnUse" x1="31.45" y1="54.9074791" x2="31.45" y2="42.4660966">
+      <stop offset="0" stop-color="#a2e6fc" stop-opacity="1" />
+      <stop offset="0.72590101" stop-color="#a2e6fc" stop-opacity="0.16470588" />
+      <stop offset="0.78715777" stop-color="#a2e6fc" stop-opacity="0.12156863" />
+      <stop offset="0.84562707" stop-color="#a2e6fc" stop-opacity="0.08627451" />
+      <stop offset="0.91712201" stop-color="#a2e6fc" stop-opacity="0.05882353" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="blue-folder-folder-front-glint" gradientUnits="userSpaceOnUse" cx=".927" cy=".0486" fx=".927" fy=".0486" r=".5" gradientTransform="matrix(55 0 0 30.531 4.5 22.969)">
+      <stop offset="0" stop-color="#e1f6ff" stop-opacity="1" />
+      <stop offset="0.56953174" stop-color="#e1f6ff" stop-opacity="0.09411765" />
+      <stop offset="0.65517962" stop-color="#e1f6ff" stop-opacity="0.04705882" />
+      <stop offset="0.72648168" stop-color="#e1f6ff" stop-opacity="0.01" />
+      <stop offset="0.85895157" stop-color="#e1f6ff" stop-opacity="0" />
+      <stop offset="1" stop-color="#e1f6ff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="blue-folder-folder-front-edge" x1="3.1251268" y1="30.251396" x2="30.20145" y2="71.90728" gradientTransform="scale(1.3359457,0.74853339)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e1f6ff" stop-opacity=".83" />
+      <stop offset=".35" stop-color="#87c5ed" stop-opacity=".36" />
+      <stop offset=".60" stop-color="#1556a9" stop-opacity=".18" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity=".66" />
+    </linearGradient>
+    <path id="blue-folder-folder-front-shape" d="m 4.5,27.5 c 0,-2.9 2.1,-4.8 5.1,-4.5 l 43.5,3.1 c 4.2,0.3 6.4,2.7 6.4,6.9 v 12 c 0,5.3 -3.2,8.5 -8.5,8.5 H 13 C 7.7,53.5 4.5,50.3 4.5,45 Z" />
+    <linearGradient xlink:href="#blue-folder-folder-paper" id="blue-folder-linearGradient54" x1="15.594224" y1="20.196621" x2="15.594224" y2="47.573666" gradientTransform="matrix(1.0817554,0,0,0.93482766,-4.130338,2.4260776)" gradientUnits="userSpaceOnUse" />
+    <linearGradient xlink:href="#blue-folder-folder-paper" id="blue-folder-linearGradient55" x1="19.17029" y1="22.56617" x2="19.17029" y2="49.952297" gradientTransform="matrix(1.1015924,0,0,0.91799365,2.4810984,-4.4469006)" gradientUnits="userSpaceOnUse" />
+    <linearGradient id="blue-folder-linearGradient60" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient62" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#87c5ed" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#3b80bf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient64" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#87c5ed" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#3b80bf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient1" gradientUnits="userSpaceOnUse" x1="14.5045" y1="27.6921457" x2="50.04" y2="47.821234">
+      <stop offset="0" stop-color="#87c5ed" stop-opacity="1" />
+      <stop offset="0.37870529" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="0.46836704" stop-color="#3b80bf" stop-opacity="1" />
+      <stop offset="0.53680056" stop-color="#428ac6" stop-opacity="1" />
+      <stop offset="1" stop-color="#a2e6fc" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient2" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient3" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient4" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient5" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+    <linearGradient id="blue-folder-linearGradient6" gradientUnits="userSpaceOnUse" x1="32.0" y1="53.5" x2="32.0" y2="12.5">
+      <stop offset="0" stop-color="#1556a9" stop-opacity="1" />
+      <stop offset="1" stop-color="#65d9ff" stop-opacity="1" />
+    </linearGradient>
+  </defs>
+  <g id="blue-folder-g1" transform="matrix(1.0578295,0,0,1.1279835,-1.8505449,-7.095473)">
+    <g id="blue-folder-g48" transform="matrix(1.0056117,0,0,1.0056117,-0.17957351,-1.1851852)">
+      <use fill="url(#blue-folder-folder-back-body)" xlink:href="#blue-folder-folder-back-shape" id="blue-folder-use44" style="fill:url(#blue-folder-linearGradient6)" />
+      <use fill="url(#blue-folder-folder-back-reflection)" xlink:href="#blue-folder-folder-back-shape" id="blue-folder-use45" style="fill:url(#blue-folder-folder-back-reflection)" opacity=".22" />
+      <use fill="url(#blue-folder-folder-back-lower-glow)" xlink:href="#blue-folder-folder-back-shape" id="blue-folder-use46" style="fill:url(#blue-folder-folder-back-lower-glow)" opacity=".22" />
+      <use fill="url(#blue-folder-folder-back-glint)" xlink:href="#blue-folder-folder-back-shape" id="blue-folder-use47" style="fill:url(#blue-folder-folder-back-glint)" opacity=".22" />
+      <use fill="none" stroke="url(#blue-folder-folder-back-edge)" stroke-width="0.65" stroke-linejoin="round" xlink:href="#blue-folder-folder-back-shape" id="blue-folder-use48" style="stroke:url(#blue-folder-folder-back-edge)" />
+    </g>
+    <rect x="12.96506" y="21.5327" width="29.162739" height="25.140291" rx="3.3185184" transform="rotate(-6.9999997)" fill="url(#blue-folder-folder-paper)" stroke="#e1f6ff" stroke-opacity="0.55" stroke-width="0.452525" id="blue-folder-rect48" style="fill:url(#blue-folder-linearGradient54);stroke:url(#blue-folder-linearGradient62);stroke-width:0.206;stroke-dasharray:none;stroke-opacity:0.55" />
+    <rect x="23.598944" y="16.2687" width="30.16835" height="25.140291" rx="3.3185184" transform="rotate(5)" fill="url(#blue-folder-folder-paper)" opacity="0.85" id="blue-folder-rect49" style="fill:url(#blue-folder-linearGradient55);stroke:url(#blue-folder-linearGradient64);stroke-width:0.206;stroke-dasharray:none" />
+    <path d="M 24.960719,23.452301 H 43.06173" fill="none" stroke="#3d84c3" stroke-opacity="0.32" stroke-width="1.10617" stroke-linecap="round" id="blue-folder-path49" />
+    <path d="m 9.6754212,22.044445 43.5429868,3.117396 c 3.720763,0.301684 5.832548,2.51403 6.134231,5.631426 L 8.4686871,27.273626 Z" fill="#1556a9" opacity="0.12" id="blue-folder-path50" style="stroke-width:1.00561" />
+    <g id="blue-folder-g54" transform="matrix(1.0056117,0,0,1.0056117,-0.17957351,-1.1851852)">
+      <use fill="url(#blue-folder-folder-front-body)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use50" style="fill:url(#blue-folder-linearGradient1)" />
+      <use fill="url(#blue-folder-folder-front-reflection)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use51" style="fill:url(#blue-folder-folder-front-reflection)" />
+      <use fill="url(#blue-folder-folder-front-lower-glow)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use52" style="fill:url(#blue-folder-folder-front-lower-glow)" />
+      <use fill="url(#blue-folder-folder-front-glint)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use53" style="fill:url(#blue-folder-folder-front-glint)" />
+      <use fill="none" stroke="url(#blue-folder-folder-front-edge)" stroke-width="0.65" stroke-linejoin="round" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use54" style="stroke:url(#blue-folder-folder-front-edge)" />
+    </g>
+    <path d="M 9.6754212,22.547251 52.615041,25.564086" fill="none" stroke="#e1f6ff" stroke-opacity="0.56" stroke-width="0.754209" stroke-linecap="round" id="blue-folder-path54" />
+    <g id="blue-folder-g59" transform="matrix(1.0056117,0,0,1.0056117,-0.17957351,-1.1851852)" style="fill:none;fill-opacity:1;stroke:url(#blue-folder-linearGradient60);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1">
+      <use fill="url(#blue-folder-folder-front-body)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use55" style="fill:none;fill-opacity:1;stroke:url(#blue-folder-linearGradient2);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="url(#blue-folder-folder-front-reflection)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use56" style="fill:none;fill-opacity:1;stroke:url(#blue-folder-linearGradient3);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="url(#blue-folder-folder-front-lower-glow)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use57" style="fill:none;fill-opacity:1;stroke:url(#blue-folder-linearGradient4);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="url(#blue-folder-folder-front-glint)" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use58" style="fill:none;fill-opacity:1;stroke:url(#blue-folder-linearGradient5);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+      <use fill="none" stroke="url(#blue-folder-folder-front-edge)" stroke-width="0.65" stroke-linejoin="round" xlink:href="#blue-folder-folder-front-shape" id="blue-folder-use59" style="fill:none;fill-opacity:1;stroke:url(#blue-folder-linearGradient60);stroke-width:0.304292;stroke-dasharray:none;stroke-opacity:1" />
+    </g>
+  </g>
+</svg>

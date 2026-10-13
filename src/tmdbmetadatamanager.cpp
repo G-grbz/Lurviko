@@ -22,6 +22,7 @@
 
 namespace {
 QSet<TmdbMetadataManager *> g_tmdbManagers;
+constexpr int kSearchRevision = 2;
 
 QString trimToken(QString value)
 {
@@ -403,6 +404,11 @@ QVariantMap TmdbMetadataManager::readCache(const QString &sourcePath, const QStr
     }
 
     QVariantMap result = root.value(QStringLiteral("metadata")).toObject().toVariantMap();
+    // Retry negative results from older matching rules without discarding
+    // successfully cached metadata/artwork.
+    if (result.value(QStringLiteral("state")).toString() == QStringLiteral("unmatched")
+            && root.value(QStringLiteral("searchRevision")).toInt() != kSearchRevision)
+        return {};
     for (const auto &field : {QStringLiteral("posterUrl"), QStringLiteral("backdropUrl"), QStringLiteral("logoUrl")}) {
         if (result.contains(field)) result[field] = relocatedAppPath(result.value(field).toString());
     }
@@ -421,6 +427,7 @@ void TmdbMetadataManager::writeCache(const PendingLookup &pending, const QVarian
 
     QJsonObject root;
     root.insert(QStringLiteral("schemaVersion"), 10);
+    root.insert(QStringLiteral("searchRevision"), kSearchRevision);
     root.insert(QStringLiteral("sourcePath"), pending.sourcePath);
     root.insert(QStringLiteral("sourceSize"), virtualSource ? -1.0 : static_cast<double>(sourceInfo.size()));
     root.insert(QStringLiteral("sourceModifiedMs"), virtualSource ? -1.0 : static_cast<double>(sourceInfo.lastModified().toMSecsSinceEpoch()));
@@ -1142,9 +1149,15 @@ void TmdbMetadataManager::startLookup(const PendingLookup &pending)
         // and then (when useful) with a diacritic/punctuation-folded variant.
         const int totalPhases = 1 + queryVariants.size();
         auto runPhase = std::make_shared<std::function<void(int)>>();
-        *runPhase = [this, lookup, tvSeries, searchUrl, queryVariants, totalPhases, runPhase, done](int phase) {
+        // The function must not own itself or clear its captures while running.
+        // Replies keep it alive between phases; a weak self-reference breaks
+        // the cycle and a local strong reference protects the active call.
+        const std::weak_ptr<std::function<void(int)>> weakPhase = runPhase;
+        *runPhase = [this, lookup, tvSeries, searchUrl, queryVariants, totalPhases, weakPhase, done](int phase) {
+            const auto runPhase = weakPhase.lock();
+            if (!runPhase)
+                return;
             if (phase >= totalPhases) {
-                *runPhase = {};
                 done(false);
                 return;
             }
@@ -1161,7 +1174,6 @@ void TmdbMetadataManager::startLookup(const PendingLookup &pending)
                     const QString requestKey = lookup.sourcePath + QLatin1Char('\n') + lookup.language;
                     m_pending.remove(requestKey);
                     emit metadataFailed(lookup.sourcePath, error);
-                    *runPhase = {};
                     done(true);
                     return;
                 }
@@ -1174,10 +1186,48 @@ void TmdbMetadataManager::startLookup(const PendingLookup &pending)
                 if (mediaId > 0) {
                     PendingLookup matched = lookup;
                     matched.parsed.tvSeries = tvSeries;
-                    *runPhase = {};
                     fetchDetails(matched, mediaId);
                     done(true);
                     return;
+                }
+
+                // A festival premiere and a regional/theatrical release can
+                // straddle New Year. Keep strict year matching by default;
+                // verify an adjacent-year, exact-title movie against TMDB's
+                // official release dates before accepting it.
+                if (!tvSeries && parsed.year > 0) {
+                    const QString wanted = compareKey(parsed.title);
+                    for (const auto &value : json.value(QStringLiteral("results")).toArray()) {
+                        const QJsonObject candidate = value.toObject();
+                        const int candidateId = candidate.value(QStringLiteral("id")).toInt();
+                        const int year = candidate.value(QStringLiteral("release_date")).toString().left(4).toInt();
+                        const bool exactTitle = compareKey(candidate.value(QStringLiteral("title")).toString()) == wanted
+                            || compareKey(candidate.value(QStringLiteral("original_title")).toString()) == wanted;
+                        if (candidateId <= 0 || !exactTitle || std::abs(year - parsed.year) != 1)
+                            continue;
+                        getJson(QUrl(QStringLiteral("https://api.themoviedb.org/3/movie/%1/release_dates").arg(candidateId)),
+                            [this, lookup, candidateId, phase, runPhase, done](const QJsonObject &dates, const QString &error) {
+                                bool verified = false;
+                                if (error.isEmpty()) {
+                                    for (const auto &country : dates.value(QStringLiteral("results")).toArray()) {
+                                        for (const auto &release : country.toObject().value(QStringLiteral("release_dates")).toArray()) {
+                                            const QJsonObject entry = release.toObject();
+                                            const QDate date = QDate::fromString(entry.value(QStringLiteral("release_date")).toString().left(10), Qt::ISODate);
+                                            const int type = entry.value(QStringLiteral("type")).toInt();
+                                            if (date.isValid() && date.year() == lookup.parsed.year && type >= 1 && type <= 6)
+                                                verified = true;
+                                        }
+                                    }
+                                }
+                                if (verified) {
+                                    fetchDetails(lookup, candidateId);
+                                    done(true);
+                                } else {
+                                    (*runPhase)(phase + 1);
+                                }
+                            });
+                        return;
+                    }
                 }
 
                 (*runPhase)(phase + 1);
