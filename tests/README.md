@@ -28,7 +28,7 @@ bash .github/scripts/run-headless-tests.sh
 | `run-system-icon-tests.py` | Asynchronous system icon rendering |
 | `run-folder-icon-tests.py` | All 49 baked folder variants, original SVG colors/alpha, bounded size requests, shared concurrent cache entries and cold/warm timings |
 
-Build the application with Ninja into `build/` first. QML checks use Qt Quick Test and the application's real native objects/resources; `LURVIKO_TEST_BUILD_DIR` can select an external build tree. Icon checks need CMake, Qt Test, KDE IconThemes/Archive and the Breeze icon theme. These checks use isolated settings and the offscreen/software Qt backend and do not need a running desktop or AI models.
+Build the application with Ninja into `build/` first. QML checks use Qt Quick Test and the application's real native objects/resources; `LURVIKO_TEST_BUILD_DIR` can select an external build tree. They require DejaVu Sans (`ttf-dejavu` on Arch) for reproducible text geometry and `dbus-run-session` for an isolated KIO session bus. Icon checks need CMake, Qt Test, KDE IconThemes/Archive and the Breeze icon theme. These checks use isolated settings and the offscreen/software Qt backend and do not need a running desktop or AI models.
 
 `python3 tests/run-index-tests.py` checks category-specific hidden-file settings, pruning of excluded/unrelated subtrees, extension/name/path filters, file-size limits, root boundaries, automatic add/delete updates and idle CPU use. It needs a C++17 compiler, Qt Core/Concurrent development files and Qt's moc. `--baseline /path/contentindexmodel.cpp` compares the same fixtures against a saved source version; `--home-settings /path/Lurviko.conf` additionally performs a read-only home scan without updating personal settings or caches.
 

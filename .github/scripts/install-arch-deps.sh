@@ -7,4 +7,4 @@ pacman -S --noconfirm --needed \
     qt6-base qt6-declarative qt6-multimedia qt6-networkauth qt6-svg \
     kio kservice kwallet kiconthemes karchive kwindowsystem \
     openssl python python-pytest python-cryptography breeze-icons desktop-file-utils curl unzip zstd ffmpeg libarchive 7zip \
-    mesa xorg-server-xvfb xorg-xauth
+    mesa xorg-server-xvfb xorg-xauth ttf-dejavu dbus

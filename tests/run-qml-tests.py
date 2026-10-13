@@ -65,6 +65,7 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QIcon>
+#include <QFontDatabase>
 #include <KIconTheme>
 #include <QtQuickTest/quicktest.h>
 ''' + includes + '''
@@ -76,6 +77,13 @@ public slots:
         qApp->setApplicationName("Gallery");
         qApp->setDesktopFileName("org.lurviko.Tests");
         QQuickStyle::setStyle("Basic");
+        // A bare CI container has no desktop fonts. Qt's last-resort glyph
+        // metrics can double label widths and remove visible artist links.
+        if (!QFontDatabase::hasFamily(QStringLiteral("DejaVu Sans")))
+            qFatal("QML tests require DejaVu Sans; install ttf-dejavu.");
+        QFont font = qApp->font();
+        font.setFamily(QStringLiteral("DejaVu Sans"));
+        qApp->setFont(font);
 ''' + registration + '''
     }
     void qmlEngineAvailable(QQmlEngine *engine) {
@@ -134,6 +142,9 @@ int main(int argc, char **argv) {
     environment = dict(os.environ,
         QT_QPA_PLATFORM=os.environ.get("LURVIKO_QML_TEST_QPA", "offscreen"),
         QT_QUICK_BACKEND=os.environ.get("LURVIKO_QML_TEST_BACKEND", "software"),
+        # This test executable has no installed desktop identity and never
+        # needs a host portal; avoid registration through desktop services.
+        QT_NO_XDG_DESKTOP_PORTAL="1",
         LURVIKO_QML_AUDIO_FIXTURE=str(audio_fixture),
         LURVIKO_QML_COVERED_FIXTURE=str(covered_fixture),
         LURVIKO_QML_RENAME_FIXTURE=str(rename_fixture),
@@ -150,16 +161,29 @@ int main(int argc, char **argv) {
         else:
             environment.pop("PULSE_SERVER", None)
     test_input = repo / "tests/qml" / os.environ.get("LURVIKO_QML_TEST_FILE", "")
-    result = subprocess.run([str(root / "qml-tests"), "-input", str(test_input),
+    # KIO menu/rename jobs require a session bus even without a desktop. Keep
+    # it private to the isolated test settings rather than using the host bus.
+    result = subprocess.run(["dbus-run-session", "--", str(root / "qml-tests"), "-input", str(test_input),
                             "-o", f"{report},txt"], env=environment, timeout=120)
     output = report.read_text() if report.exists() else "No test report was produced."
     unexpected_warnings = []
+    # Missing desktop audio services are expected in decoder-only headless
+    # runs. Real-device tests still reject these warnings; decoder/UI warnings
+    # and failed assertions are never exempted.
+    expected_audio_warnings = () if environment.get("LURVIKO_QML_AUDIO_DEVICE") == "1" else (
+        'qt.multimedia.pipewire.registry: Failed to connect to pipewire instance "Host is down"',
+        "PulseAudioService: pa_context_connect() failed",
+    )
     for line in output.splitlines():
         if line.startswith("QWARN") and not any(expected in line for expected in (
                 "Invalid image provider", "Cannot open: qrc:/", "No thumbnail available",
+                # The private session has no Plasma notification/progress UI.
+                # Actual KIO operations are still asserted against real files.
+                'kf.kio.widgets: Failed to check which JobView API is supported "The name org.kde.kuiserver was not provided by any .service files"',
                 # Existing Popup Window attachment warning on current Qt;
                 # these tests exercise image/gallery layout, not video windows.
-                "QML VideoViewer: Window.window only supports types derived from Item")):
+                "QML VideoViewer: Window.window only supports types derived from Item",
+                *expected_audio_warnings)):
             unexpected_warnings.append(line)
         if line.startswith(("PASS", "FAIL", "Totals")) or (result.returncode and line.startswith("   ")):
             print(line)
