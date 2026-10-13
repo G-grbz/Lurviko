@@ -49,6 +49,13 @@ prepare() {
   # temporary source directory as a development-only fallback in the binary.
   sed -i 's/const QString sourceDir = QString::fromUtf8(LURVIKO_SOURCE_DIR);/const QString sourceDir;/' \
     "Lurviko-${pkgver}/src/subtitleaimanager.cpp"
+
+  # Match the test helper fixture to Arch's libexec installation location.
+  # Permission/authentication assertions stay unchanged.
+  sed -i \
+    -e 's|(root / "libexec").mkdir()|(root / "lib/lurviko").mkdir(parents=True)|' \
+    -e 's|root / "libexec/lurviko-access-helper"|root / "lib/lurviko/lurviko-access-helper"|' \
+    "Lurviko-${pkgver}/tests/run-properties-tests.py"
 }
 
 build() {
@@ -56,6 +63,7 @@ build() {
     -DCMAKE_BUILD_TYPE=None \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib/lurviko \
     -DCMAKE_SKIP_INSTALL_RPATH=ON \
     -DLURVIKO_LAUNCH_PROFILE=default
   cmake --build build
