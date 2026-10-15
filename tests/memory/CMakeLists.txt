@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(LurvikoMemoryTests LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Concurrent Test)
+add_executable(memory-tests heap_maintenance.cpp)
+target_include_directories(memory-tests PRIVATE ../../src)
+target_link_libraries(memory-tests PRIVATE Qt6::Core Qt6::Concurrent Qt6::Test)

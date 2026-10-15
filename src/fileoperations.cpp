@@ -1,5 +1,6 @@
 #include "fileoperations.h"
 #include "archivearguments.h"
+#include "archivelisting.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -2001,18 +2002,43 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
     // interactive overwrite prompt cannot be used from a detached QProcess, so
     // first inspect the archive and compare its file entries with the target.
     auto *probe = new QProcess(this);
+    auto listing = std::make_shared<ArchiveListing>(outputPath);
+    auto diagnostics = std::make_shared<QByteArray>();
+    auto readListing = [probe, listing, diagnostics] {
+        probe->setReadChannel(QProcess::StandardOutput);
+        while (probe->bytesAvailable() > 0) {
+            const QByteArray chunk = probe->read(65536);
+            listing->append(chunk);
+            *diagnostics = (std::move(*diagnostics) + chunk).right(8192);
+        }
+    };
+    auto errors = std::make_shared<QByteArray>();
+    auto readErrors = [probe, errors] {
+        *errors = (std::move(*errors) + probe->readAllStandardError()).right(8192);
+    };
+    connect(probe, &QProcess::readyReadStandardOutput, this, readListing);
+    connect(probe, &QProcess::readyReadStandardError, this, readErrors);
+    connect(probe, &QProcess::errorOccurred, this, [this, probe](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;
+        const QString message = probe->errorString();
+        probe->deleteLater();
+        setLastError(message);
+        emit operationFinished(false, message, false);
+    });
     connect(probe, &QProcess::finished, this,
             [this, probe, sourceUrl, destinationLocation, createSubfolder,
-             archivePath = archiveInfo.absoluteFilePath(), outputPath, extractor]
+             archivePath = archiveInfo.absoluteFilePath(), outputPath, extractor,
+             listing, diagnostics, errors, readListing, readErrors]
             (int exitCode, QProcess::ExitStatus status) {
-        const QByteArray stdoutData = probe->readAllStandardOutput();
-        const QByteArray stderrData = probe->readAllStandardError();
+        readListing();
+        readErrors();
+        listing->finish();
         probe->deleteLater();
 
         if (status != QProcess::NormalExit || exitCode != 0) {
-            QString error = QString::fromLocal8Bit(stderrData).trimmed();
+            QString error = QString::fromLocal8Bit(*errors).trimmed();
             if (error.isEmpty())
-                error = QString::fromLocal8Bit(stdoutData).trimmed();
+                error = QString::fromLocal8Bit(*diagnostics).trimmed();
             if (error.isEmpty())
                 error = QStringLiteral("Could not inspect archive contents.");
             setLastError(error);
@@ -2020,62 +2046,16 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
             return;
         }
 
-        QStringList conflicts;
-        bool entriesStarted = false;
-        QString entryPath;
-        bool entryIsFolder = false;
-
-        auto finishRecord = [&]() {
-            if (entryPath.isEmpty())
-                return;
-            QString relative = QDir::cleanPath(entryPath);
-            entryPath.clear();
-            const bool isFolder = entryIsFolder;
-            entryIsFolder = false;
-
-            if (relative.isEmpty() || relative == QStringLiteral(".")
-                    || QDir::isAbsolutePath(relative)
-                    || relative == QStringLiteral("..")
-                    || relative.startsWith(QStringLiteral("../")))
-                return;
-
-            const QFileInfo target(QDir(outputPath).filePath(relative));
-            // Existing directories can be merged safely.  Ask only for entries
-            // that would replace a file/symlink or change a directory into a file.
-            if (!target.exists() && !target.isSymLink())
-                return;
-            if (isFolder && target.isDir())
-                return;
-            if (conflicts.size() < 100)
-                conflicts.push_back(relative);
-        };
-
-        const QString listing = QString::fromLocal8Bit(stdoutData);
-        const QStringList lines = listing.split(QLatin1Char('\n'));
-        for (QString line : lines) {
-            if (line.endsWith(QLatin1Char('\r')))
-                line.chop(1);
-            if (!entriesStarted) {
-                if (line.trimmed() == QStringLiteral("----------"))
-                    entriesStarted = true;
-                continue;
-            }
-            if (line.isEmpty()) {
-                finishRecord();
-                continue;
-            }
-            if (line.startsWith(QStringLiteral("Path = "))) {
-                finishRecord();
-                entryPath = line.mid(7);
-            } else if (line.startsWith(QStringLiteral("Folder = "))) {
-                entryIsFolder = line.mid(9).trimmed() == QStringLiteral("+");
-            }
+        if (!listing->valid()) {
+            const QString error = securityMessage("Archive metadata contains an excessively long entry. Extraction was not started.",
+                                                  "Arşiv bilgileri aşırı uzun bir girdi içeriyor. Çıkarma başlatılmadı.");
+            setLastError(error);
+            emit operationFinished(false, error, false);
+            return;
         }
-        finishRecord();
-
-        if (!conflicts.isEmpty()) {
+        if (!listing->conflicts().isEmpty()) {
             emit archiveOverwriteConfirmationRequired(sourceUrl, destinationLocation,
-                                                       createSubfolder, conflicts);
+                                                       createSubfolder, listing->conflicts());
             return;
         }
 

@@ -19,6 +19,8 @@ bash .github/scripts/run-headless-tests.sh
 | `run-properties-tests.py` | Single and multi-selection Properties, aggregate totals, mixed permission masks, group edits, recursive safety and popup controls |
 | `run-archive-progress-tests.py` | Actual archive creation, selected-language KIO descriptions, live entry/byte/speed counters, pause/resume, cancellation and safe option-like filenames |
 | `run-security-tests.py` | KDF limits, canonical path boundaries, RAM-only storage and real bsdtar option-like filenames |
+| `run-memory-tests.py` | Returning unused allocator pages to the OS while preserving live data (glibc 2.33+) |
+| `run-history-tests.py` | Recent-location persistence through temporary missing paths, permission errors, restart and equivalent URL spellings |
 | `test-ai-download-policy.py` | Default-off installs/downloads, dependency hashes, wheel flags, pinned revisions, cache/offline reuse and error language |
 | `test-subtitle-translation-formatting.py` | SRT formatting and protected subtitle syntax |
 | `test-subtitle-readable-cues.py` | Long-cue splitting, timing, styling and live/cache parity |

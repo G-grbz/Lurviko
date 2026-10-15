@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(LurvikoHistoryTests LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Test)
+add_executable(history-tests history_tests.cpp ../../src/quickaccessmodel.cpp)
+target_include_directories(history-tests PRIVATE ../../src)
+target_link_libraries(history-tests PRIVATE Qt6::Core Qt6::Test)

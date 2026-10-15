@@ -88,8 +88,9 @@ QString QuickAccessModel::normalize(const QString &location)
     if (value.isEmpty())
         return {};
     if (value.contains(QStringLiteral("://")))
-        return QUrl::fromUserInput(value).toString();
-    return QUrl::fromLocalFile(QDir(value).absolutePath()).toString();
+        return QUrl::fromUserInput(value).adjusted(QUrl::NormalizePathSegments | QUrl::StripTrailingSlash).toString();
+    return QUrl::fromLocalFile(QDir(value).absolutePath())
+        .adjusted(QUrl::NormalizePathSegments | QUrl::StripTrailingSlash).toString();
 }
 
 QString QuickAccessModel::defaultTitle(const QString &location)
@@ -112,9 +113,9 @@ bool QuickAccessModel::isReachableHistoryLocation(const QString &location)
 {
     const QUrl url(location);
 
-    // Local history entries can be checked reliably and synchronously. This
-    // also removes paths that belonged to a removable disk after it has been
-    // unplugged or unmounted.
+    // Validate newly visited local locations only. Failed stat calls cannot
+    // tell a deleted path from a disconnected mount or a permission/I/O error,
+    // so they must never be used to erase previously recorded navigation.
     if (url.isLocalFile()) {
         const QFileInfo info(url.toLocalFile());
         return info.exists() && info.isDir();
@@ -146,12 +147,16 @@ bool QuickAccessModel::pruneRecentLocations()
     const QString homeLocation = normalize(QDir::homePath());
 
     for (const QString &location : std::as_const(m_recentLocations)) {
+        const QString normalized = normalize(location);
         // Home is a permanent navigation anchor, not a meaningful "last"
         // location. Never let it enter the Last Location history.
-        if (location == homeLocation)
+        if (normalized.isEmpty() || normalized == homeLocation
+                || location.startsWith(QStringLiteral("category:")))
             continue;
-        if (isReachableHistoryLocation(location) && !filtered.contains(location)) {
-            filtered.push_back(location);
+        // History records visits, not current filesystem availability. Keep
+        // unavailable paths until newer visits naturally replace them.
+        if (!filtered.contains(normalized)) {
+            filtered.push_back(normalized);
             if (filtered.size() >= 10)
                 break;
         }
@@ -161,8 +166,8 @@ bool QuickAccessModel::pruneRecentLocations()
     if (historyChanged)
         m_recentLocations = filtered;
 
-    QString nextLast = m_lastLocation;
-    if (nextLast == homeLocation || !isReachableHistoryLocation(nextLast)) {
+    QString nextLast = normalize(m_lastLocation);
+    if (nextLast.isEmpty() || !m_recentLocations.contains(nextLast)) {
         nextLast = m_recentLocations.isEmpty() ? QString() : m_recentLocations.first();
     }
 
@@ -339,7 +344,7 @@ void QuickAccessModel::setLastLocation(const QString &location)
     if (normalized == normalize(QDir::homePath()))
         return;
 
-    // Keep stale local paths out of the list as navigation progresses.
+    // Normalize/deduplicate history without probing or deleting older visits.
     pruneRecentLocations();
 
     if (!isReachableHistoryLocation(normalized))
@@ -412,8 +417,8 @@ void QuickAccessModel::load()
             m_recentLocations.removeLast();
     }
 
-    // Clean stale local history at startup as well, so a removed directory or
-    // an unmounted disk never survives until the popup is opened.
+    // Preserve unavailable paths on restart too; a temporarily disconnected
+    // disk must not silently reset the user's saved navigation history.
     pruneRecentLocations();
 
     const QVariant value = settings.value(QStringLiteral("quickAccess/items"));

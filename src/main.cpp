@@ -42,6 +42,7 @@
 #include "videochapterreader.h"
 #include "directorymodel.h"
 #include "fileoperations.h"
+#include "heapmaintenance.h"
 #include "trashmonitor.h"
 #include "favoritesmodel.h"
 #include "quickaccessmodel.h"
@@ -325,6 +326,7 @@ int main(int argc, char *argv[])
         qputenv("QT_DISABLE_HW_TEXTURES_CONVERSION", QByteArrayLiteral("1"));
 
     QApplication app(argc, argv);
+    HeapMaintenance::installIdleReclaimer(&app);
     QFont interfaceFont = app.font();
     interfaceFont.setHintingPreference(QFont::PreferVerticalHinting);
     app.setFont(interfaceFont);

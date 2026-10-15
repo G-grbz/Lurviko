@@ -8,6 +8,8 @@ export QT_QUICK_BACKEND=software
 python3 tests/test-gfile-ui-controls.py
 python3 tests/test-source-uninstall.py
 python3 tests/run-security-tests.py
+python3 tests/run-memory-tests.py
+python3 tests/run-history-tests.py
 python3 tests/run-properties-tests.py
 python3 tests/run-administrator-access-tests.py
 python3 tests/run-archive-progress-tests.py

@@ -5,6 +5,7 @@
 #include "vaultsecurity.h"
 #include "vaultrecovery.h"
 #include "archivearguments.h"
+#include "archivelisting.h"
 #include "iconreference.h"
 #include "fileaccesssecurity.h"
 #include <sys/stat.h>
@@ -16,6 +17,39 @@
 class SecurityTests : public QObject {
     Q_OBJECT
 private slots:
+    void archiveListingStreamsRecords() {
+        QTemporaryDir fixture;
+        const QString name = QString::fromUtf8("şarkı.svg");
+        QFile existing(fixture.filePath(name)); QVERIFY(existing.open(QIODevice::WriteOnly)); existing.close();
+        QVERIFY(QDir().mkpath(fixture.filePath("merge")));
+        QVERIFY(QFile::link(fixture.filePath("absent"), fixture.filePath("broken-link")));
+        const QByteArray records = "Path = archive.zip\r\n----------\r\nPath = " + name.toLocal8Bit()
+            + "\r\nFolder = -\r\n\r\nPath = merge\r\nFolder = +\r\n\r\nPath = ../escape\nFolder = -\n\n"
+              "Path = /absolute\nFolder = -\n\nPath = missing\nFolder = -\n\n"
+              "Path = broken-link\nFolder = -";
+        for (const int chunkSize : {1, 7, 64, 65536}) {
+            ArchiveListing listing(fixture.path());
+            for (qsizetype offset = 0; offset < records.size(); offset += chunkSize)
+                listing.append(records.mid(offset, chunkSize));
+            listing.finish();
+            QVERIFY(listing.valid());
+            QCOMPARE(listing.conflicts(), (QStringList{name, "broken-link"}));
+        }
+    }
+    void archiveListingBoundsLargeInput() {
+        QTemporaryDir fixture;
+        QFile existing(fixture.filePath("exists.svg")); QVERIFY(existing.open(QIODevice::WriteOnly)); existing.close();
+        ArchiveListing listing(fixture.path()); listing.append("----------\n");
+        // A large pack is processed without building a full listing or an
+        // unbounded conflict list. Also exercise records spanning read chunks.
+        const QByteArray batch = QByteArray("Path = exists.svg\nFolder = -\n\n").repeated(1000);
+        for (int i = 0; i < 100; ++i) listing.append(batch);
+        listing.finish(); QVERIFY(listing.valid()); QCOMPARE(listing.conflicts().size(), 100);
+        ArchiveListing excessive(fixture.path());
+        excessive.append("----------\nPath = ");
+        for (int i = 0; i < 100; ++i) excessive.append(QByteArray(1024, 'x'));
+        excessive.finish(); QVERIFY(!excessive.valid()); QVERIFY(excessive.conflicts().isEmpty());
+    }
     void localIconAddressPolicy() {
         const QString path = QString::fromUtf8("/tmp/ikon Türkçe #? 100%.svg");
         const QString encoded = QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);

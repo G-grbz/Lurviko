@@ -95,5 +95,37 @@ int main(int argc, char **argv) {
     require(until([&] { return finished; }) && !success && !QFileInfo::exists(root + "/Veriler Türkçe.zip"),
             "cancellation removes only the incomplete output archive");
     require(QFileInfo(source + "/Büyük öğe.bin").size() == 96LL * 1024 * 1024, "source remains untouched");
+    // The streamed listing must preserve the real extraction/overwrite flow,
+    // including Unicode names and an inspection failure before any write.
+    const QString output = root + "/extracted";
+    require(QDir().mkpath(output), "extraction target created");
+    const QString smallArchiveUrl = QUrl::fromLocalFile(source + "/şarkı.zip").toString();
+    const QString outputUrl = QUrl::fromLocalFile(output).toString();
+    finished = false;
+    operations.extractArchive(smallArchiveUrl, outputUrl, false);
+    require(until([&] { return finished; }) && success, "streamed archive inspection starts extraction");
+    QFile recovered(output + "/şarkı.txt");
+    require(recovered.open(QIODevice::ReadOnly) && recovered.readAll() == "unchanged", "Unicode entry extracted intact");
+    recovered.close();
+    require(recovered.open(QIODevice::WriteOnly), "overwrite fixture opens"); recovered.write("keep until confirmed"); recovered.close();
+    bool overwriteRequested = false;
+    QObject::connect(&operations, &FileOperations::archiveOverwriteConfirmationRequired, &app,
+                     [&](const QString &, const QString &, bool, const QStringList &conflicts) {
+        overwriteRequested = conflicts.contains("şarkı.txt");
+    });
+    finished = false;
+    operations.extractArchive(smallArchiveUrl, outputUrl, false);
+    require(until([&] { return overwriteRequested || finished; }) && overwriteRequested && !finished,
+            "streaming preserves overwrite confirmation");
+    require(recovered.open(QIODevice::ReadOnly) && recovered.readAll() == "keep until confirmed", "inspection never overwrites a conflict");
+    recovered.close();
+    operations.extractArchiveOverwrite(smallArchiveUrl, outputUrl, false);
+    require(until([&] { return finished; }) && success, "confirmed extraction succeeds");
+    const QString invalidArchive = root + "/invalid.zip";
+    QFile invalid(invalidArchive); require(invalid.open(QIODevice::WriteOnly), "invalid fixture created"); invalid.write("not an archive"); invalid.close();
+    finished = false;
+    operations.extractArchive(QUrl::fromLocalFile(invalidArchive).toString(), outputUrl, false);
+    require(until([&] { return finished; }) && !success && !message.isEmpty(), "listing errors are reported without extracting");
+    require(recovered.open(QIODevice::ReadOnly) && recovered.readAll() == "unchanged", "failed inspection preserves existing files");
     std::fprintf(stderr, "PASS: localized native and integrated archive progress, live counts/bytes/speed, pause/resume, valid archives and cancellation\n");
 }
