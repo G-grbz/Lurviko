@@ -7,6 +7,7 @@ pkgbase = lurviko
 	arch = x86_64
 	license = GPL-3.0-or-later
 	license = CC-BY-4.0
+	checkdepends = git
 	checkdepends = python
 	checkdepends = python-pytest
 	checkdepends = python-cryptography
@@ -39,6 +40,7 @@ pkgbase = lurviko
 	depends = openssl>=3.2
 	depends = ffmpeg
 	depends = hicolor-icon-theme
+	optdepends = git: local repository status badges
 	optdepends = python-cryptography: standalone vault recovery tool
 	optdepends = qt6-wayland: Wayland desktop sessions
 	optdepends = qt6-imageformats: additional image formats

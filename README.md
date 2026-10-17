@@ -34,7 +34,7 @@ The screenshots show the current application with a locally selected icon theme.
 
 ## Features
 
-- **File management:** tabs, split panes, editable breadcrumbs, recursive search, favorites, drag and drop, inline/batch rename, undo and familiar keyboard shortcuts.
+- **File management:** Grid, List and [Miller Columns with Git status badges](docs/file-browser.md), tabs, split panes, editable breadcrumbs, recursive search, favorites, drag and drop, inline/batch rename, undo and familiar keyboard shortcuts.
 - **Desktop integration:** KDE KIO transfers, selectable in-app progress, system icon themes, trash, network locations and `org.freedesktop.FileManager1` support for “Show in folder”. Files open through their MIME default applications.
 - **Explore:** configurable category shortcuts, filtered home indexing, media roots, date-grouped photo/video libraries, quick access and disk capacity indicators.
 - **Media:** cached previews, photo viewing, video playback with subtitles, a music player and DLNA browsing/playback. Supported codecs depend on the installed Qt Multimedia backend.
@@ -211,6 +211,7 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 | Administrator file ownership and permissions | `polkit` (`pkexec`), a functioning Polkit agent, and the installed Lurviko access helper |
 | Terminal, external search, disk usage | Your configured terminal; optional `kfind`, `filelight` |
 | Device/Bluetooth sending | Optional KDE Connect/Bluetooth tools |
+| Git status badges | Optional `git` executable; no Git library is required |
 | Film metadata | A user-provided TMDB read-access token in settings or `TMDB_API_TOKEN` |
 
 ### File permissions and ownership
@@ -289,7 +290,7 @@ The editor detects conflicts in overlapping contexts and offers an explicit reas
 | `Ctrl+Shift+N` / `Ctrl+N` | New folder / new file |
 | `Shift+F4` | Open terminal here |
 | `F3` | Toggle split view |
-| `Ctrl+1` / `Ctrl+2` | Grid / list |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Grid / List / Columns |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Increase / decrease / reset icons |
 | `Alt+Enter` | Properties |
 

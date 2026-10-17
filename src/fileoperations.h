@@ -130,19 +130,21 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    friend struct FileOperationsTestAccess;
     static QUrl toUrl(const QString &value);
     bool launchFilelightPath(const QString &path);
     void setLastError(const QString &errorText);
     void finishJob(class KJob *job, const QString &successMessage, bool refreshNeeded = true);
     void trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sources,
                           const QUrl &destination, const QString &kind);
+    int trackOperationJob(KJob *job, const QString &kind, const QString &detail, qulonglong items = 0);
     int startOperation(const QString &kind, const QString &detail, KJob *job = nullptr, QProcess *process = nullptr);
     void setOperationProgress(int id, int percent);
     void setOperationDetail(int id, const QString &detail);
     void setOperationAmount(int id, int unit, qulonglong amount, bool total);
     void setOperationSpeed(int id, qulonglong bytesPerSecond);
     void setOperationPaused(int id, bool paused);
-    void finishOperation(int id, bool success);
+    void finishOperation(int id, bool success, bool cancelled = false);
     void startOperationDismissTimer(int id);
     void configureProgressJob(class KJob *job, bool needsManualRegistration = false);
     void refreshClipboardCache();
@@ -192,6 +194,7 @@ private:
         bool paused = false;
         bool finished = false;
         bool success = false;
+        bool cancelled = false;
         QPointer<KJob> job;
         QPointer<QProcess> process;
     };

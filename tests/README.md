@@ -18,9 +18,13 @@ bash .github/scripts/run-headless-tests.sh
 | `test-source-uninstall.py` | Custom install prefixes, DESTDIR, preservation of personal data and unrelated aliases, repeated removal and manifest validation |
 | `run-properties-tests.py` | Single and multi-selection Properties, aggregate totals, mixed permission masks, group edits, recursive safety and popup controls |
 | `run-archive-progress-tests.py` | Actual archive creation, selected-language KIO descriptions, live entry/byte/speed counters, pause/resume, cancellation and safe option-like filenames |
+| `run-file-operations-tests.py` | Actual KIO copy/move/duplicate/trash/restore/delete, skip and overwrite, error/cancel result tracking, measured counters, archive publication collisions and responsive cancellable inspection; disk-full/network errors use controlled KJob doubles |
 | `run-security-tests.py` | KDF limits, canonical path boundaries, RAM-only storage and real bsdtar option-like filenames |
 | `run-memory-tests.py` | Returning unused allocator pages to the OS while preserving live data (glibc 2.33+) |
 | `run-history-tests.py` | Recent-location persistence through temporary missing paths, permission errors, restart and equivalent URL spellings |
+| `run-columns-tests.py` | Miller folder/file selection, keyboard movement, large directories, previews, hidden/sort options, resize persistence, native drops, real KIO copy/rename, tab restoration, search, independent split panes and Git badges in all three views |
+| `run-search-tests.py` | 20,000 streamed results, responsive selection, cancellation, persistent search sessions, Grid/List tab-scroll restoration and worker shutdown |
+| `run-git-tests.py` | Porcelain parsing, real asynchronous repository/worktree status, parent-folder badges across twelve sibling repositories, bounded shared cache, index updates, no idle polling and disabled executable fsmonitor hooks |
 | `test-ai-download-policy.py` | Default-off installs/downloads, dependency hashes, wheel flags, pinned revisions, cache/offline reuse and error language |
 | `test-subtitle-translation-formatting.py` | SRT formatting and protected subtitle syntax |
 | `test-subtitle-readable-cues.py` | Long-cue splitting, timing, styling and live/cache parity |
@@ -57,7 +61,7 @@ LURVIKO_SUBTITLE_QPA=wayland python3 tests/run-subtitle-tests.py
 
 Use Wayland commands in a Wayland desktop session; inspect each runner's environment options for another backend. Menu/media harnesses may require access to the session audio service. The subtitle harness uses a fake AI worker rather than downloading translation models. Music checks use a fake ffprobe, temporary lyrics and video files to verify responsive loading, bounded cache memory, exclusive scan workers and stable previews during writes.
 
-The thumbnail harness swaps equal-size SVGs with matching modification times and edits an SVG while preserving its size/mtime. It verifies directory watcher revisions and the real asynchronous provider's cached pixels using temporary files.
+The thumbnail harness swaps equal-size SVG/SVGZ files with matching modification times and edits them while preserving size/mtime. It verifies directory watcher revisions, cached pixels, compressed SVG previews, filter removal and bounded/malformed compressed input using temporary files.
 
 The properties harness checks actual owner/group/other mode bits, execution,
 directory traversal, ownership labels, special-bit preservation, restoring a

@@ -1,6 +1,8 @@
 #include "fileoperations.h"
 #include "archivearguments.h"
 #include "archivelisting.h"
+#include "archiveinspectionjob.h"
+#include "archiveoutput.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -86,9 +88,10 @@ public:
         setCapabilities(KJob::Killable | KJob::Suspendable);
     }
 
-    void trackCompression(const QStringList &sources, const QString &destination)
+    void trackCompression(const QStringList &sources, const QString &destination, const QString &displayDestination)
     {
         m_destination = destination;
+        m_displayDestination = displayDestination;
         setProgressUnit(KJob::Items);
         m_cancelScan = std::make_shared<std::atomic_bool>(false);
         const auto cancelled = m_cancelScan;
@@ -145,7 +148,7 @@ public:
         startElapsedTimer();
         m_clock.start();
         QTimer::singleShot(0, this, [this] {
-            if (!m_process) return;
+            if (!m_process || m_done) return;
             publishDescription();
             m_process->start(m_executable, m_arguments);
             if (m_timer) m_timer->start();
@@ -158,6 +161,8 @@ public:
         if (!m_buffer.isEmpty()) { parseLine(m_buffer); m_buffer.clear(); }
         return m_errors.trimmed();
     }
+
+    void setPublishedArchive(const QString &path) { m_destination = path; m_displayDestination = path; }
 
     void complete(bool success, const QString &error = QString())
     {
@@ -187,6 +192,7 @@ public:
 protected:
     bool doKill() override
     {
+        m_done = true; // Also prevent a queued start after immediate cancellation.
         if (m_cancelScan) m_cancelScan->store(true);
         if (m_timer) m_timer->stop();
         if (!m_process) return false;
@@ -261,7 +267,7 @@ private:
         if (m_destination.isEmpty()) {
             emit description(this, m_title, {securityMessage("File", "Dosya"), m_detail}); return;
         }
-        QString destination = m_destination;
+        QString destination = m_displayDestination;
         if (m_totalEntries)
             destination += QStringLiteral(" · ") + securityMessage("%1 / %2 entries", "%1 / %2 öğe")
                 .arg(processedAmount(KJob::Items)).arg(m_totalEntries);
@@ -272,7 +278,7 @@ private:
     QPointer<QProcess> m_process;
     QString m_executable;
     QStringList m_arguments;
-    QString m_title, m_detail, m_destination, m_currentFile, m_errors;
+    QString m_title, m_detail, m_destination, m_displayDestination, m_currentFile, m_errors;
     QByteArray m_buffer;
     QTimer *m_timer = nullptr;
     QElapsedTimer m_clock;
@@ -529,7 +535,9 @@ void FileOperations::finishJob(KJob *job, const QString &successMessage, bool re
         const bool resultAlreadyPresented = m_kioProgressEnabled || trackedOperation;
         if (job->error()) {
             setLastError(job->errorString());
-            emit operationFinished(false, job->errorString(), false, resultAlreadyPresented);
+            // A failed/cancelled batch can already have changed some entries.
+            // Refresh remote views too; local watchers are not sufficient.
+            emit operationFinished(false, job->errorString(), refreshNeeded, resultAlreadyPresented);
         } else {
             setLastError(QString());
             emit operationFinished(true, successMessage, refreshNeeded, resultAlreadyPresented);
@@ -562,8 +570,13 @@ QVariantList FileOperations::operations() const
         item.insert(QStringLiteral("speed"), QVariant::fromValue(operation.speed));
         item.insert(QStringLiteral("paused"), operation.paused);
         item.insert(QStringLiteral("controllable"), operation.job || operation.process);
+        item.insert(QStringLiteral("canPause"), operation.job
+            ? operation.job->capabilities().testFlag(KJob::Suspendable) : bool(operation.process));
+        item.insert(QStringLiteral("canCancel"), operation.job
+            ? operation.job->capabilities().testFlag(KJob::Killable) : bool(operation.process));
         item.insert(QStringLiteral("finished"), operation.finished);
         item.insert(QStringLiteral("success"), operation.success);
+        item.insert(QStringLiteral("cancelled"), operation.cancelled);
         items.push_back(item);
     }
     return items;
@@ -623,7 +636,9 @@ void FileOperations::setOperationProgress(int id, int percent)
     for (Operation &operation : m_operations) {
         if (operation.id != id || operation.finished || operation.percent == percent)
             continue;
-        operation.percent = qBound(-1, percent, 100);
+        // Only the result signal can confirm completion, even if a worker
+        // reports 100% before a final rename/metadata write fails.
+        operation.percent = qBound(-1, percent, 99);
         emit operationsChanged();
         return;
     }
@@ -696,7 +711,7 @@ void FileOperations::setOperationPaused(int id, bool paused)
     }
 }
 
-void FileOperations::finishOperation(int id, bool success)
+void FileOperations::finishOperation(int id, bool success, bool cancelled)
 {
     const bool wasBusy = ioBusy();
     for (Operation &operation : m_operations) {
@@ -705,18 +720,13 @@ void FileOperations::finishOperation(int id, bool success)
 
         operation.finished = true;
         operation.success = success;
+        operation.cancelled = cancelled;
         operation.paused = false;
         operation.speed = 0;
         if (success) {
             operation.percent = 100;
-            // Some KIO workers only publish a total item count. On successful
-            // completion it is safe to show that all requested top-level items
-            // were processed, while retaining file/directory counters when
-            // workers supplied them.
-            if (operation.totalItems > 0 && operation.processedItems < operation.totalItems)
-                operation.processedItems = operation.totalItems;
-            if (operation.totalBytes > 0 && operation.processedBytes < operation.totalBytes)
-                operation.processedBytes = operation.totalBytes;
+            // Preserve measured counters. Success may include Skip/Skip All;
+            // requested totals are not proof that those bytes/items were copied.
         }
         // Start the dismiss clock before publishing the finished state. If the
         // pointer is already over the card, QML can stop this timer immediately
@@ -822,18 +832,16 @@ bool FileOperations::cancelOperation(int id)
             operation.process->kill();
             return true;
         }
+        m_cancelledOperations.remove(id);
         return false;
     }
     return false;
 }
 
-void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sources,
-                                      const QUrl &destination, const QString &kind)
+int FileOperations::trackOperationJob(KJob *job, const QString &kind, const QString &detail, qulonglong items)
 {
-    const QString detail = sources.size() == 1 ? sources.constFirst().fileName()
-                          : securityMessage("%1 items", "%1 öğe").arg(sources.size());
     const int operationId = startOperation(kind, detail, job);
-    setOperationAmount(operationId, int(KJob::Items), qulonglong(sources.size()), true);
+    setOperationAmount(operationId, int(KJob::Items), items, true);
     connect(job, &KJob::percentChanged, this, [this, operationId](KJob *, unsigned long percent) {
         setOperationProgress(operationId, int(percent));
     });
@@ -848,6 +856,37 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
     connect(job, &KJob::speed, this, [this, operationId](KJob *, unsigned long speed) {
         setOperationSpeed(operationId, qulonglong(speed));
     });
+    connect(job, &KJob::suspended, this, [this, operationId] { setOperationPaused(operationId, true); });
+    connect(job, &KJob::resumed, this, [this, operationId] { setOperationPaused(operationId, false); });
+    connect(job, &KJob::result, this, [this, job, operationId] {
+        if (job->error())
+            setOperationDetail(operationId, job->errorString());
+        const bool cancelled = job->error() == KJob::KilledJobError || m_cancelledOperations.remove(operationId);
+        m_cancelledOperations.remove(operationId);
+        finishOperation(operationId, !job->error(), cancelled);
+    });
+    connect(job, &QObject::destroyed, this, [this, operationId] {
+        for (const auto &operation : std::as_const(m_operations)) {
+            if (operation.id != operationId || operation.finished) continue;
+            const QString error = securityMessage("The operation ended without a completion result. Some items may have changed.",
+                                                  "İşlem sonuç bildirmeden sonlandı. Bazı öğeler değişmiş olabilir.");
+            setOperationDetail(operationId, error);
+            finishOperation(operationId, false);
+            m_cancelledOperations.remove(operationId);
+            setLastError(error);
+            emit operationFinished(false, error, true, true);
+            break;
+        }
+    });
+    return operationId;
+}
+
+void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sources,
+                                      const QUrl &destination, const QString &kind)
+{
+    const QString detail = sources.size() == 1 ? sources.constFirst().fileName()
+                          : securityMessage("%1 items", "%1 öğe").arg(sources.size());
+    const int operationId = trackOperationJob(job, kind, detail, qulonglong(sources.size()));
     // CopyJob also exposes legacy file/directory counters. Keep them as a
     // fallback for workers that do not publish the newer KJob units.
     connect(job, &KIO::CopyJob::processedFiles, this,
@@ -870,14 +909,6 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
             [this, operationId](KIO::Job *, const QUrl &directory) {
         setOperationDetail(operationId, directory.fileName());
     });
-    connect(job, &KJob::suspended, this, [this, operationId] { setOperationPaused(operationId, true); });
-    connect(job, &KJob::resumed, this, [this, operationId] { setOperationPaused(operationId, false); });
-    connect(job, &KJob::result, this, [this, job, operationId] {
-        if (job->error())
-            setOperationDetail(operationId, job->errorString());
-        finishOperation(operationId, !job->error());
-        m_cancelledOperations.remove(operationId);
-    });
     auto completed = std::make_shared<QHash<QString, QUrl>>();
     auto sourceKeys = std::make_shared<QSet<QString>>();
     for (const QUrl &source : sources)
@@ -889,8 +920,7 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
         const QString key = from.adjusted(QUrl::StripTrailingSlash).toString(QUrl::FullyEncoded);
         if (sourceKeys->contains(key)) {
             completed->insert(key, to);
-            if (kind == QStringLiteral("trash"))
-                setOperationAmount(operationId, int(KJob::Items), completed->size(), false);
+            setOperationAmount(operationId, int(KJob::Items), completed->size(), false);
         }
     });
     // Trashing is a rename into KDE's trash, not a copy into the current view.
@@ -1539,6 +1569,7 @@ bool FileOperations::batchRename(const QStringList &itemUrls, const QString &new
     }
 
     auto *job = KIO::batchRename(urls, trimmed, qMax(0, startIndex), QLatin1Char('#'));
+    trackOperationJob(job, QStringLiteral("rename"), securityMessage("%1 items", "%1 öğe").arg(urls.size()), urls.size());
     const auto renamed = std::make_shared<QHash<QUrl, QUrl>>();
     connect(job, &KIO::BatchRenameJob::fileRenamed, this,
             [renamed](const QUrl &source, const QUrl &destination) { renamed->insert(source, destination); });
@@ -1654,6 +1685,7 @@ void FileOperations::trashMany(const QStringList &itemUrls)
 void FileOperations::emptyTrash()
 {
     auto *job = KIO::emptyTrash();
+    trackOperationJob(job, QStringLiteral("delete"), securityMessage("Emptying Trash", "Çöp boşaltılıyor"));
     finishJob(job, QStringLiteral("Trash emptied"));
 }
 
@@ -1673,12 +1705,14 @@ void FileOperations::restoreFromTrash(const QStringList &itemUrls)
     // its normal KIO UI delegate alive: if the original path already contains
     // an item with the same name, KDE presents its overwrite/rename/skip flow.
     auto *job = KIO::restoreFromTrash(urls);
+    trackOperationJob(job, QStringLiteral("restore"), securityMessage("Restoring %1 items", "%1 öğe geri yükleniyor").arg(urls.size()), urls.size());
     finishJob(job, QStringLiteral("Restored from trash"));
 }
 
 void FileOperations::removeItem(const QString &itemUrl)
 {
     auto *job = KIO::del(toUrl(itemUrl));
+    trackOperationJob(job, QStringLiteral("delete"), toUrl(itemUrl).fileName(), 1);
     finishJob(job, QStringLiteral("Deleted"));
 }
 
@@ -1691,6 +1725,7 @@ void FileOperations::removeMany(const QStringList &itemUrls)
     if (urls.isEmpty())
         return;
     auto *job = KIO::del(urls);
+    trackOperationJob(job, QStringLiteral("delete"), securityMessage("%1 items", "%1 öğe").arg(urls.size()), urls.size());
     finishJob(job, QStringLiteral("Deleted"));
 }
 
@@ -1813,11 +1848,12 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
         baseName = QStringLiteral("Archive");
     }
 
-    QString archivePath = parent.filePath(baseName + extension);
-    int counter = 1;
-    while (QFileInfo::exists(archivePath)) {
-        archivePath = parent.filePath(QStringLiteral("%1 (%2)%3")
-                                      .arg(baseName).arg(counter++).arg(extension));
+    const QString plannedArchivePath = parent.filePath(baseName + extension);
+    auto output = std::make_shared<ArchiveOutput>(parent.absolutePath(), baseName, extension);
+    if (!output->valid()) {
+        const QString error = securityMessage("Could not create an archive staging file. Check free space and directory permissions.",
+                                              "Geçici arşiv dosyası oluşturulamadı. Boş alanı ve dizin izinlerini kontrol et.");
+        setLastError(error); emit operationFinished(false, error, false); return;
     }
 
     QStringList args;
@@ -1827,7 +1863,7 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     // handling below for category views containing mixed parent directories.
     args << QStringLiteral("-a")
          << QStringLiteral("-cf")
-         << archivePath;
+         << output->path();
 
     QStringList sourcePaths;
     args << QStringLiteral("-v");
@@ -1846,18 +1882,18 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     process->setWorkingDirectory(parent.absolutePath());
     auto *job = new ArchiveProgressJob(process, executable, args, securityMessage("Creating archive", "Arşiv oluşturuluyor"),
                                        detail, this);
-    job->trackCompression(sourcePaths, archivePath);
+    job->trackCompression(sourcePaths, output->path(), plannedArchivePath);
     QPointer<ArchiveProgressJob> trackedJob(job);
     const int operationId = startOperation(QStringLiteral("compress"), detail, job, process);
     setOperationAmount(operationId, int(KJob::Items), qulonglong(sources.size()), true);
 
-    connect(job, &KJob::result, this, [this, process, archivePath, operationId](KJob *result) {
+    connect(job, &KJob::result, this, [this, process, output, operationId](KJob *result) {
         if (result->error() == KJob::KilledJobError) {
             m_cancelledOperations.insert(operationId);
             if (process->state() == QProcess::NotRunning) {
                 m_cancelledOperations.remove(operationId);
-                QFile::remove(archivePath);
-                finishOperation(operationId, false);
+                process->deleteLater();
+                finishOperation(operationId, false, true);
                 emit operationFinished(false, securityMessage("Cancelled", "İptal edildi"), false, true);
             }
         }
@@ -1880,16 +1916,21 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     });
 
     connect(process, &QProcess::finished, this,
-            [this, process, archivePath, operationId, trackedJob](int exitCode, QProcess::ExitStatus status) {
+            [this, process, output, operationId, trackedJob](int exitCode, QProcess::ExitStatus status) {
         const bool cancelled = m_cancelledOperations.remove(operationId);
-        const bool ok = !cancelled && status == QProcess::NormalExit && exitCode == 0;
-        const QString processError = trackedJob ? trackedJob->compressionDiagnostics()
-                                                : QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+        bool ok = !cancelled && status == QProcess::NormalExit && exitCode == 0;
+        QString publishError, archivePath;
+        if (ok) { archivePath = output->publish(&publishError); ok = !archivePath.isEmpty(); }
+        if (ok && trackedJob) trackedJob->setPublishedArchive(archivePath);
+        const QString processError = !publishError.isEmpty() ? publishError
+            : trackedJob ? trackedJob->compressionDiagnostics()
+                         : QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+        const QString error = cancelled ? securityMessage("Cancelled", "İptal edildi")
+            : processError.isEmpty() ? securityMessage("Compression failed.", "Sıkıştırma başarısız.") : processError;
+        if (!ok) setOperationDetail(operationId, error);
         if (trackedJob && !cancelled)
             trackedJob->complete(ok, processError.isEmpty() ? securityMessage("Compression failed.", "Sıkıştırma başarısız.") : processError);
-        finishOperation(operationId, ok);
-        if (cancelled)
-            QFile::remove(archivePath);
+        finishOperation(operationId, ok, cancelled);
         if (ok) {
             setLastError(QString());
             emit transferItemsFinished(QUrl::fromLocalFile(QFileInfo(archivePath).absolutePath()).toString(),
@@ -1897,9 +1938,6 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
             emit operationFinished(true, QStringLiteral("Archive created: %1").arg(QFileInfo(archivePath).fileName()), true,
                                    true);
         } else {
-            QString error = cancelled ? securityMessage("Cancelled", "İptal edildi") : processError;
-            if (error.isEmpty())
-                error = securityMessage("Compression failed.", "Sıkıştırma başarısız.");
             setLastError(error);
             emit operationFinished(false, error, false, true);
         }
@@ -1908,6 +1946,7 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     connect(process, &QProcess::errorOccurred, this, [this, process, operationId, trackedJob](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart)
             return;
+        setOperationDetail(operationId, process->errorString());
         if (trackedJob)
             trackedJob->complete(false, process->errorString());
         finishOperation(operationId, false);
@@ -1998,78 +2037,44 @@ void FileOperations::startArchiveExtraction(const QString &sourceUrl,
         return;
     }
 
-    // Ask before overwriting just like Ark drag-and-drop does.  7-Zip's own
-    // interactive overwrite prompt cannot be used from a detached QProcess, so
-    // first inspect the archive and compare its file entries with the target.
-    auto *probe = new QProcess(this);
-    auto listing = std::make_shared<ArchiveListing>(outputPath);
-    auto diagnostics = std::make_shared<QByteArray>();
-    auto readListing = [probe, listing, diagnostics] {
-        probe->setReadChannel(QProcess::StandardOutput);
-        while (probe->bytesAvailable() > 0) {
-            const QByteArray chunk = probe->read(65536);
-            listing->append(chunk);
-            *diagnostics = (std::move(*diagnostics) + chunk).right(8192);
-        }
-    };
-    auto errors = std::make_shared<QByteArray>();
-    auto readErrors = [probe, errors] {
-        *errors = (std::move(*errors) + probe->readAllStandardError()).right(8192);
-    };
-    connect(probe, &QProcess::readyReadStandardOutput, this, readListing);
-    connect(probe, &QProcess::readyReadStandardError, this, readErrors);
-    connect(probe, &QProcess::errorOccurred, this, [this, probe](QProcess::ProcessError error) {
-        if (error != QProcess::FailedToStart) return;
-        const QString message = probe->errorString();
-        probe->deleteLater();
-        setLastError(message);
-        emit operationFinished(false, message, false);
-    });
-    connect(probe, &QProcess::finished, this,
-            [this, probe, sourceUrl, destinationLocation, createSubfolder,
-             archivePath = archiveInfo.absoluteFilePath(), outputPath, extractor,
-             listing, diagnostics, errors, readListing, readErrors]
-            (int exitCode, QProcess::ExitStatus status) {
-        readListing();
-        readErrors();
-        listing->finish();
-        probe->deleteLater();
-
-        if (status != QProcess::NormalExit || exitCode != 0) {
-            QString error = QString::fromLocal8Bit(*errors).trimmed();
-            if (error.isEmpty())
-                error = QString::fromLocal8Bit(*diagnostics).trimmed();
-            if (error.isEmpty())
-                error = QStringLiteral("Could not inspect archive contents.");
-            setLastError(error);
-            emit operationFinished(false, error, false);
-            return;
-        }
-
-        if (!listing->valid()) {
+    auto *probe = new ArchiveInspectionJob(executable, archiveInfo.absoluteFilePath(), outputPath,
+                                            securityMessage("Inspecting archive", "Arşiv inceleniyor"), this);
+    const int operationId = trackOperationJob(probe, QStringLiteral("inspect"), archiveInfo.fileName());
+    connect(probe, &KJob::result, this,
+            [this, probe, operationId, sourceUrl, destinationLocation, createSubfolder,
+             archivePath = archiveInfo.absoluteFilePath(), outputPath, extractor] {
+        const auto &listing = probe->inspection();
+        if (!listing.valid) {
             const QString error = securityMessage("Archive metadata contains an excessively long entry. Extraction was not started.",
                                                   "Arşiv bilgileri aşırı uzun bir girdi içeriyor. Çıkarma başlatılmadı.");
-            setLastError(error);
-            emit operationFinished(false, error, false);
+            setOperationDetail(operationId, error); setLastError(error);
+            emit operationFinished(false, error, false, true);
             return;
         }
-        if (!listing->conflicts().isEmpty()) {
+        if (probe->error()) {
+            const QString error = probe->error() == KJob::KilledJobError
+                ? securityMessage("Cancelled", "İptal edildi") : probe->errorString();
+            setOperationDetail(operationId, error); setLastError(error);
+            emit operationFinished(false, error, false, true);
+            return;
+        }
+        // Continue into extraction (or its existing overwrite confirmation)
+        // without leaving a second completed preparation card on screen.
+        dismissOperation(operationId);
+        if (!listing.conflicts.isEmpty()) {
             emit archiveOverwriteConfirmationRequired(sourceUrl, destinationLocation,
-                                                       createSubfolder, listing->conflicts());
+                                                       createSubfolder, listing.conflicts);
             return;
         }
-
         if (!QDir().mkpath(outputPath)) {
-            const QString error = QStringLiteral("Could not create extraction folder: %1").arg(outputPath);
-            setLastError(error);
-            emit operationFinished(false, error, false);
+            const QString error = securityMessage("Could not create extraction folder: %1", "Çıkarma klasörü oluşturulamadı: %1").arg(outputPath);
+            setLastError(error); emit operationFinished(false, error, false);
             return;
         }
         runArchiveExtraction(archivePath, outputPath, extractor);
     });
-
-    probe->start(executable, {QStringLiteral("l"), QStringLiteral("-slt"),
-                              archiveInfo.absoluteFilePath()});
+    configureProgressJob(probe, true);
+    probe->start();
 }
 
 void FileOperations::runArchiveExtraction(const QString &archivePath,
@@ -2099,40 +2104,48 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
             m_cancelledOperations.insert(operationId);
             if (process->state() == QProcess::NotRunning) {
                 m_cancelledOperations.remove(operationId);
-                finishOperation(operationId, false);
-                emit operationFinished(false, QStringLiteral("Cancelled"), false, true);
+                finishOperation(operationId, false, true);
+                process->deleteLater();
+                emit operationFinished(false, securityMessage("Cancelled", "İptal edildi"), true, true);
             }
         }
     });
     connect(job, &KJob::suspended, this, [this, operationId] { setOperationPaused(operationId, true); });
     connect(job, &KJob::resumed, this, [this, operationId] { setOperationPaused(operationId, false); });
     auto lastOutput = std::make_shared<QString>();
+    auto errors = std::make_shared<QByteArray>();
+    const auto readErrors = [process, errors] {
+        *errors = (std::move(*errors) + process->readAllStandardError()).right(8192);
+    };
+    connect(process, &QProcess::readyReadStandardError, this, readErrors);
     connect(process, &QProcess::readyReadStandardOutput, this, [process, lastOutput] {
         const QString chunk = QString::fromLocal8Bit(process->readAllStandardOutput());
         if (!chunk.isEmpty())
             *lastOutput = (*lastOutput + chunk).right(2048);
     });
     connect(process, &QProcess::finished, this,
-            [this, process, outputPath, operationId, lastOutput, trackedJob](int exitCode, QProcess::ExitStatus status) {
+            [this, process, outputPath, operationId, lastOutput, errors, readErrors, trackedJob](int exitCode, QProcess::ExitStatus status) {
         const bool cancelled = m_cancelledOperations.remove(operationId);
         const bool ok = !cancelled && status == QProcess::NormalExit && exitCode == 0;
-        const QString processError = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+        readErrors();
+        const QString processError = QString::fromLocal8Bit(*errors).trimmed();
+        QString error = cancelled ? securityMessage("Cancelled", "İptal edildi") : processError;
+        if (error.isEmpty()) error = lastOutput->trimmed();
+        if (error.isEmpty()) error = securityMessage("Archive extraction failed.", "Arşiv çıkarılamadı.");
+        if (!ok) setOperationDetail(operationId, error);
         if (trackedJob && !cancelled)
             trackedJob->complete(ok, processError.isEmpty() ? QStringLiteral("Archive extraction failed.") : processError);
-        finishOperation(operationId, ok);
+        finishOperation(operationId, ok, cancelled);
         if (ok) {
             setLastError(QString());
             emit operationFinished(true,
                                    QStringLiteral("Extracted to: %1").arg(QDir::toNativeSeparators(outputPath)), true,
                                    true);
         } else {
-            QString error = cancelled ? QStringLiteral("Cancelled") : processError;
-            if (error.isEmpty())
-                error = lastOutput->trimmed();
-            if (error.isEmpty())
-                error = QStringLiteral("Archive extraction failed.");
             setLastError(error);
-            emit operationFinished(false, error, false, true);
+            // Earlier entries may already be extracted. Keep them and refresh
+            // the destination rather than deleting data to imitate rollback.
+            emit operationFinished(false, error, true, true);
         }
         process->deleteLater();
     });

@@ -75,6 +75,7 @@ KeyboardShortcutManager::KeyboardShortcutManager(QObject *parent) : QObject(pare
     add("split", "view", "Toggle split view", "Bölünmüş görünüm", {"F3"});
     add("grid", "view", "Icon view", "Simge görünümü", {"Ctrl+1"});
     add("list", "view", "List view", "Liste görünümü", {"Ctrl+2"});
+    add("columns", "view", "Column view", "Sütun görünümü", {"Ctrl+3"});
     add("zoom_in", "view", "Increase icon size", "Simgeleri büyüt", standard(QKeySequence::ZoomIn));
     add("zoom_out", "view", "Decrease icon size", "Simgeleri küçült", standard(QKeySequence::ZoomOut));
     add("zoom_reset", "view", "Reset icon size", "Simge boyutunu sıfırla", {"Ctrl+0"});

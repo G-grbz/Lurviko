@@ -11,7 +11,14 @@ import Lurviko.App
 Rectangle {
     id: root
     property string initialLocation: ""
-    property alias currentLocation: directory.location
+    property alias currentLocation: millerNavigation.location
+    readonly property var directory: millerNavigation.activeDirectory || baseDirectory
+    property string viewMode: paneSettings.viewMode
+    property bool updatingViewMode: false
+    property bool viewModeReady: false
+    readonly property bool columnsMode: viewMode === "columns" && !isCategoryLocation && !directory.searchActive
+    property var lastHandledDirectory: null
+    property string lastHandledLocation: ""
     readonly property int itemCount: directory.count
     property bool gridMode: true
     property int iconSize: 168
@@ -21,8 +28,8 @@ Rectangle {
     readonly property int musicIconSize: AppTheme.musicIconSize
     readonly property var hostWindow: ApplicationWindow.window
     readonly property var systemDirectoryIconSizes: iconPicker.availableSystemIconSizes("folder", 256)
-    property alias showHiddenFiles: directory.showHidden
-    property alias hiddenPlacement: directory.hiddenPlacement
+    property alias showHiddenFiles: baseDirectory.showHidden
+    property alias hiddenPlacement: baseDirectory.hiddenPlacement
     property alias folderPreviewsEnabled: paneSettings.folderPreviewsEnabled
     required property var lang
     property var contentIndexModel: null
@@ -157,7 +164,17 @@ Rectangle {
     property bool userLocationSignalsReady: false
     property var textEditTarget: null
     property string breadcrumbContextLocation: ""
-    onGridModeChanged: wheelScrollAnimation.stop()
+    onGridModeChanged: {
+        if (viewModeReady) wheelScrollAnimation.stop()
+        if (viewModeReady && !updatingViewMode) root.viewMode = gridMode ? "grid" : "list"
+    }
+    onViewModeChanged: {
+        updatingViewMode = true
+        gridMode = viewMode === "grid"
+        updatingViewMode = false
+        if (viewModeReady) paneSettings.viewMode = viewMode
+    }
+    onSelectionRevisionChanged: Qt.callLater(root.syncMillerSelection)
     readonly property bool selectedIsGoogleDrive: selectedUrl.startsWith("gdrive://")
     readonly property bool selectedIsOneDrive: selectedUrl.startsWith("onedrive://")
     readonly property bool selectedIsCloud: selectedIsGoogleDrive || selectedIsOneDrive
@@ -339,6 +356,7 @@ Rectangle {
     Settings {
         id: paneSettings
         category: "BrowserView"
+        property string viewMode: "grid"
         property int iconSize: 168
         property int systemIconSize: 128
         property bool folderPreviewsEnabled: true
@@ -988,7 +1006,7 @@ Rectangle {
 
     function isPreviewable(suffix) {
         const s = suffix.toLowerCase()
-        return ["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg",
+        return ["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "svgz",
                 "mp4", "mkv", "avi", "mov", "webm", "m4v", "pdf", "mp3",
                 "appimage",
                 "srt", "lrc", "lrclib", "vtt", "ass", "ssa", "txt", "md", "log", "nfo",
@@ -1044,7 +1062,7 @@ Rectangle {
                                        : (systemIconName || "text-x-generic"))
         if (isDir) return AppTheme.bundledFolderIcon(itemName, identity)
         const s = suffix.toLowerCase()
-        if (["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg"].indexOf(s) >= 0) return AppTheme.icon("image.svg")
+        if (["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "svgz"].indexOf(s) >= 0) return AppTheme.icon("image.svg")
         if (["mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"].indexOf(s) >= 0) return AppTheme.icon("video.svg")
         if (["mp3", "flac", "wav", "m4a", "ogg"].indexOf(s) >= 0) return AppTheme.icon("audio.svg")
         if (root.isArchive(itemName || ("item." + s), mimeType)) return AppTheme.icon("archive.svg")
@@ -1249,7 +1267,7 @@ Rectangle {
     function tabScrollOffset() {
         if (directory.searchActive || root.isCategoryLocation)
             return -1
-        const view = gridMode ? grid : listView
+        const view = root.directoryView()
         return Math.max(0, view.contentY - view.originY)
     }
 
@@ -1292,7 +1310,7 @@ Rectangle {
                     || root.pendingTabScrollOffset !== offset)
                 return
             wheelScrollAnimation.stop()
-            const view = root.gridMode ? grid : listView
+            const view = root.directoryView()
             view.cancelFlick()
             view.forceLayout()
             const bottom = Math.max(0, view.contentHeight - view.height)
@@ -1334,7 +1352,7 @@ Rectangle {
         if (scrollRestorePending || pendingTabScrollOffset >= 0)
             return
         scrollRestoreGridMode = gridMode
-        scrollRestoreY = gridMode ? grid.contentY : listView.contentY
+        scrollRestoreY = root.directoryView().contentY
         scrollRestorePending = true
     }
 
@@ -1342,7 +1360,7 @@ Rectangle {
         if (!scrollRestorePending)
             return
         wheelScrollAnimation.stop()
-        const view = scrollRestoreGridMode ? grid : listView
+        const view = root.columnsMode ? root.directoryView() : (scrollRestoreGridMode ? grid : listView)
         const bottom = view.originY + Math.max(0, view.contentHeight - view.height)
         view.contentY = Math.max(view.originY, Math.min(bottom, scrollRestoreY))
         scrollRestorePending = false
@@ -1360,7 +1378,7 @@ Rectangle {
             return
         pendingNavigationTopLocation = ""
         wheelScrollAnimation.stop()
-        const view = gridMode ? grid : listView
+        const view = root.directoryView()
         view.contentY = view.originY
         clearSelection()
         focusDirectoryView()
@@ -1685,6 +1703,8 @@ Rectangle {
     }
 
     function openWithSelectionUrls() {
+        if (root.selectedCount === 1 && root.selectedIsDir)
+            return []
         // Resolve directly from the selected URL set rather than relying on the
         // delegate/view ordering. This keeps Open With available even when the
         // selection was created by rubber-band, Ctrl/Shift selection or after a
@@ -1708,6 +1728,19 @@ Rectangle {
     function canOpenSelectionWithSameApp() {
         const urls = openWithSelectionUrls()
         return urls.length > 0
+    }
+
+    function selectedFolderUrls() {
+        const items = root.selectedItemsInViewOrder()
+        if (!items.length || items.length !== root.selectedCount)
+            return []
+        const urls = []
+        for (let i = 0; i < items.length; ++i) {
+            if (!items[i].isDir)
+                return []
+            urls.push(String(items[i].itemUrl))
+        }
+        return urls
     }
 
     function localUploadSelectionUrls() {
@@ -2383,7 +2416,7 @@ Rectangle {
     }
 
     function searchState() {
-        const view = gridMode ? grid : listView
+        const view = root.directoryView()
         return {
             "searchVisible": searchVisible,
             "searchQuery": searchInput.text || "",
@@ -2398,7 +2431,7 @@ Rectangle {
         // preserved as draft text until the user explicitly presses Enter or
         // one of the search buttons.
         wheelScrollAnimation.stop()
-        const view = gridMode ? grid : listView
+        const view = root.directoryView()
         view.cancelFlick()
         var state = searchState()
         if (directory.searchActive)
@@ -2432,7 +2465,8 @@ Rectangle {
         // A tab owns a C++ search session. Reattaching restores the exact
         // accumulated rows immediately; an unfinished scan keeps feeding that
         // same session instead of restarting from zero.
-        if (sessionId.length && directory.restoreSearchSession(sessionId)) {
+        if (sessionId.length) millerNavigation.prepareSearch()
+        if (sessionId.length && baseDirectory.restoreSearchSession(sessionId)) {
             restoringSearchState = false
             pendingNavigationTopLocation = ""
             scrollRestorePending = false
@@ -2445,7 +2479,7 @@ Rectangle {
                     if (!directory.searchActive || directory.searchSessionId !== sessionId)
                         return
                     wheelScrollAnimation.stop()
-                    const view = root.gridMode ? grid : listView
+                    const view = root.directoryView()
                     view.cancelFlick()
                     view.forceLayout()
                     const bottom = Math.max(0, view.contentHeight - view.height)
@@ -2464,7 +2498,7 @@ Rectangle {
 
     function releaseSearchSession(sessionId) {
         if (sessionId && String(sessionId).length)
-            directory.releaseSearchSession(String(sessionId))
+            baseDirectory.releaseSearchSession(String(sessionId))
     }
 
     function showSearch() {
@@ -2525,6 +2559,7 @@ Rectangle {
             directory.clearSearch()
             return
         }
+        millerNavigation.prepareSearch()
         directory.search(query, searchEverywhere)
     }
 
@@ -2561,18 +2596,69 @@ Rectangle {
         root.setActiveIconSize(168)
     }
 
+
+    function handleDirectoryLocationChanged(model) {
+        // A NOTIFY handler can run before bindings to activeDirectory have
+        // updated. Use the new model directly for tab/history notifications.
+        const directory = model || root.directory
+        if (!viewModeReady || !directory || (lastHandledDirectory === directory && lastHandledLocation === directory.location)) return
+        lastHandledDirectory = directory
+        lastHandledLocation = directory.location
+
+            tabScrollSnapshotTimer.stop()
+            wheelScrollAnimation.stop()
+            root.inlineRenameUrl = ""
+            root.inlineRenameOriginalName = ""
+            root.scrollRestorePending = false
+            root.clearPendingResultSelection()
+            root.clearSelection()
+            if (root.pendingTabScrollOffset >= 0
+                    || root.restoringSearchState || (root.pendingExternalRevealUrl.length
+                    && root.pendingExternalRevealLocation === directory.location))
+                root.pendingNavigationTopLocation = ""
+            else
+                root.pendingNavigationTopLocation = directory.location
+            if (root.userLocationSignalsReady) {
+                root.locationChangedByUser(directory.location)
+                // Only real post-startup navigation restores keyboard focus.
+                // Initial application construction stays completely untouched.
+                Qt.callLater(root.focusDirectoryView)
+            }
+            if (root.pendingExternalRevealUrl.length)
+                Qt.callLater(root.finalizeExternalReveal)
+    }
+    function directoryView() {
+        return root.columnsMode ? (millerView.currentListView || listView) : (root.gridMode ? grid : listView)
+    }
+    function syncMillerSelection() {
+        if (!root.columnsMode || root.selectedCount !== 1 || directory.loading) return
+        const item = directory.itemAt(directory.indexOfUrl(root.selectedUrl))
+        if (item && item.itemUrl) millerNavigation.selectUrl(millerNavigation.activeColumn, item.itemUrl, !!item.isDir)
+    }
+    function activateMillerColumn(column) {
+        if (column === millerNavigation.activeColumn) return
+        root.navigationAboutToStart(directory.location, root.navigationViewState())
+        millerNavigation.activateColumn(column)
+    }
+    function selectMillerItem(column, row, modifiers) {
+        activateMillerColumn(column)
+        root.selectIndex(row, modifiers)
+    }
+
     function setGridView() {
-        gridMode = true
+        root.viewMode = "grid"
     }
 
     function setListView() {
-        gridMode = false
+        root.viewMode = "list"
     }
 
     function revealIndex(index) {
         if (index < 0)
             return
-        if (root.groupedCategory)
+        if (root.columnsMode)
+            millerView.positionIndex(index)
+        else if (root.groupedCategory)
             groupedCategoryView.positionModelIndex(index, ListView.Contain)
         else if (gridMode)
             grid.positionViewAtIndex(index, GridView.Contain)
@@ -2583,7 +2669,9 @@ Rectangle {
     function focusResultIndex(index) {
         if (index < 0)
             return
-        if (root.groupedCategory)
+        if (root.columnsMode)
+            millerView.positionIndex(index)
+        else if (root.groupedCategory)
             groupedCategoryView.positionModelIndex(index, ListView.Center)
         else if (gridMode)
             grid.positionViewAtIndex(index, GridView.Center)
@@ -2592,14 +2680,24 @@ Rectangle {
     }
 
     function moveSelection(direction, extend) {
+        if (root.columnsMode && (direction === "left" || direction === "right")) {
+            const next = millerNavigation.activeColumn + (direction === "left" ? -1 : 1)
+            if (next >= 0 && next < millerNavigation.count) {
+                activateMillerColumn(next)
+                const remembered = millerNavigation.selectedUrl(next)
+                const row = directory.indexOfUrl(remembered)
+                if (!directory.loading && directory.count) root.selectIndex(Math.max(0, row), Qt.NoModifier)
+            }
+            return
+        }
         if (directory.count <= 0)
             return
         let columns = root.groupedCategory ? groupedCategoryView.layoutColumns : grid.columnCount
         let step = 0
         if (direction === "left") step = -1
         else if (direction === "right") step = 1
-        else if (direction === "up") step = root.groupedCategory || gridMode ? -columns : -1
-        else if (direction === "down") step = root.groupedCategory || gridMode ? columns : 1
+        else if (direction === "up") step = !root.columnsMode && (root.groupedCategory || gridMode) ? -columns : -1
+        else if (direction === "down") step = !root.columnsMode && (root.groupedCategory || gridMode) ? columns : 1
         let current = primaryIndex >= 0 ? primaryIndex : 0
         let next = Math.max(0, Math.min(directory.count - 1, current + step))
         selectIndex(next, extend ? Qt.ShiftModifier : Qt.NoModifier)
@@ -2903,7 +3001,7 @@ Rectangle {
         // Focus is restored from directory.onLocationChanged. Doing it here
         // used to queue focus changes before the model finished switching and
         // could make application startup / restored tabs noticeably slower.
-        directory.location = location
+        millerNavigation.location = location
     }
 
     function openItem(url, isDir, name, mimeType) {
@@ -3249,13 +3347,33 @@ Rectangle {
     }
 
     DirectoryModel {
-        id: directory
+        id: baseDirectory
         heavyIoBusy: fileOps.ioBusy
-        folderPreviewsEnabled: root.folderPreviewsEnabled
+        folderPreviewsEnabled: root.columnsMode ? false : root.folderPreviewsEnabled
         contentIndexSource: root.contentIndexModel
         googleAccessToken: root.googleDrive.accessToken
         oneDriveAccessToken: root.oneDrive.accessToken
-        onGoogleOperationFinished: function(success, message) {
+    }
+
+    MillerNavigationModel {
+        id: millerNavigation
+        objectName: "millerNavigation"
+        sourceDirectory: baseDirectory
+        enabled: root.viewMode === "columns"
+        onActiveDirectoryChanged: {
+            const model = millerNavigation.activeDirectory
+            root.handleDirectoryLocationChanged(model)
+            // Cached columns do not emit another loading/refresh signal.
+            // Keep their viewport and finish any saved tab restoration here.
+            if (model && !model.loading && root.columnsMode)
+                root.pendingNavigationTopLocation = ""
+            if (root.pendingTabScrollOffset >= 0) Qt.callLater(root.restorePendingTabScroll)
+        }
+    }
+
+    Connections {
+        target: directory
+        function onGoogleOperationFinished(success, message) {
             if (root.pendingResultSelection) {
                 root.pendingResultAwaitRefresh = success
                 if (!success)
@@ -3263,7 +3381,7 @@ Rectangle {
             }
             root.requestToast(message)
         }
-        onOneDriveOperationFinished: function(success, message) {
+        function onOneDriveOperationFinished(success, message) {
             if (root.pendingResultSelection) {
                 root.pendingResultAwaitRefresh = success
                 if (!success)
@@ -3311,7 +3429,7 @@ Rectangle {
         onOperationFinished: function(success, message, refreshNeeded, externallyPresented) {
             if (!success)
                 root.clearPendingResultSelection()
-            if (success && refreshNeeded) {
+            if (refreshNeeded) {
                 if (root.pendingResultSelection)
                     root.pendingResultAwaitRefresh = true
                 directory.requestRefresh()
@@ -3376,10 +3494,15 @@ Rectangle {
     }
 
     Component.onCompleted: {
+        root.updatingViewMode = true
+        root.gridMode = root.viewMode === "grid"
+        root.updatingViewMode = false
+        root.viewModeReady = true
         root.applyDirectoryIconModeSize()
         root.reloadMediaGallery()
         if (root.initialLocation.length)
-            directory.location = root.initialLocation
+            millerNavigation.location = root.initialLocation
+        root.handleDirectoryLocationChanged()
         // InitialLocation is construction state, not user navigation. Suppress
         // the first location signal so a Home -> disk transition does not
         // accidentally create a phantom history entry that consumes Back once.
@@ -3413,29 +3536,8 @@ Rectangle {
             else if (root.pendingNavigationTopLocation === directory.location)
                 root.resetNavigationViewToTop()
         }
-        function onLocationChanged() {
-            tabScrollSnapshotTimer.stop()
-            wheelScrollAnimation.stop()
-            root.inlineRenameUrl = ""
-            root.inlineRenameOriginalName = ""
-            root.scrollRestorePending = false
-            root.clearPendingResultSelection()
-            root.clearSelection()
-            if (root.pendingTabScrollOffset >= 0
-                    || root.restoringSearchState || (root.pendingExternalRevealUrl.length
-                    && root.pendingExternalRevealLocation === directory.location))
-                root.pendingNavigationTopLocation = ""
-            else
-                root.pendingNavigationTopLocation = directory.location
-            if (root.userLocationSignalsReady) {
-                root.locationChangedByUser(directory.location)
-                // Only real post-startup navigation restores keyboard focus.
-                // Initial application construction stays completely untouched.
-                Qt.callLater(root.focusDirectoryView)
-            }
-            if (root.pendingExternalRevealUrl.length)
-                Qt.callLater(root.finalizeExternalReveal)
-        }
+        function onLocationChanged() { root.handleDirectoryLocationChanged() }
+
         function onRefreshAboutToStart(preserveView) {
             if (preserveView)
                 root.rememberScrollPosition()
@@ -4283,7 +4385,7 @@ Rectangle {
             id: viewStack
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: root.mediaGalleryCategory ? 2 : (root.groupedCategory ? 3 : (root.gridMode ? 0 : 1))
+            currentIndex: root.mediaGalleryCategory ? 2 : (root.groupedCategory ? 3 : (root.columnsMode ? 4 : (root.gridMode ? 0 : 1)))
 
             Item {
                 id: gridPage
@@ -4299,7 +4401,7 @@ Rectangle {
                     clip: true
                     // StackLayout keeps hidden pages alive. Only the active
                     // view may create file delegates or request previews.
-                    model: root.visible && !root.isCategoryLocation && root.gridMode ? directory : null
+                    model: root.visible && !root.isCategoryLocation && !root.columnsMode && root.gridMode ? directory : null
                     reuseItems: true
                     cacheBuffer: Math.max(cellHeight, Math.min(height * 0.45, cellHeight * 2))
 
@@ -4414,6 +4516,7 @@ Rectangle {
                     required property string systemIconName
                     required property bool hidden
                     required property string videoInfo
+                    required property string gitStatus
                     required property int childCount
                     required property var folderPreviewPaths
                     required property string linkType
@@ -4533,6 +4636,12 @@ Rectangle {
                                             : root.iconForItem(isDir, suffix, systemIconName, name, itemUrl, mimeType)
                                     retainWhileLoading: false
                                     visible: isDir || !gridPreview.displayReady
+                                }
+                                GitStatusBadge {
+                                    anchors { left: parent.left; bottom: parent.bottom }
+                                    z: 90
+                                    status: gridDelegate.gitStatus
+                                    language: root.lang.language
                                 }
                                 DeferredThumbnail {
                                     id: gridPreview
@@ -5005,7 +5114,7 @@ Rectangle {
                     cacheBuffer: Math.max(120, Math.min(height * 0.35, 320))
                     anchors.rightMargin: 14
                     clip: true
-                    model: root.visible && !root.isCategoryLocation && !root.gridMode ? directory : null
+                    model: root.visible && !root.isCategoryLocation && !root.columnsMode && !root.gridMode ? directory : null
                     spacing: 5
                     boundsBehavior: Flickable.StopAtBounds
                     onContentYChanged: root.scheduleTabScrollSnapshot()
@@ -5089,6 +5198,7 @@ Rectangle {
                     required property string systemIconName
                     required property bool hidden
                     required property string videoInfo
+                    required property string gitStatus
                     required property int childCount
                     required property var folderPreviewPaths
                     required property string linkType
@@ -5187,6 +5297,12 @@ Rectangle {
                                             : root.iconForItem(isDir, suffix, systemIconName, name, itemUrl, mimeType)
                                     retainWhileLoading: false
                                     visible: !listPreview.displayReady
+                                }
+                                GitStatusBadge {
+                                    anchors { right: parent.right; bottom: parent.bottom }
+                                    z: 90
+                                    status: gitStatus
+                                    language: root.lang.language
                                 }
                                 DeferredThumbnail {
                                     id: listPreview
@@ -6090,6 +6206,11 @@ Rectangle {
                 }
 
             }
+            MillerColumnsView {
+                id: millerView
+                browser: root
+                navigation: millerNavigation
+            }
         }
 
         Item {
@@ -6825,18 +6946,28 @@ Rectangle {
             onTriggered: root.showSelectedLinkTarget(true)
         }
 
+        GMenuItem {
+            objectName: "openFoldersInNewTabAction"
+            visible: root.selectedFolderUrls().length > 0
+            text: lang.language === "tr" ? "Yeni sekmede aç" : "Open in New Tab"
+            onTriggered: {
+                const folders = root.selectedFolderUrls()
+                root.closeContextMenus()
+                for (let i = 0; i < folders.length; ++i)
+                    root.requestNewTab(folders[i])
+            }
+        }
+
         GMenu {
             id: openWithMenu
+            objectName: "openWithContextMenu"
             title: lang.t("open_with")
             // Do not tie submenu activation to the asynchronously rebuilt app
             // model. If local files are selected, Open With is always usable;
             // “More…” can populate/launch the complete chooser even when the
             // quick list is empty.
-            visible: root.selectedCount > 0
-                     && !root.selectedIsDir
-                     && !root.selectedIsCloud
-                     && !String(root.selectedUrl).startsWith("admin:")
-            enabled: true
+            menuEntryVisible: root.canOpenSelectionWithSameApp()
+            enabled: menuEntryVisible
             onAboutToShow: root.prepareOpenWithSelection()
 
             Instantiator {
@@ -9280,14 +9411,23 @@ Rectangle {
                                         : operation.kind === "move" ? (lang.language === "tr" ? "Taşıma tamamlandı" : "Move complete")
                                         : operation.kind === "trash" ? (lang.language === "tr" ? "Çöpe taşıma tamamlandı" : "Moved to Trash")
                                         : operation.kind === "duplicate" ? (lang.language === "tr" ? "Klonlama tamamlandı" : "Duplication complete")
+                                        : operation.kind === "delete" ? (lang.language === "tr" ? "Silme tamamlandı" : "Deletion complete")
+                                        : operation.kind === "restore" ? (lang.language === "tr" ? "Geri yükleme tamamlandı" : "Restore complete")
+                                        : operation.kind === "rename" ? (lang.language === "tr" ? "Yeniden adlandırıldı" : "Renamed")
+                                        : operation.kind === "inspect" ? (lang.language === "tr" ? "Arşiv incelendi" : "Archive inspected")
                                         : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuldu" : "Archive created")
                                         : (lang.language === "tr" ? "Arşiv çıkarıldı" : "Extraction complete"))
+                                     : operation.cancelled ? (lang.language === "tr" ? "İptal edildi" : "Cancelled")
                                      : (lang.language === "tr" ? "İşlem tamamlanamadı" : "Operation failed"))
                                   : operation.kind === "copy" ? (lang.language === "tr" ? "Kopyalanıyor" : "Copying")
                                   : operation.kind === "clipboard" ? (lang.language === "tr" ? "Pano hazırlanıyor" : "Preparing clipboard")
                                   : operation.kind === "move" ? (lang.language === "tr" ? "Taşınıyor" : "Moving")
                                   : operation.kind === "trash" ? (lang.language === "tr" ? "Çöpe taşınıyor" : "Moving to Trash")
                                   : operation.kind === "duplicate" ? (lang.language === "tr" ? "Klonlanıyor" : "Duplicating")
+                                  : operation.kind === "delete" ? (lang.language === "tr" ? "Siliniyor" : "Deleting")
+                                  : operation.kind === "restore" ? (lang.language === "tr" ? "Geri yükleniyor" : "Restoring")
+                                  : operation.kind === "rename" ? (lang.language === "tr" ? "Yeniden adlandırılıyor" : "Renaming")
+                                  : operation.kind === "inspect" ? (lang.language === "tr" ? "Arşiv inceleniyor" : "Inspecting archive")
                                   : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuluyor" : "Creating archive")
                                   : (lang.language === "tr" ? "Arşiv çıkarılıyor" : "Extracting archive")
                         }
@@ -9383,11 +9523,13 @@ Rectangle {
                         visible: !operation.finished && operation.controllable !== false
                         Item { Layout.fillWidth: true }
                         GButton {
+                            visible: operation.canPause !== false
                             text: operation.paused ? (lang.language === "tr" ? "Sürdür" : "Resume")
                                                    : (lang.language === "tr" ? "Duraklat" : "Pause")
                             onClicked: fileOps.toggleOperationPause(operation.id)
                         }
                         GButton {
+                            visible: operation.canCancel !== false
                             text: lang.language === "tr" ? "İptal" : "Cancel"
                             onClicked: fileOps.cancelOperation(operation.id)
                         }

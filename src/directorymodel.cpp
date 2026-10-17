@@ -1,4 +1,6 @@
 #include "directorymodel.h"
+#include "gitstatuscache.h"
+#include <QGuiApplication>
 #include "contentindexmodel.h"
 #include "svgpreviewidentity.h"
 
@@ -54,7 +56,7 @@ LocalLinkMetadata localLinkMetadata(const QString &path, const QString &suffix)
     if (info.isSymLink()) {
         result.type = QStringLiteral("symlink");
         result.target = info.symLinkTarget();
-        if (suffix == QStringLiteral("svg")) result.previewRevision = svgPreviewIdentity(path);
+        if (suffix == QStringLiteral("svg") || suffix == QStringLiteral("svgz")) result.previewRevision = svgPreviewIdentity(path);
         return result;
     }
 
@@ -75,7 +77,7 @@ LocalLinkMetadata localLinkMetadata(const QString &path, const QString &suffix)
     const QByteArray nativePath = QFile::encodeName(path);
     if (::lstat(nativePath.constData(), &st) == 0) {
         if (S_ISREG(st.st_mode) && st.st_nlink > 1) result.type = QStringLiteral("hardlink");
-        if (suffix == QStringLiteral("svg")) result.previewRevision = svgPreviewIdentity(st);
+        if (suffix == QStringLiteral("svg") || suffix == QStringLiteral("svgz")) result.previewRevision = svgPreviewIdentity(st);
     }
     return result;
 }
@@ -177,7 +179,7 @@ int folderPreviewPriority(const QString &suffix)
     static const QSet<QString> imageTypes = {
         QStringLiteral("png"), QStringLiteral("jpg"), QStringLiteral("jpeg"),
         QStringLiteral("webp"), QStringLiteral("bmp"), QStringLiteral("gif"),
-        QStringLiteral("svg")
+        QStringLiteral("svg"), QStringLiteral("svgz")
     };
     static const QSet<QString> videoTypes = {
         QStringLiteral("mp4"), QStringLiteral("mkv"), QStringLiteral("avi"),
@@ -215,6 +217,28 @@ int folderPreviewPriority(const QString &suffix)
 DirectoryModel::DirectoryModel(QObject *parent)
     : QAbstractListModel(parent), m_location(QUrl::fromLocalFile(QDir::homePath()))
 {
+    auto *git = GitStatusCache::instance();
+    const auto updateGit = [this] {
+        if (!m_items.isEmpty()) emit dataChanged(index(0), index(m_items.size() - 1), {GitStatusRole});
+    };
+    connect(git, &GitStatusCache::directoryReady, this, [this, updateGit](const QString &directory, const QString &root) {
+        if (!m_location.isLocalFile() || directory != QDir::cleanPath(m_location.toLocalFile())) return;
+        if (m_gitRoot != root) { m_gitRoot = root; updateGit(); }
+    });
+    connect(git, &GitStatusCache::statusChanged, this, [this, updateGit](const QString &root) { if (root == m_gitRoot) updateGit(); });
+    connect(git, &GitStatusCache::directoryStatusChanged, this, [this](const QString &path) {
+        if (!m_location.isLocalFile()) return;
+        for (int row = 0; row < m_items.size(); ++row) {
+            if (m_items.at(row).isDir && m_items.at(row).localPath == path) {
+                emit dataChanged(index(row), index(row), {GitStatusRole});
+                break;
+            }
+        }
+    });
+    if (auto *gui = qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
+        connect(gui, &QGuiApplication::applicationStateChanged, this, [this, git](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationActive && m_location.isLocalFile()) git->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
+        });
     QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     m_showHidden = settings.value(QStringLiteral("browser/showHidden"), false).toBool();
     m_hiddenPlacement = settings.value(QStringLiteral("browser/hiddenPlacement"), QStringLiteral("normal")).toString();
@@ -354,6 +378,14 @@ QVariant DirectoryModel::data(const QModelIndex &index, int role) const
     case LinkTargetRole: return e.linkTarget;
     case PreviewRevisionRole: return e.previewRevision.isEmpty()
         ? QString::number(e.modified.toMSecsSinceEpoch()) + '-' + QString::number(e.size) : e.previewRevision;
+    case GitStatusRole: {
+        auto *git = GitStatusCache::instance();
+        if (m_location.isLocalFile() && e.isDir) {
+            const QString childStatus = git->directoryStatus(const_cast<DirectoryModel *>(this), e.localPath);
+            if (!childStatus.isEmpty()) return childStatus;
+        }
+        return m_gitRoot.isEmpty() ? QString() : git->status(m_gitRoot, e.localPath);
+    }
     default: return {};
     }
 }
@@ -373,6 +405,7 @@ QVariantMap DirectoryModel::itemAt(int row) const
     result.insert(QStringLiteral("size"), e.size);
     result.insert(QStringLiteral("modified"), e.modified);
     result.insert(QStringLiteral("previewRevision"), data(index(row, 0), PreviewRevisionRole));
+    result.insert(QStringLiteral("gitStatus"), data(index(row, 0), GitStatusRole));
     result.insert(QStringLiteral("created"), e.created);
     result.insert(QStringLiteral("suffix"), e.suffix);
     result.insert(QStringLiteral("hidden"), e.hidden);
@@ -530,7 +563,8 @@ QHash<int, QByteArray> DirectoryModel::roleNames() const
         {ChildCountRole, "childCount"},
         {FolderPreviewPathsRole, "folderPreviewPaths"},
         {LinkTypeRole, "linkType"},
-        {LinkTargetRole, "linkTarget"}
+        {LinkTargetRole, "linkTarget"},
+        {GitStatusRole, "gitStatus"}
     };
 }
 
@@ -584,6 +618,9 @@ void DirectoryModel::setLocation(const QString &location)
     const bool sortDirectionChangedForLocation = m_sortAscending != nextSortAscending;
 
     m_location = url;
+    GitStatusCache::instance()->resetChildren(this);
+    m_gitRoot.clear();
+    if (!url.isLocalFile()) GitStatusCache::instance()->request(this, {});
     if (wasCategory != isCategory) {
         m_sortMode = nextSortMode;
         m_sortAscending = nextSortAscending;
@@ -595,6 +632,8 @@ void DirectoryModel::setLocation(const QString &location)
         emit sortAscendingChanged();
     refreshInternal(false);
 }
+
+ContentIndexModel *DirectoryModel::contentIndexSource() const { return m_contentIndexSource; }
 
 void DirectoryModel::setContentIndexSource(ContentIndexModel *source)
 {
@@ -797,6 +836,7 @@ void DirectoryModel::setFolderPreviewsEnabled(bool value)
 
 void DirectoryModel::refresh()
 {
+    if (m_location.isLocalFile()) GitStatusCache::instance()->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
     m_localRefreshTimer.stop();
     if (m_heavyIoBusy && m_location.isLocalFile()) {
         m_refreshDeferredByHeavyIo = true;
@@ -1642,8 +1682,12 @@ void DirectoryModel::loadSearch(bool incremental)
 
 void DirectoryModel::loadLocal(bool incremental)
 {
+    // An option change can supersede the initial navigation worker. Its
+    // replacement must also complete the loading state, not just update rows.
+    incremental = incremental && !m_loading;
     const int generation = ++m_localGeneration;
     const QString requestedPath = QDir::cleanPath(m_location.toLocalFile());
+    GitStatusCache::instance()->request(this, requestedPath);
     const bool showHidden = m_showHidden;
     const bool collectFolderDetails = !m_heavyIoBusy;
     const bool collectFolderPreviews = m_folderPreviewsEnabled && collectFolderDetails;
@@ -2037,6 +2081,8 @@ void DirectoryModel::refreshLocalFileMetadata()
 
     const QSet<QString> changedPaths = m_pendingLocalMetadataPaths;
     m_pendingLocalMetadataPaths.clear();
+    if (!changedPaths.isEmpty())
+        GitStatusCache::instance()->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
     bool needsDirectoryRefresh = false;
 
     for (const QString &path : changedPaths) {
@@ -2061,7 +2107,7 @@ void DirectoryModel::refreshLocalFileMetadata()
         Entry &entry = m_items[row];
         const qint64 newSize = info.isDir() ? 0 : info.size();
         const QDateTime newModified = info.lastModified();
-        const QString svgRevision = entry.suffix == QStringLiteral("svg") ? svgPreviewIdentity(path) : QString();
+        const QString svgRevision = (entry.suffix == QStringLiteral("svg") || entry.suffix == QStringLiteral("svgz")) ? svgPreviewIdentity(path) : QString();
         const bool previewChanged = entry.size != newSize || entry.modified != newModified;
         if (previewChanged && isVideoEntry(entry.mimeType, entry.suffix)) {
             if (entry.previewRevision.isEmpty())

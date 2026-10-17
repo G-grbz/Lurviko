@@ -32,16 +32,19 @@ static void write(const QString &path, const QByteArray &bytes) {
     require(::utimensat(AT_FDCWD, QFile::encodeName(path).constData(), times, 0) == 0,
             "fixture timestamp is preserved");
 }
-static QImage thumbnail(ThumbnailProvider &provider, const QString &path, const QString &revision) {
+static QImage thumbnail(ThumbnailProvider &provider, const QString &path, const QString &revision, bool required = true) {
     std::unique_ptr<QQuickImageResponse> response(provider.requestImageResponse(
         QUrl::toPercentEncoding(path) + '|' + revision, QSize(96, 96)));
     bool finished = false;
     QObject::connect(response.get(), &QQuickImageResponse::finished, [&] { finished = true; });
     require(until([&] { return finished; }), "asynchronous SVG thumbnail finishes");
-    require(response->errorString().isEmpty(), "SVG thumbnail decodes");
+    if (required) {
+        if (!response->errorString().isEmpty()) std::fprintf(stderr,"THUMBNAIL: %s: %s\n",qPrintable(path),qPrintable(response->errorString()));
+        require(response->errorString().isEmpty(), "SVG thumbnail decodes");
+    }
     std::unique_ptr<QQuickTextureFactory> texture(response->textureFactory());
-    require(bool(texture), "SVG texture exists");
-    return texture->image();
+    if (required) require(bool(texture), "SVG texture exists");
+    return texture ? texture->image() : QImage();
 }
 
 int main(int argc, char **argv) {
@@ -80,5 +83,27 @@ int main(int argc, char **argv) {
     require(thumbnail(provider, left, revision(left)).pixelColor(48, 48).green() > 240,
             "same-size SVG edit invalidates cached pixels");
     std::puts("PASS: SVG name swaps and preserved-metadata edits invalidate previews; unchanged files reuse cache");
+    const QString compressed = QFileInfo(base).absolutePath() + "/compressed-fixtures";
+    const QString zippedLeft = compressed + "/left.svgz", zippedRight = compressed + "/right.SVGZ";
+    model.setLocation(compressed);
+    require(until([&] { return !model.loading() && model.rowCount() == 4; }), "compressed SVG directory loads");
+    const QString beforeZipped = revision(zippedLeft);
+    const QImage zippedRed = thumbnail(provider, zippedLeft, beforeZipped);
+    require(!zippedRed.isNull() && zippedRed.pixelColor(48,48).red() > 240, "SVGZ decompresses and unsafe filters are stripped");
+    require(thumbnail(provider,zippedLeft,beforeZipped)==zippedRed,"unchanged SVGZ reuses cache");
+    require(thumbnail(provider,zippedRight,revision(zippedRight)).pixelColor(48,48).blue()>240,"uppercase SVGZ renders");
+    const QString swap = compressed + "/temporary.svgz";
+    require(QFile::rename(zippedLeft,swap) && QFile::rename(zippedRight,zippedLeft) && QFile::rename(swap,zippedRight),"SVGZ swap succeeds");
+    require(until([&] { return revision(zippedLeft) != beforeZipped; }),"SVGZ swap changes preview identity");
+    require(thumbnail(provider,zippedLeft,revision(zippedLeft)).pixelColor(48,48).blue()>240,"SVGZ cache follows swapped contents");
+    QFile green(QFileInfo(base).absolutePath()+"/green.svgz");require(green.open(QIODevice::ReadOnly),"green SVGZ fixture opens");
+    const QString oldZipped = revision(zippedLeft); const qint64 oldSize = QFileInfo(zippedLeft).size();
+    write(zippedLeft,green.readAll());
+    require(QFileInfo(zippedLeft).size()==oldSize,"SVGZ edit preserves size and mtime");
+    require(until([&] { return revision(zippedLeft) != oldZipped; }),"SVGZ in-place edit invalidates revision");
+    require(thumbnail(provider,zippedLeft,revision(zippedLeft)).pixelColor(48,48).green()>240,"SVGZ in-place edit invalidates disk and memory cache");
+    require(thumbnail(provider,compressed+"/oversized.svgz","large",false).isNull(),"decompressed SVGZ is bounded to 8 MiB");
+    require(thumbnail(provider,compressed+"/invalid.svgz","invalid",false).isNull(),"malformed SVGZ is rejected");
+    std::puts("PASS: SVGZ previews, filter safety, cache reuse/invalidation, compressed-data bounds and malformed input");
     return 0;
 }

@@ -93,10 +93,17 @@ qt_add_executable(lurviko
     src/popupdismissfilter.h
     src/storagemodel.cpp
     src/storagemodel.h
+    src/millernavigationmodel.cpp
+    src/millernavigationmodel.h
     src/directorymodel.cpp
     src/directorymodel.h
+    src/gitstatuscache.cpp
+    src/gitstatuscache.h
     src/fileoperations.cpp
     src/fileoperations.h
+    src/archiveinspectionjob.cpp
+    src/archiveinspectionjob.h
+    src/archiveoutput.h
     src/favoritesmodel.cpp
     src/favoritesmodel.h
     src/quickaccessmodel.cpp
@@ -240,6 +247,8 @@ qt_add_qml_module(lurviko
         qml/components/AppSidebar.qml
         qml/components/SidebarItem.qml
         qml/components/BrowserPane.qml
+        qml/components/MillerColumnsView.qml
+        qml/components/GitStatusBadge.qml
         qml/components/GMenu.qml
         qml/components/GPopupWheelScroll.qml
         qml/components/GPopupDismissHandler.qml

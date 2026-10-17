@@ -91,6 +91,9 @@ int main(int argc, char **argv) {
                                          "FilePropertiesManager");
 
   QQmlApplicationEngine engine;
+  QObject::connect(&engine, &QQmlEngine::warnings, &app, [](const QList<QQmlError> &errors) {
+    for (const auto &error : errors) std::fprintf(stderr, "QML: %s\n", qPrintable(error.toString()));
+  });
   engine.addImageProvider("gfilethumb", new ThumbnailProvider);
   engine.addImageProvider("systemicon", new SystemIconProvider);
   engine.addImageProvider("bundledicon", new BundledIconProvider);
@@ -109,18 +112,22 @@ ApplicationWindow {
  AdminEditManager {id: admin}
  QuickAccessModel {id: quickAccess}
  QtObject {id: auth;property string googleAccessToken:"";property string oneDriveAccessToken:""}
- QtObject {id: prefs}
- QtObject {id: google}
- QtObject {id: one}
+ QtObject {id: prefs
+  property bool showGoogle:false;property bool showOneDrive:false;property bool showDropbox:false
+  property bool showNextcloud:false;property bool showOwnCloud:false;property bool showMega:false
+  property bool showPCloud:false;property bool showWebDav:false
+ }
+ QtObject {id: google;property string accessToken:"";signal refreshRequested()}
+ QtObject {id: one;property string accessToken:"";signal refreshRequested()}
  BrowsePage {
   objectName:"page";anchors.fill:parent;lang:language;favoritesModel:favorites;adminEditor:admin
   cloudAuth:auth;cloudIntegrationPreferences:prefs;googleDrive:google;oneDrive:one
-  contentIndexModel:null;quickAccessModel:quickAccess;initialLocation:testBase
+  contentIndexModel:null;musicPlayer:null;quickAccessModel:quickAccess;initialLocation:testBase
  }
 }
 )qml");
   std::fprintf(stderr, "QML_LOADED\n");
-  if (engine.rootObjects().isEmpty())
+  if (!until([&] { return !engine.rootObjects().isEmpty(); }, 5000))
     return 2;
   auto window = qobject_cast<QQuickWindow *>(engine.rootObjects()[0]);
   auto page = window->findChild<QQuickItem *>("page");

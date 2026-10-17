@@ -70,7 +70,8 @@ public:
         FolderPreviewPathsRole,
         LinkTypeRole,
         LinkTargetRole,
-        PreviewRevisionRole
+        PreviewRevisionRole,
+        GitStatusRole
     };
 
     explicit DirectoryModel(QObject *parent = nullptr);
@@ -81,7 +82,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     QString location() const { return m_location.toString(); }
-    ContentIndexModel *contentIndexSource() const { return m_contentIndexSource; }
+    ContentIndexModel *contentIndexSource() const;
     QString parentLocation() const;
     QString displayLocation() const;
     bool remote() const { return !m_location.isLocalFile(); }
@@ -267,6 +268,7 @@ private:
     QUrl m_location;
     QPointer<ContentIndexModel> m_contentIndexSource;
     QVector<Entry> m_items;
+    QString m_gitRoot;
     bool m_loading = false;
     QString m_errorString;
     bool m_showHidden = false;

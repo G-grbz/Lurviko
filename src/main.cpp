@@ -41,6 +41,7 @@
 #include "updatechecker.h"
 #include "videochapterreader.h"
 #include "directorymodel.h"
+#include "millernavigationmodel.h"
 #include "fileoperations.h"
 #include "heapmaintenance.h"
 #include "trashmonitor.h"
@@ -383,6 +384,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<StorageModel>("Lurviko.Backend", 1, 0, "StorageModel");
     qmlRegisterType<UpdateChecker>("Lurviko.Backend", 1, 0, "UpdateChecker");
     qmlRegisterType<VideoChapterReader>("Lurviko.Backend", 1, 0, "VideoChapterReader");
+    qmlRegisterType<MillerNavigationModel>("Lurviko.Backend", 1, 0, "MillerNavigationModel");
     qmlRegisterType<DirectoryModel>("Lurviko.Backend", 1, 0, "DirectoryModel");
     qmlRegisterType<FileOperations>("Lurviko.Backend", 1, 0, "FileOperations");
     qmlRegisterType<TrashMonitor>("Lurviko.Backend", 1, 0, "TrashMonitor");

@@ -618,6 +618,7 @@ Item {
         case "split": page.setSplitEnabled(!page.splitEnabled); break
         case "grid": page.activePane.setGridView(); break
         case "list": page.activePane.setListView(); break
+        case "columns": page.activePane.viewMode = "columns"; break
         case "zoom_in": page.activePane.adjustIconSize(12); break
         case "zoom_out": page.activePane.adjustIconSize(-12); break
         case "zoom_reset": page.activePane.resetIconSize(); break
@@ -709,14 +710,20 @@ Item {
         GMenuItem {
             text: lang.t("grid")
             checkable: true
-            checked: page.activePane.gridMode
-            onTriggered: page.activePane.gridMode = true
+            checked: page.activePane.viewMode === "grid"
+            onTriggered: page.activePane.setGridView()
         }
         GMenuItem {
             text: lang.t("list")
             checkable: true
-            checked: !page.activePane.gridMode
-            onTriggered: page.activePane.gridMode = false
+            checked: page.activePane.viewMode === "list"
+            onTriggered: page.activePane.setListView()
+        }
+        GMenuItem {
+            text: lang.language === "tr" ? "Sütunlar" : "Columns"
+            checkable: true
+            checked: page.activePane.viewMode === "columns"
+            onTriggered: page.activePane.viewMode = "columns"
         }
         GMenuSeparator {}
         Item {

@@ -48,6 +48,7 @@ Item {
             visible: false
             fileSuffix: "png"
         }
+        SignalSpy { id: newTabSpy; target: page.activePane; signalName: "requestNewTab" }
         TestCase {
             name: "FolderArtwork"
             when: windowShown
@@ -174,6 +175,86 @@ Item {
                 compare(preview.displayReady, false)
                 tryCompare(preview, "displayReady", true)
                 compare(preview.trackedIdentity, "second-file")
+            }
+            function test_transfer_counts_speed_and_eta() {
+                const pane = page.activePane
+                const operation = {kind: "copy", totalItems: 10, processedItems: 2,
+                    totalBytes: 10000, processedBytes: 2000, speed: 1000, percent: 20, paused: false}
+                verify(pane.transferMetrics(operation).startsWith("2 / 10 items"))
+                compare(pane.transferRemaining(operation), "Remaining 8 sec")
+                compare(pane.transferPercent(operation), 20)
+                operation.paused = true
+                compare(pane.transferRemaining(operation), "Paused")
+                operation.paused = false
+                operation.speed = 0
+                compare(pane.transferRemaining(operation), "Calculating remaining time")
+            }
+            function selectNamedFixture(name, modifiers) {
+                const pane = page.activePane
+                const model = findChild(pane, "fileGridView").model
+                let index = -1
+                tryVerify(function() {
+                    for (let i = 0; i < model.count; ++i)
+                        if (model.itemAt(i).name === name) { index = i; return true }
+                    return false
+                })
+                pane.selectIndex(index, modifiers || Qt.NoModifier)
+                return model.itemAt(index)
+            }
+            function test_context_menu_selection_types_data() {
+                return [
+                    {tag: "folder", first: "visible-folder", openWith: false, newTab: true},
+                    {tag: "file", first: "visible-file.txt", openWith: true, newTab: false},
+                    {tag: "folders", first: "visible-folder", second: "Mor", openWith: false, newTab: true},
+                    {tag: "mixed", first: "visible-folder", second: "visible-file.txt", openWith: false, newTab: false}
+                ]
+            }
+            function test_context_menu_selection_types(data) {
+                const pane = page.activePane
+                selectNamedFixture(data.first)
+                if (data.second) selectNamedFixture(data.second, Qt.ControlModifier)
+                const menu = findChild(pane, "itemContextMenu")
+                const submenu = findChild(pane, "openWithContextMenu")
+                const newTab = findChild(pane, "openFoldersInNewTabAction")
+                verify(menu && submenu && newTab)
+                menu.open()
+                tryCompare(menu, "opened", true)
+                let entry = null
+                for (let i = 0; i < menu.count; ++i)
+                    if (menu.itemAt(i).subMenu === submenu) entry = menu.itemAt(i)
+                verify(entry !== null, "Actual submenu entry exists")
+                compare(entry.visible, data.openWith)
+                compare(newTab.visible, data.newTab)
+                if (!data.openWith) compare(entry.implicitHeight, 0)
+                menu.dismiss()
+                tryCompare(menu, "visible", false)
+                pane.clearSelection()
+            }
+            function test_folder_new_tab_action() {
+                const pane = page.activePane
+                const folder = selectNamedFixture("visible-folder")
+                const menu = findChild(pane, "itemContextMenu")
+                const action = findChild(pane, "openFoldersInNewTabAction")
+                menu.open()
+                tryCompare(menu, "opened", true)
+                const before = page.tabs.length
+                newTabSpy.clear()
+                action.triggered()
+                tryCompare(newTabSpy, "count", 1)
+                compare(String(newTabSpy.signalArguments[0][0]), String(folder.itemUrl))
+                tryCompare(menu, "visible", false)
+                tryVerify(function() { return page.tabs.length === before + 1 })
+                page.switchToTab(0, false)
+                page.closeTab(before)
+                tryVerify(function() { return pane.itemCount > 40 })
+            }
+            function test_svgz_uses_image_preview_pipeline() {
+                const pane = page.activePane
+                verify(pane.isPreviewable("svgz"))
+                verify(pane.isPreviewable("SVGZ"))
+                verify(pane.thumbSource("/fixture/example.svgz", "svgz", null, 100, "revision").startsWith("image://gfilethumb/"))
+                compare(String(pane.iconForItem(false, "svgz", "", "example.svgz", "", "image/svg+xml-compressed")),
+                        String(AppTheme.icon("image.svg")))
             }
         }
     }

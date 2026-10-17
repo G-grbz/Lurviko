@@ -17,10 +17,12 @@ depends=(
 )
 makedepends=('cmake>=3.21' 'extra-cmake-modules' 'ninja')
 checkdepends=(
+  'git'
   'python' 'python-pytest' 'python-cryptography' 'breeze-icons' 'desktop-file-utils'
   'libarchive' '7zip' 'ttf-dejavu' 'dbus' 'mesa' 'xorg-server-xvfb' 'xorg-xauth'
 )
 optdepends=(
+  'git: local repository status badges'
   'python-cryptography: standalone vault recovery tool'
   'qt6-wayland: Wayland desktop sessions'
   'qt6-imageformats: additional image formats'

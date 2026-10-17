@@ -1,5 +1,6 @@
 #include "thumbnailprovider.h"
 #include "svgpreviewidentity.h"
+#include <KCompressionDevice>
 
 #include <QCryptographicHash>
 #include <QCache>
@@ -117,14 +118,19 @@ bool waitForThumbnailProcess(QProcess &process,
 
 QImage safeSvgThumbnail(const QString &path, const QSize &maximumSize)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    std::unique_ptr<QIODevice> input;
+    if (QFileInfo(path).suffix().compare(QStringLiteral("svgz"), Qt::CaseInsensitive) == 0)
+        input = std::make_unique<KCompressionDevice>(path, KCompressionDevice::GZip);
+    else
+        input = std::make_unique<QFile>(path);
+    if (!input->open(QIODevice::ReadOnly))
         return {};
 
     // SVG filters can request enormous intermediate surfaces even when the
     // final thumbnail is small. For file-manager thumbnails, render a safe
     // copy without filters; the original file is never modified.
-    QByteArray data = file.read(8 * 1024 * 1024 + 1);
+    // Apply the cap to decompressed data as well (compressed SVG bombs).
+    QByteArray data = input->read(8 * 1024 * 1024 + 1);
     if (data.isEmpty() || data.size() > 8 * 1024 * 1024)
         return {};
 
@@ -702,7 +708,7 @@ public:
                 return QImage();
 
             const QString suffix = info.suffix().toLower();
-            const QStringList imageTypes = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "svg"};
+            const QStringList imageTypes = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "svgz"};
             const QStringList videoTypes = {"mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"};
             const QStringList audioTypes = {"mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "wma", "alac"};
             const QStringList textTypes = {"srt", "lrc", "lrclib", "vtt", "ass", "ssa", "txt", "md", "log", "nfo", "json", "xml", "yaml", "yml", "toml", "ini", "conf", "cfg", "desktop", "service", "csv", "tsv", "m3u", "m3u8", "pls"};
@@ -739,7 +745,7 @@ public:
                 if (imageTypes.contains(suffix)) {
                     previewAttempted = true;
                     QImage decoded;
-                    if (suffix == QStringLiteral("svg")) {
+                    if (suffix == QStringLiteral("svg") || suffix == QStringLiteral("svgz")) {
                         decoded = safeSvgThumbnail(path, QSize(512, 512));
                     } else {
                         QImageReader reader(path);
@@ -879,11 +885,12 @@ QString ThumbnailProvider::cachedFilePath(const QString &path)
     const QString version = videoTypes.contains(suffix) ? QStringLiteral("v4|")
         : audioTypes.contains(suffix) ? QStringLiteral("audio-v1|")
         : suffix == QStringLiteral("appimage") ? QStringLiteral("appimage-v1|")
+        : suffix == QStringLiteral("svgz") ? QStringLiteral("svgz-v1|")
         : QStringLiteral("v2|");
     const QByteArray key = (version + path + QLatin1Char('|')
         + QString::number(info.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|')
         + QString::number(info.size())
-        + (suffix == QStringLiteral("svg") ? QLatin1Char('|') + svgPreviewIdentity(path) : QString())).toUtf8();
+        + ((suffix == QStringLiteral("svg") || suffix == QStringLiteral("svgz")) ? QLatin1Char('|') + svgPreviewIdentity(path) : QString())).toUtf8();
     const QString hash = QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha256).toHex());
     return QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
         + QStringLiteral("/thumbnails/") + hash + QStringLiteral(".png");
