@@ -748,6 +748,7 @@ void OneDriveManager::finishFolderDownloadArchive()
     const QString tempBase = m_folderDownloadTempBase;
     const QString rootName = m_folderDownloadRootName;
     const QStringList args = QStringList{QStringLiteral("-a"), QStringLiteral("-cf"), archivePath}
+        + ArchiveArguments::creationPathOptions()
         + ArchiveArguments::sourceOperand(QFileInfo(QDir(tempBase).filePath(rootName)));
 
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {

@@ -3,6 +3,9 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVirtualObject>
 #include <QSettings>
 #include <QTimer>
 #include <KJob>
@@ -38,6 +41,21 @@ public:
 protected:
     bool doKill() override { return true; } bool doSuspend() override { return true; } bool doResume() override { return true; }
 };
+class ArkRequestService : public QDBusVirtualObject {
+public:
+    bool requested = false;
+    QString introspect(const QString &) const override {
+        return QStringLiteral("<interface name=\"org.kde.ark.DndExtract\"><method name=\"extractSelectedFilesTo\">"
+                              "<arg type=\"s\" direction=\"in\"/></method></interface>");
+    }
+    bool handleMessage(const QDBusMessage &message, const QDBusConnection &connection) override {
+        if (message.interface() != "org.kde.ark.DndExtract" || message.member() != "extractSelectedFilesTo") return false;
+        requested = true;
+        // Like Ark, acknowledge the request before the extraction job ends.
+        connection.send(message.createReply());
+        return true;
+    }
+};
 int main(int argc,char **argv) {
     QApplication app(argc,argv); app.setOrganizationName("Lurviko-QA"); app.setApplicationName("Transfers"); QSettings().setValue("ui/language","en");
     const QString root=qEnvironmentVariable("LURVIKO_ARCHIVE_TEST_ROOT");
@@ -46,6 +64,21 @@ int main(int argc,char **argv) {
     QObject::connect(&ops,&FileOperations::operationFinished,&app,[&](bool ok,const QString &message,bool needsRefresh,bool){finished=true;success=ok;refresh=needsRefresh;lastMessage=message;++results;});
     QObject::connect(&ops,&FileOperations::transferItemsFinished,&app,[&](const QString &,const QStringList &urls){resultUrls=urls;});
     auto state=[&](int id) { for(const auto &v:ops.operations()) if(v.toMap().value("id").toInt()==id) return v.toMap(); return QVariantMap{}; };
+    {
+        ArkRequestService ark;
+        auto bus = QDBusConnection::sessionBus();
+        require(bus.registerVirtualObject("/DndExtract/Test", &ark), "Ark D-Bus fixture registers");
+        const int previousResults = results;
+        ops.extractArkDrag(bus.baseService(), "/DndExtract/Test", url(root));
+        require(until([&] { return ark.requested; }), "Ark extraction is requested asynchronously");
+        pause(100);
+        require(results == previousResults && ops.operations().isEmpty(),
+                "Ark accepting a request never reports a completed extraction or fake progress");
+        bus.unregisterObject("/DndExtract/Test");
+        ops.extractArkDrag(bus.baseService(), "/DndExtract/Missing", url(root));
+        require(until([&] { return results > previousResults; }) && !success && !ops.lastError().isEmpty(),
+                "unavailable Ark extraction reports an actual error");
+    }
     for(int error:{0,int(KIO::ERR_DISK_FULL),int(KIO::ERR_ACCESS_DENIED),int(KIO::ERR_CONNECTION_BROKEN)}) {
         ControlledJob job; finished=false; const int id=FileOperationsTestAccess::track(ops,&job); job.progress();
         require(!state(id).value("finished").toBool() && state(id).value("percent").toInt()==99,"100 percent is not treated as success before result");

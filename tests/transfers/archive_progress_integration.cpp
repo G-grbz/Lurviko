@@ -86,6 +86,11 @@ int main(int argc, char **argv) {
     });
     require(until([&] { return finished; }) && success && title == "Creating archive"
             && sourceLabel == "Source" && archiveLabel == "Archive", "English selection overrides system language");
+    list.start("python3", {"-c", "import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n"
+        " assert z.namelist() == ['şarkı.txt']\n assert z.read('şarkı.txt') == b'unchanged'\n",
+        source + "/şarkı.zip"});
+    require(list.waitForFinished() && list.exitCode() == 0,
+            "real ZIP creation stores exact relative names usable by Ark selected extraction");
     finished = false; success = false;
     operations.compressItem(QUrl::fromLocalFile(source).toString(), "zip");
     const int cancelId = operations.operations().last().toMap().value("id").toInt();

@@ -4408,9 +4408,10 @@ Rectangle {
                     // The slider controls the icon itself, not a fixed card width.
                     // Columns consume the full viewport so there is no random right-side gap
                     // when the requested icon size does not divide the available width evenly.
-                    property real requestedCellWidth: AppTheme.useSystemIcons
-                                                        ? Math.max(72, root.activeIconSize + 34)
-                                                        : Math.max(104, root.activeIconSize)
+                    // Match spacing by the rendered icon size in both modes.
+                    // Bundled icons have a different slider scale; using that
+                    // raw value as the cell width made their gaps grow with zoom.
+                    property real requestedCellWidth: Math.max(72, iconExtent + 34)
                     // Pick the closest column count. floor() dropped a whole
                     // column slightly too early and left a conspicuous empty
                     // strip at a few slider values, especially with fractional

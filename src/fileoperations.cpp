@@ -1864,6 +1864,7 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     args << QStringLiteral("-a")
          << QStringLiteral("-cf")
          << output->path();
+    args << ArchiveArguments::creationPathOptions();
 
     QStringList sourcePaths;
     args << QStringLiteral("-v");
@@ -2190,29 +2191,20 @@ void FileOperations::extractArkDrag(const QString &serviceName,
         return;
     }
 
-    // Ark's D-Bus drag-and-drop API does not expose a byte/file percentage,
-    // but its async reply is delivered when the extraction request finishes.
-    // Track that lifetime in the integrated operation card so users still get
-    // immediate feedback instead of a misleading "started" toast at the end.
-    const QString destinationDetail = QStringLiteral("Ark → %1")
-        .arg(QDir::toNativeSeparators(destination.toLocalFile()));
-    const int operationId = startOperation(QStringLiteral("extract"), destinationDetail);
-
+    // Ark replies as soon as its extraction job starts, even if that job then
+    // fails. Its own KIO job owns progress and completion; never show a false
+    // "extraction complete" card for a successful D-Bus method invocation.
     auto *watcher = new QDBusPendingCallWatcher(
         interface.asyncCall(QStringLiteral("extractSelectedFilesTo"), destination.toLocalFile()), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, operationId](QDBusPendingCallWatcher *finishedWatcher) {
+            [this](QDBusPendingCallWatcher *finishedWatcher) {
         const QDBusPendingReply<> reply = *finishedWatcher;
         if (reply.isError()) {
             const QString error = reply.error().message();
             setLastError(error);
-            finishOperation(operationId, false);
             emit operationFinished(false, error, false, !m_kioProgressEnabled);
         } else {
             setLastError(QString());
-            finishOperation(operationId, true);
-            emit operationFinished(true, QStringLiteral("Archive extraction completed."), true,
-                                   !m_kioProgressEnabled);
         }
         finishedWatcher->deleteLater();
     });

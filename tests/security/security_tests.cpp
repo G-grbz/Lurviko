@@ -74,15 +74,57 @@ private slots:
             const QString archivePath = fixture.filePath("out.zip");
             QProcess process;
             process.start("bsdtar", QStringList{"-a", "-cf", archivePath}
+                + ArchiveArguments::creationPathOptions()
                 + ArchiveArguments::sourceOperand(QFileInfo(source)));
             QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
             QVERIFY(QFileInfo::exists(archivePath));
+            process.start("python3", {"-c",
+                "import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n"
+                " assert all(not name.startswith('./') for name in z.namelist())\n"
+                " assert z.read(sys.argv[2] + '/payload.txt') == b'cloud payload'\n", archivePath, name});
+            QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
             QTemporaryDir extracted;
             process.start("bsdtar", {"-xf", archivePath, "-C", extracted.path()});
             QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
             QFile recovered(extracted.filePath(name + "/payload.txt"));
             QVERIFY(recovered.open(QIODevice::ReadOnly)); QCOMPARE(recovered.readAll(), QByteArray("cloud payload"));
             QVERIFY(QFile::remove(archivePath));
+        }
+    }
+    void archiveMemberNormalizationPreservesLinks() {
+        QTemporaryDir fixture;
+        const QString source = fixture.filePath("icons");
+        QVERIFY(QDir().mkpath(source));
+        QFile payload(source + "/payload"); QVERIFY(payload.open(QIODevice::WriteOnly));
+        payload.write("keep contents"); payload.close();
+        QVERIFY(::symlink("./", QFile::encodeName(source + "/self").constData()) == 0);
+        QVERIFY(::link(QFile::encodeName(payload.fileName()).constData(),
+                       QFile::encodeName(source + "/hardlink").constData()) == 0);
+        for (const QString &suffix : {QString(".zip"), QString(".tar.gz")}) {
+            const QString archive = fixture.filePath("output" + suffix);
+            QProcess process;
+            process.start("bsdtar", QStringList{"-a", "-cf", archive}
+                + ArchiveArguments::creationPathOptions() + ArchiveArguments::sourceOperand(QFileInfo(source)));
+            QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+            process.start("bsdtar", {"-tf", archive});
+            QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+            const auto names = process.readAllStandardOutput().split('\n');
+            QVERIFY(names.contains("icons/payload"));
+            for (const auto &name : names) QVERIFY(!name.startsWith("./"));
+            QTemporaryDir output;
+            process.start("bsdtar", ArchiveArguments::extraction(archive, output.path()));
+            QVERIFY(process.waitForFinished()); QCOMPARE(process.exitCode(), 0);
+            char linkTarget[16] = {};
+            const auto count = ::readlink(QFile::encodeName(output.filePath("icons/self")).constData(), linkTarget, sizeof(linkTarget));
+            QCOMPARE(QByteArray(linkTarget, count), QByteArray("./"));
+            QFile recovered(output.filePath("icons/hardlink")); QVERIFY(recovered.open(QIODevice::ReadOnly));
+            QCOMPARE(recovered.readAll(), QByteArray("keep contents"));
+            if (suffix == ".tar.gz") {
+                struct stat original {}, linked {};
+                QVERIFY(::stat(QFile::encodeName(output.filePath("icons/payload")).constData(), &original) == 0);
+                QVERIFY(::stat(QFile::encodeName(recovered.fileName()).constData(), &linked) == 0);
+                QCOMPARE(original.st_ino, linked.st_ino);
+            }
         }
     }
     void archiveExtractionRejectsSymlinkEscapes() {

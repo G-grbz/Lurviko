@@ -2,6 +2,14 @@
 #include <QFileInfo>
 #include <QStringList>
 namespace ArchiveArguments {
+inline QStringList creationPathOptions()
+{
+    // Keep './' on command operands to protect option-like filenames, but
+    // store canonical relative member names. Ark's libzip backend normalizes
+    // './name' while listing and then cannot look that name up on extraction.
+    // Normalize hardlink references too; symlink targets must stay verbatim.
+    return {QStringLiteral("-s"), QStringLiteral(",^\\./,,S")};
+}
 inline QString extractionFolderName(const QString &fileName)
 {
     QString name = QFileInfo(fileName).fileName();

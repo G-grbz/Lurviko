@@ -137,6 +137,92 @@ Item {
                 compare(AppTheme.useColoredFolderIcons, false)
                 menu.close()
             }
+            function test_grid_spacing_matches_at_the_same_visual_icon_size_data() {
+                return [{tag: "small", size: 72}, {tag: "medium", size: 114},
+                        {tag: "large", size: 168}, {tag: "maximum", size: 245}]
+            }
+            function test_grid_spacing_matches_at_the_same_visual_icon_size(data) {
+                const pane = page.activePane
+                const grid = findChild(pane, "fileGridView")
+                const oldSize = pane.iconSize
+                pane.iconSize = Math.round(data.size / 0.68)
+                wait(0)
+                compare(grid.iconExtent, data.size)
+                const bundled = {width: grid.cellWidth, height: grid.cellHeight,
+                    columns: grid.columnCount, font: grid.itemNameFontPixels}
+                AppTheme.setSystemIcons(true)
+                pane.iconSize = data.size
+                wait(0)
+                compare(grid.iconExtent, data.size)
+                compare(grid.columnCount, bundled.columns)
+                compare(grid.cellWidth, bundled.width)
+                compare(grid.cellHeight, bundled.height)
+                compare(grid.itemNameFontPixels, bundled.font)
+                AppTheme.setSystemIcons(false)
+                pane.iconSize = oldSize
+            }
+            function test_active_tabs_reveal_neighbours_data() {
+                return [{tag: "narrow", width: 900}, {tag: "normal", width: 1020}, {tag: "wide", width: 1600}]
+            }
+            function test_active_tabs_reveal_neighbours(data) {
+                const savedTabs = page.tabs.slice()
+                const savedCurrent = page.currentTab
+                const savedWidth = window.width
+                const scroll = findChild(page, "browserTabScrollView")
+                const row = findChild(page, "browserTabRow")
+                verify(scroll !== null && row !== null)
+                let tabs = []
+                for (let i = 0; i < 12; ++i)
+                    tabs.push(page.makeTab(String(fileArtworkFixtureUrl)))
+                try {
+                    window.width = data.width
+                    wait(0)
+                    page.tabs = tabs
+                    page.switchToTab(0, true)
+                    const flick = scroll.contentItem
+                    tryVerify(function() { return flick.contentWidth > flick.width })
+                    tryVerify(function() { return Math.abs(flick.contentX) < 1 })
+                    const first = findChild(page, "browserTab0")
+                    verify(first !== null)
+                    const step = first.width + row.spacing
+                    // Select an edge tab by mouse, not a hidden tab by index.
+                    // Wide strips also reveal neighbours from the penultimate tab.
+                    const wide = flick.width >= first.width + 4 * step + 12
+                    const target = Math.max(1, Math.floor((flick.width + row.spacing) / step) - (wide ? 2 : 1))
+                    const clicked = findChild(page, "browserTab" + target)
+                    verify(clicked !== null)
+                    mouseClick(clicked, 25, 17)
+                    tryCompare(page, "currentTab", target)
+                    tryVerify(function() { return flick.contentX > 1 })
+                    wait(200)
+                    const next = findChild(page, "browserTab" + (target + 1))
+                    verify(next.x + next.width <= flick.contentX + flick.width + 1,
+                           "The neighbouring tab must be fully visible")
+                    if (flick.width >= first.width + 4 * step + 12) {
+                        const second = findChild(page, "browserTab" + (target + 2))
+                        verify(second.x + second.width <= flick.contentX + flick.width + 1,
+                               "Wide tab strips reveal two neighbours")
+                    }
+                    page.switchToTab(6)
+                    wait(220)
+                    flick.contentX = 6 * step
+                    const before = flick.contentX
+                    mouseClick(findChild(page, "browserTab6"), 25, 17)
+                    tryVerify(function() { return flick.contentX < before - 1 })
+                    wait(200)
+                    const previous = findChild(page, "browserTab5")
+                    verify(previous.x >= flick.contentX - 1,
+                           "Clicking an active edge tab also reveals left neighbours")
+                    page.switchToTab(11)
+                    tryVerify(function() { return Math.abs(flick.contentX - (flick.contentWidth - flick.width)) < 1 })
+                    page.switchToTab(0)
+                    tryVerify(function() { return Math.abs(flick.contentX) < 1 })
+                } finally {
+                    window.width = savedWidth
+                    page.tabs = savedTabs
+                    page.switchToTab(savedCurrent, true)
+                }
+            }
             function test_hidden_files_and_folder_opacity_data() {
                 return [{tag: "grid", grid: true}, {tag: "list", grid: false}]
             }

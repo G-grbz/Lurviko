@@ -977,6 +977,7 @@ void GoogleDriveManager::finishFolderDownloadArchive()
     const QString rootName = m_folderDownloadRootName;
     const int skipped = m_folderDownloadSkipped;
     const QStringList args = QStringList{QStringLiteral("-a"), QStringLiteral("-cf"), archivePath}
+        + ArchiveArguments::creationPathOptions()
         + ArchiveArguments::sourceOperand(QFileInfo(QDir(tempBase).filePath(rootName)));
 
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {

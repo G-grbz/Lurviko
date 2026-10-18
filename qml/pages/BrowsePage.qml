@@ -238,8 +238,10 @@ Item {
         // BrowserPane is shared by all tabs, so persist the outgoing tab's
         // search before DirectoryModel clears it while changing location.
         if (!skipOutgoingCapture) {
-            if (index === currentTab)
+            if (index === currentTab) {
+                Qt.callLater(page.ensureActiveTabVisible)
                 return
+            }
             captureCurrentTabSearchState(true)
         }
 
@@ -294,6 +296,7 @@ Item {
         if (!tabScrollView || !tabScrollView.contentItem)
             return
         const flick = tabScrollView.contentItem
+        activeTabScrollAnimation.stop()
         const maxX = Math.max(0, flick.contentWidth - flick.width)
         flick.contentX = Math.max(0, Math.min(maxX, flick.contentX + delta))
     }
@@ -302,12 +305,54 @@ Item {
         if (!tabScrollView || !tabScrollView.contentItem || currentTab < 0)
             return
         const flick = tabScrollView.contentItem
-        const itemX = currentTab * (160 + tabRow.spacing)
-        const itemRight = itemX + 160
-        if (itemX < flick.contentX)
-            flick.contentX = Math.max(0, itemX - 6)
-        else if (itemRight > flick.contentX + flick.width)
-            flick.contentX = Math.min(Math.max(0, flick.contentWidth - flick.width), itemRight - flick.width + 6)
+        const item = tabRepeater.itemAt(currentTab)
+        if (!item || flick.width <= 0)
+            return
+        // Keep context around the selected tab. Reveal up to two neighbours
+        // on either side when space allows, without moving tabs that are
+        // already comfortably inside the viewport.
+        const padding = 6
+        const step = item.width + tabRow.spacing
+        const neighbours = Math.min(2, Math.max(0,
+            Math.floor((flick.width - item.width - padding * 2) / (step * 2))))
+        let before = neighbours
+        let after = neighbours
+        if (neighbours === 0 && flick.width >= item.width + step + padding * 2) {
+            // A narrow strip can fit the active tab plus only one neighbour.
+            // Reveal it in the direction of the clicked viewport edge.
+            if (item.x + item.width / 2 >= flick.contentX + flick.width / 2)
+                after = 1
+            else
+                before = 1
+        }
+        const first = tabRepeater.itemAt(Math.max(0, currentTab - before))
+        const last = tabRepeater.itemAt(Math.min(tabs.length - 1, currentTab + after))
+        if (!first || !last)
+            return
+        const maxX = Math.max(0, flick.contentWidth - flick.width)
+        const left = Math.max(0, first.x - padding)
+        const right = Math.min(flick.contentWidth, last.x + last.width + padding)
+        let target = flick.contentX
+        if (left < target)
+            target = left
+        else if (right > target + flick.width)
+            target = right - flick.width
+        target = Math.max(0, Math.min(maxX, target))
+        activeTabScrollAnimation.stop()
+        if (Math.abs(target - flick.contentX) > 0.5) {
+            flick.cancelFlick()
+            activeTabScrollAnimation.from = flick.contentX
+            activeTabScrollAnimation.to = target
+            activeTabScrollAnimation.start()
+        }
+    }
+
+    NumberAnimation {
+        id: activeTabScrollAnimation
+        target: tabScrollView.contentItem
+        property: "contentX"
+        duration: 160
+        easing.type: Easing.OutCubic
     }
 
     function addTab(location, activateOverride) {
@@ -1015,9 +1060,11 @@ Item {
     
                 ScrollView {
                     id: tabScrollView
+                    objectName: "browserTabScrollView"
                     Layout.fillWidth: true
                     Layout.preferredHeight: 36
                     contentHeight: 36
+                    onWidthChanged: Qt.callLater(page.ensureActiveTabVisible)
                     ScrollBar.vertical.policy: ScrollBar.AlwaysOff
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                     TapHandler {
@@ -1027,11 +1074,15 @@ Item {
                     }
                     Row {
                         id: tabRow
+                        objectName: "browserTabRow"
+                        onWidthChanged: Qt.callLater(page.ensureActiveTabVisible)
                         spacing: 6
                         Repeater {
+                            id: tabRepeater
                             model: page.tabs
                             delegate: Rectangle {
                                 id: tabDelegate
+                                objectName: "browserTab" + index
                                 required property int index
                                 required property var modelData
                                 property bool suppressClickAfterDrag: false
