@@ -97,6 +97,7 @@ Item {
         visible: active
         active: root.visible && !!root.hoverTrack && !!root.hoverAnchor
         sourceComponent: MusicHoverPreview {
+            sourceItem: libraryGrid
             track: root.hoverTrack || ({})
             lang: root.lang
             anchorItem: root.hoverAnchor

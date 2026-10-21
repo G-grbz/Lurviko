@@ -50,12 +50,12 @@ MenuItem {
     implicitWidth: leftPadding + rightPadding + 22 + 9 + labelMetrics.advanceWidth
                    + (shortcutText.length ? 18 + shortcutMetrics.advanceWidth + 16 : 0)
                    + (favoriteActionVisible ? 37 : 0) + (subMenu !== null ? 27 : 0)
-    implicitHeight: visible ? Math.max(42, shortcutBadge.implicitHeight + topPadding + bottomPadding + 8) : 0
+    implicitHeight: visible ? Math.max(30, contentItem.implicitHeight + topPadding + bottomPadding) : 0
     implicitTextPadding: checkable ? 30 : 8
     leftPadding: 10
     rightPadding: 10
-    topPadding: 3
-    bottomPadding: 3
+    topPadding: 2
+    bottomPadding: 2
 
     indicator: null
     arrow: null
@@ -80,7 +80,7 @@ MenuItem {
                 Text {
                     anchors.centerIn: parent
                     text: "✓"
-                    color: "white"
+                    color: AppTheme.highlightedText
                     visible: control.checked
                     font.pixelSize: 10
                     font.bold: true
@@ -93,7 +93,9 @@ MenuItem {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             text: control.text
-            color: control.enabled ? AppTheme.text : AppTheme.textFaint
+            color: AppTheme.useQtTheme
+                ? (control.enabled ? AppTheme.qtColors.menuText : AppTheme.qtColors.menuDisabledText)
+                : (control.enabled ? AppTheme.text : AppTheme.textFaint)
             font.pixelSize: 12
             font.weight: control.highlighted ? Font.DemiBold : Font.Normal
             elide: Text.ElideRight
@@ -193,7 +195,7 @@ MenuItem {
     }
 
     background: Rectangle {
-        radius: 12
+        radius: 8
         color: control.highlighted ? AppTheme.accentSoft : (control.checked ? AppTheme.surfaceRaised : "transparent")
         border.color: control.highlighted ? AppTheme.accentBorder : "transparent"
         border.width: 1

@@ -48,6 +48,8 @@ Rectangle {
 
     // Low-resolution album wash, not a full-size blur recalculated per frame.
     Item {
+        // The fixed light/dark wash would obscure the native Qt/KWin backdrop.
+        visible: !AppTheme.useQtTheme
         anchors.fill: parent
         clip: true
         MusicArtwork {

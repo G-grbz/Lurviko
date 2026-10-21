@@ -43,7 +43,7 @@ GButton {
     contentItem: Text {
         id: modalLabel
         text: control.text
-        color: control.enabled ? (control.primary ? "white" : (control.danger ? AppTheme.danger : AppTheme.text)) : AppTheme.textFaint
+        color: control.enabled ? (control.primary ? AppTheme.highlightedText : (control.danger ? AppTheme.danger : AppTheme.text)) : AppTheme.textFaint
         font.pixelSize: 12
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter

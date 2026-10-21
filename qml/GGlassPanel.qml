@@ -15,6 +15,18 @@ Item {
     property real blurAmount: 0.58
     property int blurMax: 40
     property bool blurEnabled: false
+    // VideoOutput backdrops stay solid on drivers that cannot safely capture
+    // the decoder texture. Photo chrome can use its separate image scene.
+    property bool nativeBlurEnabled: true
+
+    GOverlaySurface {
+        anchors.fill: parent
+        visible: AppTheme.useQtTheme
+        radius: glass.radius
+        sourceItem: glass.nativeBlurEnabled ? safeSource(glass.sourceItem) : null
+        border.color: AppTheme.borderStrong
+        border.width: glass.borderWidth
+    }
 
     Rectangle {
         id: maskShape
@@ -33,8 +45,8 @@ Item {
         visible: false
         // Even a hidden, non-live capture retains its source's window. Do
         // not attach an unused capture to a player that moves to fullscreen.
-        sourceItem: glass.blurEnabled ? glass.sourceItem : null
-        live: glass.blurEnabled
+        sourceItem: glass.blurEnabled && !AppTheme.useQtTheme ? glass.sourceItem : null
+        live: glass.blurEnabled && !AppTheme.useQtTheme
         hideSource: false
         recursive: false
         sourceRect: {
@@ -47,7 +59,7 @@ Item {
 
     MultiEffect {
         anchors.fill: parent
-        visible: glass.blurEnabled && glass.sourceItem !== null
+        visible: !AppTheme.useQtTheme && glass.blurEnabled && glass.sourceItem !== null
         source: backdropCapture
         blurEnabled: glass.blurEnabled
         blur: glass.blurAmount
@@ -59,6 +71,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
+        visible: !AppTheme.useQtTheme
         radius: glass.radius
         color: glass.tintColor
         border.width: glass.borderWidth

@@ -4,6 +4,7 @@ import Lurviko.App
 
 BusyIndicator {
     id: control
+    property color indicatorColor: AppTheme.accent
 
     implicitWidth: 32
     implicitHeight: 32
@@ -32,7 +33,7 @@ BusyIndicator {
                     radius: dotSize / 2
                     x: rotor.width / 2 + Math.cos(angle) * rotor.width * 0.34 - width / 2
                     y: rotor.height / 2 + Math.sin(angle) * rotor.height * 0.34 - height / 2
-                    color: AppTheme.accent
+                    color: control.indicatorColor
                     opacity: 0.28 + index * 0.09
                 }
             }

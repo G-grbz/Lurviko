@@ -16,7 +16,7 @@ TextField {
     color: enabled ? control.colorTheme.text : control.colorTheme.textFaint
     placeholderTextColor: control.colorTheme.textFaint
     selectionColor: control.colorTheme.selection
-    selectedTextColor: "white"
+    selectedTextColor: control.colorTheme.highlightedText !== undefined ? control.colorTheme.highlightedText : "white"
     font.pixelSize: AppTheme.fontSizeControl
     selectByMouse: true
     verticalAlignment: TextInput.AlignVCenter

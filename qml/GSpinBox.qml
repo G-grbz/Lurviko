@@ -17,7 +17,7 @@ SpinBox {
         font: control.font
         color: control.enabled ? AppTheme.text : AppTheme.textFaint
         selectionColor: AppTheme.selection
-        selectedTextColor: "white"
+        selectedTextColor: AppTheme.highlightedText
         horizontalAlignment: Qt.AlignHCenter
         verticalAlignment: Qt.AlignVCenter
         readOnly: !control.editable

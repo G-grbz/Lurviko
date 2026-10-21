@@ -713,6 +713,7 @@ Item {
 
     GMenu {
         id: hiddenFilesMenu
+        positioningBounds: page
         parent: page
         maximumPopupHeight: Math.max(180, Math.min(620, page.height - 24))
         closePolicy: Popup.CloseOnEscape
@@ -748,10 +749,19 @@ Item {
 
     GMenu {
         id: toolbarViewMenu
+        positioningBounds: page
         objectName: "toolbarViewMenu"
         parent: page
         maximumPopupHeight: Math.max(180, Math.min(620, page.height - 24))
         closePolicy: Popup.CloseOnEscape
+        GMenuItem {
+            objectName: "qtThemeMenuItem"
+            text: lang.language === "tr" ? "Qt temasını kullan" : "Use Qt theme"
+            checkable: true
+            checked: AppTheme.useQtTheme
+            onTriggered: AppTheme.setQtTheme(!AppTheme.useQtTheme)
+        }
+        GMenuSeparator {}
         GMenuItem {
             text: lang.t("grid")
             checkable: true
@@ -916,6 +926,7 @@ Item {
 
     Popup {
         id: wheelSpeedPopup
+        objectName: "wheelSpeedPopup"
         parent: page
         property bool interactionOpen: false
         onAboutToShow: interactionOpen = true
@@ -928,12 +939,7 @@ Item {
         onOpened: wheelSpeedField.text = String(AppTheme.wheelScrollStep)
         onClosed: page.applyWheelSpeedText()
 
-        background: Rectangle {
-            radius: 20
-            color: AppTheme.commandBar
-            border.color: AppTheme.borderStrong
-            border.width: 1
-        }
+        background: GPopupSurface { popup: wheelSpeedPopup }
 
         contentItem: ColumnLayout {
             spacing: 7
@@ -1306,6 +1312,7 @@ Item {
                 }
                 GButton {
                     id: hiddenFilesButton
+                    objectName: "hiddenFilesButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
                     implicitWidth: 34; implicitHeight: 34
@@ -1331,6 +1338,7 @@ Item {
                 }
                 GButton {
                     id: viewButton
+                    objectName: "viewButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
                     implicitWidth: 34; implicitHeight: 34
@@ -1496,15 +1504,16 @@ Item {
 
     Popup {
         id: toast
+        objectName: "browserToast"
         x: parent.width - width - 26
         y: parent.height - height - 26
         width: Math.min(390, Math.max(210, toastLabel.implicitWidth + 72))
         height: 58
         padding: 0
         closePolicy: Popup.NoAutoClose
-        background: Rectangle {
+        background: GPopupSurface {
+            popup: toast
             radius: 20
-            color: AppTheme.commandBar
             border.width: 1
             border.color: AppTheme.accentBorder
         }

@@ -35,7 +35,7 @@ Switch {
             radius: 9
             y: 3
             x: control.checked ? parent.width - width - 3 : 3
-            color: control.checked ? "white" : AppTheme.textMuted
+            color: control.checked ? AppTheme.highlightedText : AppTheme.textMuted
 
             Behavior on x {
                 NumberAnimation { duration: AppTheme.motionNormal; easing.type: Easing.OutCubic }

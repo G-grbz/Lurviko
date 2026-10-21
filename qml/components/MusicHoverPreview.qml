@@ -6,7 +6,7 @@ import QtQuick.Effects
 import QtMultimedia
 import Lurviko.App
 
-Rectangle {
+GOverlaySurface {
     id: root
     objectName: "musicHoverPreview"
     required property var track
@@ -22,6 +22,8 @@ Rectangle {
     readonly property bool decoderActive: audioLoader.active
     readonly property bool pointerInside: false
     readonly property int sampleDurationMs: 30000
+    readonly property color previewAccent: AppTheme.settings.darkMode ? "#8B7CF6" : "#6357E8"
+    readonly property color previewBorder: AppTheme.settings.darkMode ? "#504889" : "#D9D5FF"
     readonly property bool shaderEffectsAvailable: GraphicsInfo.api !== GraphicsInfo.Software
     readonly property real previewProgress: audioLoader.item
         ? Math.max(0, Math.min(1, audioLoader.item.elapsed / sampleDurationMs)) : sampleFinished ? 1 : 0
@@ -30,9 +32,10 @@ Rectangle {
     height: Math.min(196, Math.max(1, viewport ? viewport.height - 24 : 196))
     radius: 16
     antialiasing: true
-    color: "#111525"
+    nativeTheme: false
+    customColor: "#111525"
     border.width: 1
-    border.color: AppTheme.accentBorder
+    border.color: root.previewBorder
     clip: true
     // Match the image/video previews: no focus, clicks or global mouse grabs.
     enabled: false
@@ -116,7 +119,7 @@ Rectangle {
         radius: root.radius
         color: "transparent"
         border.width: 1
-        border.color: AppTheme.accentBorder
+        border.color: root.previewBorder
     }
     ColumnLayout {
         anchors.fill: parent
@@ -168,7 +171,7 @@ Rectangle {
                 width: parent.width * root.previewProgress
                 height: parent.height
                 radius: parent.radius
-                color: AppTheme.accent
+                color: root.previewAccent
             }
         }
     }

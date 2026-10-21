@@ -15,10 +15,13 @@ bash .github/scripts/run-headless-tests.sh
 | Check | Coverage |
 | --- | --- |
 | `test-gfile-ui-controls.py` | Shared QML control conventions |
+| `test-release-policy.py` | Reproducible staged/tagged source archives, final AUR checksum stability, executable/symlink preservation, exact-commit CI/CodeQL gates and blocking failed checks or open findings without network access |
+| `run-desktop-appearance-tests.py` | Actual Main, detached music and embedded menu pixels; native window RGB/alpha and composite panel opacity on software and OpenGL RHI, independent Qt menu color, actual overlay blur pixels, ancestor movement/scale, native framebuffer alpha at 100%/150% display scales and solid software fallback, KWin main-window blur requests, translucent cards/panels, soft outlines and live theme switching; isolated home and test QWidget style |
 | `test-source-uninstall.py` | Custom install prefixes, DESTDIR, preservation of personal data and unrelated aliases, repeated removal and manifest validation |
 | `run-properties-tests.py` | Single and multi-selection Properties, aggregate totals, mixed permission masks, group edits, recursive safety and popup controls |
 | `run-archive-progress-tests.py` | Actual archive creation, selected-language KIO descriptions, live entry/byte/speed counters, pause/resume, cancellation and safe option-like filenames |
 | `run-file-operations-tests.py` | Actual KIO copy/move/duplicate/trash/restore/delete, skip and overwrite, error/cancel result tracking, measured counters, archive publication collisions and responsive cancellable inspection; disk-full/network errors use controlled KJob doubles |
+| `run-archive-drop-tests.py` | Native Ark MIME drops with real tiny ZIP extraction, merging an existing empty folder, refreshed child counts, result selection/scrolling and localized feedback with KIO progress on/off; scrolled folder/file targets in Grid/List/Columns; Ark's D-Bus endpoint uses a test double |
 | `run-security-tests.py` | KDF limits, canonical path boundaries, RAM-only storage and real bsdtar option-like filenames |
 | `run-memory-tests.py` | Returning unused allocator pages to the OS while preserving live data (glibc 2.33+) |
 | `run-history-tests.py` | Recent-location persistence through temporary missing paths, permission errors, restart and equivalent URL spellings |
@@ -29,7 +32,7 @@ bash .github/scripts/run-headless-tests.sh
 | `test-subtitle-translation-formatting.py` | SRT formatting and protected subtitle syntax |
 | `test-subtitle-readable-cues.py` | Long-cue splitting, timing, styling and live/cache parity |
 | `test-translation-quality.py` | EOS, fidelity ranking, sentence context, protected styles, live/resume parity, bounded caches and GPU memory recovery (pytest; no downloads) |
-| `run-qml-tests.py` | Gallery/grouped layout, resizing, navigation anchoring, collection-wide music queues, stable genre filters/counts, independent music zoom, category zoom and slider ranges across directory navigation/page recreation, compact track rows and album/artist navigation |
+| `run-qml-tests.py` | Gallery/grouped layout, resizing, navigation anchoring, collection-wide music queues, stable genre filters/counts, independent music zoom, category zoom and slider ranges across directory navigation/page recreation, compact track rows and album/artist navigation; Qt theme menu, live native palette/opacity, contrast, preference persistence, stable context-menu positions, modal/toast backing, transparent native palettes, manual switch and Qt video chrome with a black canvas |
 | `run-music-presentation-tests.py` | Real Main expanded/detached UI lifetime, remembered tabs, independent detached task, compact restore without navigation, and memory measurements with warmed previews |
 | `run-system-icon-tests.py` | Asynchronous system icon rendering |
 | `run-folder-icon-tests.py` | All 49 baked folder variants, original SVG colors/alpha, bounded size requests, shared concurrent cache entries and cold/warm timings |

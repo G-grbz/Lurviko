@@ -11,6 +11,7 @@ Item {
     required property var lang
     property bool shown: true
     property bool animationsEnabled: true
+    property Item backdropItem: null
 
     readonly property string state: metadata && metadata.state ? String(metadata.state) : "loading"
     readonly property bool ready: state === "ready"
@@ -87,10 +88,13 @@ Item {
         width: Math.max(1, parent.width)
         height: Math.max(1, parent.height)
 
-        Rectangle {
+        GOverlaySurface {
             anchors.fill: parent
             radius: 26
-            color: "#09111B"
+            nativeTheme: false
+            sourceItem: panel.backdropItem
+            customColor: "#09111B"
+            border.width: 0
             antialiasing: true
         }
 
@@ -495,6 +499,7 @@ Item {
 
             GBusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
+                indicatorColor: AppTheme.settings.darkMode ? "#8B7CF6" : "#6357E8"
                 visible: panel.state === "loading"
                 running: visible
             }

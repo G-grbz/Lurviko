@@ -33,13 +33,14 @@ Rectangle {
     signal propertiesRequested()
 
     implicitHeight: capacityText.length > 0
-                    ? Math.max(72, iconSize + 38)
-                    : Math.max(subtitle.length > 0 ? 48 : 42, iconSize + 18)
+                    ? Math.max(66, iconSize + 32)
+                    : Math.max(subtitle.length > 0 ? 44 : 38, iconSize + 12)
     radius: 14
     color: active ? AppTheme.accentSoft
                   : (itemMouse.containsMouse || dragging ? AppTheme.surfaceHover : "transparent")
     border.color: active ? AppTheme.accentBorder : "transparent"
-    border.width: active ? 1 : 0
+    border.width: active ? 0.75 : 0
+    border.pixelAligned: false
     scale: dragging ? 0.97 : 1
 
     Behavior on scale { NumberAnimation { duration: AppTheme.motionFast } }
@@ -54,22 +55,22 @@ Rectangle {
     Rectangle {
         visible: control.active
         anchors.left: parent.left
-        anchors.leftMargin: 3
+        anchors.leftMargin: 8
         anchors.verticalCenter: parent.verticalCenter
-        width: 4
-        height: Math.min(28, parent.height - 12)
-        radius: 4
+        width: 2
+        height: Math.max(0, Math.min(24, parent.height - 20))
+        radius: 1
         color: control.danger ? AppTheme.danger : AppTheme.accent
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 13
+        anchors.leftMargin: 15
         anchors.rightMargin: 8
         spacing: 10
 
         Item {
-            Layout.preferredWidth: Math.max(34, control.iconSize + 12)
+            Layout.preferredWidth: Math.max(30, control.iconSize + 8)
             Layout.preferredHeight: Math.max(34, control.iconSize + 12)
 
             CrispIcon {

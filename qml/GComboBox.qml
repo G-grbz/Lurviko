@@ -34,7 +34,7 @@ ComboBox {
         font: control.font
         color: control.enabled ? control.colorTheme.text : control.colorTheme.textFaint
         selectionColor: control.colorTheme.selection
-        selectedTextColor: "white"
+        selectedTextColor: control.colorTheme.highlightedText !== undefined ? control.colorTheme.highlightedText : "white"
         verticalAlignment: Text.AlignVCenter
         background: null
     }
@@ -101,6 +101,7 @@ ComboBox {
     }
 
     popup: Popup {
+        id: comboPopup
         y: control.height + 6
         width: control.width
         implicitHeight: Math.min(contentItem.implicitHeight + topPadding + bottomPadding, 320)
@@ -116,11 +117,11 @@ ComboBox {
             ScrollIndicator.vertical: ScrollIndicator { }
         }
 
-        background: Rectangle {
+        background: GPopupSurface {
+            popup: comboPopup
+            colorTheme: control.colorTheme
+            customColor: control.colorTheme.surface
             radius: AppTheme.buttonRadius
-            color: control.colorTheme.surface
-            border.width: 1
-            border.color: control.colorTheme.borderStrong
         }
 
         enter: Transition {

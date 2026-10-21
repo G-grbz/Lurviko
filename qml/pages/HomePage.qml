@@ -1031,7 +1031,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 82
                         radius: 14
-                        color: AppTheme.surface
+                        color: AppTheme.useQtTheme ? AppTheme.panelSurface : AppTheme.surface
                         border.color: AppTheme.border
                         RowLayout {
                             anchors.fill: parent
@@ -1096,7 +1096,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: quickGrid.implicitHeight + 28
                     radius: 18
-                    color: quickDrop.containsDrag ? AppTheme.accentSoft : AppTheme.surfaceRaised
+                    color: quickDrop.containsDrag ? AppTheme.accentSoft : AppTheme.panelSurface
                     border.color: quickDrop.containsDrag ? AppTheme.accent : AppTheme.border
                     border.width: quickDrop.containsDrag ? 2 : 1
 

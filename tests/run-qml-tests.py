@@ -64,18 +64,89 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QIcon>
+#include <QProxyStyle>
+#include <QStyleFactory>
+#include <QPainter>
+#include <QStyleOption>
 #include <QFontDatabase>
 #include <KIconTheme>
 #include <QtQuickTest/quicktest.h>
 ''' + includes + '''
+class ThemeProbeStyle : public QProxyStyle {
+public:
+    explicit ThemeProbeStyle(bool translucent) : QProxyStyle(QStyleFactory::create("Fusion")),
+        translucent(translucent) { setObjectName("theme-probe"); }
+    void drawPrimitive(PrimitiveElement element, const QStyleOption *option,
+                       QPainter *painter, const QWidget *widget = nullptr) const override {
+        if (element == PE_PanelMenu) {
+            QColor color("#cbdceb");
+            if (translucent) color.setAlpha(204);
+            painter->fillRect(option->rect, color);
+            return;
+        }
+        if (element != PE_Widget) {
+            QProxyStyle::drawPrimitive(element, option, painter, widget);
+            return;
+        }
+        ++paints;
+        if (translucent) {
+            QColor color = option->palette.color(QPalette::Window);
+            color.setAlpha(153);
+            painter->fillRect(option->rect, color);
+        }
+    }
+    bool translucent;
+    mutable int paints = 0;
+};
 class Setup : public QObject {
     Q_OBJECT
+    const QPalette savedPalette = QApplication::palette();
+    const QString savedStyle = QApplication::style()->objectName();
 public slots:
+    void setSystemThemeTestAppearance(bool dark, bool translucent) {
+        QApplication::setStyle(new ThemeProbeStyle(translucent));
+        QPalette palette;
+        palette.setColor(QPalette::Window, QColor(dark ? "#20272d" : "#e3e7ed"));
+        palette.setColor(QPalette::WindowText, QColor(dark ? "#f2f4f7" : "#17212b"));
+        palette.setColor(QPalette::Base, QColor(dark ? "#10171d" : "#ffffff"));
+        palette.setColor(QPalette::AlternateBase, QColor(dark ? "#282f35" : "#eef0f2"));
+        palette.setColor(QPalette::Text, palette.color(QPalette::WindowText));
+        palette.setColor(QPalette::Button, palette.color(QPalette::Window));
+        palette.setColor(QPalette::ButtonText, palette.color(QPalette::WindowText));
+        palette.setColor(QPalette::Highlight, QColor("#e0c35c"));
+        palette.setColor(QPalette::HighlightedText, QColor("#151515"));
+        palette.setColor(QPalette::Mid, QColor("#777777"));
+        palette.setColor(QPalette::Dark, QColor("#555555"));
+        palette.setColor(QPalette::PlaceholderText, QColor("#888888"));
+        QApplication::setPalette(palette);
+    }
+    int systemThemeProbePaints() const {
+        const auto style = dynamic_cast<ThemeProbeStyle *>(QApplication::style());
+        return style ? style->paints : -1;
+    }
+    void setTransparentSystemThemeTestAppearance() {
+        setSystemThemeTestAppearance(false, true);
+        QPalette palette = QApplication::palette();
+        for (const auto role : {QPalette::Base, QPalette::AlternateBase}) {
+            QColor color = palette.color(role);
+            color.setAlpha(0);
+            palette.setColor(role, color);
+        }
+        QApplication::setPalette(palette);
+    }
+    void restoreSystemThemeTestAppearance() {
+        QApplication::setStyle(QStyleFactory::create(savedStyle));
+        QApplication::setPalette(savedPalette);
+    }
+    void cancelMouseGrab(QQuickItem *item) { item->ungrabMouse(); }
     void applicationAvailable() {
         qApp->setOrganizationName("Lurviko-QA");
         qApp->setApplicationName("Gallery");
         qApp->setDesktopFileName("org.lurviko.Tests");
+        QQuickWindow::setDefaultAlphaBuffer(true);
         QQuickStyle::setStyle("Basic");
         // A bare CI container has no desktop fonts. Qt's last-resort glyph
         // metrics can double label widths and remove visible artist links.
@@ -87,6 +158,7 @@ public slots:
 ''' + registration + '''
     }
     void qmlEngineAvailable(QQmlEngine *engine) {
+        engine->rootContext()->setContextProperty("inputTestHelper", this);
         engine->rootContext()->setContextProperty("fileArtworkFixtureUrl",
             QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_ARTWORK_FIXTURE")));
         engine->rootContext()->setContextProperty("bundledIconNames",
@@ -166,6 +238,8 @@ int main(int argc, char **argv) {
     result = subprocess.run(["dbus-run-session", "--", str(root / "qml-tests"), "-input", str(test_input),
                             "-o", f"{report},txt"], env=environment, timeout=120)
     output = report.read_text() if report.exists() else "No test report was produced."
+    if os.environ.get("LURVIKO_QML_TEST_REPORT"):
+        Path(os.environ["LURVIKO_QML_TEST_REPORT"]).write_text(output)
     unexpected_warnings = []
     # Missing desktop audio services are expected in decoder-only headless
     # runs. Real-device tests still reject these warnings; decoder/UI warnings

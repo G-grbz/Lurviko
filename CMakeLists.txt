@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.3.1 LANGUAGES CXX)
+project(Lurviko VERSION 1.3.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -87,6 +87,8 @@ qt_add_executable(lurviko
     src/appmigration.h
     src/updatechecker.cpp
     src/updatechecker.h
+    src/desktopappearance.cpp
+    src/desktopappearance.h
     src/videochapterreader.cpp
     src/videochapterreader.h
     src/popupdismissfilter.cpp
@@ -103,6 +105,8 @@ qt_add_executable(lurviko
     src/fileoperations.h
     src/archiveinspectionjob.cpp
     src/archiveinspectionjob.h
+    src/archivedropobserver.cpp
+    src/archivedropobserver.h
     src/archiveoutput.h
     src/favoritesmodel.cpp
     src/favoritesmodel.h
@@ -243,6 +247,8 @@ qt_add_qml_module(lurviko
         qml/GProgressBar.qml
         qml/GBusyIndicator.qml
         qml/GGlassPanel.qml
+        qml/GPopupSurface.qml
+        qml/GOverlaySurface.qml
         qml/GViewerIcon.qml
         qml/components/AppSidebar.qml
         qml/components/SidebarItem.qml
@@ -301,6 +307,7 @@ qt_add_qml_module(lurviko
         qml/components/VaultAttemptStatus.qml
     RESOURCES
         ${LURVIKO_ICON_FILES}
+        qml/shaders/overlay.frag.qsb
 )
 
 target_link_libraries(lurviko PRIVATE

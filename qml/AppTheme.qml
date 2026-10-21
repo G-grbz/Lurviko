@@ -2,12 +2,14 @@ pragma Singleton
 
 import QtQuick
 import QtCore
+import Lurviko.Backend
 import "FolderArtwork.js" as FolderArtwork
 
 QtObject {
     property Settings settings: Settings {
         category: "Appearance"
         property bool darkMode: false
+        property bool qtTheme: false
         property bool systemIcons: false
         property bool coloredFolderIcons: false
         property bool kioProgressEnabled: false
@@ -70,7 +72,21 @@ QtObject {
     readonly property bool singleClickOpen: interactionSettings.singleClickOpen
     readonly property bool skipPermanentDeleteConfirmation: browserInteractionSettings.skipPermanentDeleteConfirmation
     readonly property bool skipHiddenNameConfirmation: browserInteractionSettings.skipHiddenNameConfirmation
-    readonly property bool dark: settings.darkMode
+    property DesktopAppearance desktopAppearance: DesktopAppearance {
+        enabled: settings.qtTheme
+    }
+    readonly property bool useQtTheme: settings.qtTheme
+    readonly property var qtColors: desktopAppearance.colors
+    readonly property bool dark: useQtTheme ? desktopAppearance.dark : settings.darkMode
+    readonly property bool translucentWindow: useQtTheme && background.a < 1
+    readonly property color highlightedText: useQtTheme ? qtColors.highlightedText : "white"
+    function mix(first, second, amount) {
+        return Qt.rgba(first.r * (1 - amount) + second.r * amount,
+                       first.g * (1 - amount) + second.g * amount,
+                       first.b * (1 - amount) + second.b * amount,
+                       first.a * (1 - amount) + second.a * amount)
+    }
+    function tint(color, alpha) { return Qt.rgba(color.r, color.g, color.b, alpha) }
     readonly property bool useSystemIcons: settings.systemIcons
     readonly property bool useColoredFolderIcons: settings.coloredFolderIcons
     readonly property real hiddenItemOpacity: 0.70
@@ -107,34 +123,41 @@ QtObject {
              + (fileSubtitleLines - 1) * fileLabelLineHeight(subtitlePixels)
     }
     // Lurviko UI design tokens.  Qt Quick Controls provide behaviour, focus,
-    // accessibility and keyboard semantics; the visual language below belongs
-    // to Lurviko and is intentionally independent from the desktop Qt theme.
+    // accessibility and keyboard semantics. Optional desktop colors come from
+    // the native QApplication palette, without changing the existing layout.
     readonly property string designSystem: "Lurviko UI"
     readonly property int designSystemVersion: 2
 
-    readonly property color background: dark ? "#080C16" : "#E9EDF4"
-    readonly property color workspace: dark ? "#0B101D" : "#F5F7FB"
-    readonly property color sidebar: dark ? "#101827" : "#FBFCFE"
-    readonly property color commandBar: dark ? "#111A2B" : "#FFFFFF"
-    readonly property color surface: dark ? "#121C2D" : "#FFFFFF"
-    readonly property color surfaceRaised: dark ? "#18253A" : "#F8FAFD"
-    readonly property color surfaceSunken: dark ? "#0D1524" : "#EEF2F7"
-    readonly property color surfaceHover: dark ? "#1D2A42" : "#F0F3F9"
+    readonly property color background: useQtTheme ? desktopAppearance.windowBackground : (dark ? "#080C16" : "#E9EDF4")
+    readonly property color workspace: useQtTheme ? (translucentWindow ? "transparent" : qtColors.window) : (dark ? "#0B101D" : "#F5F7FB")
+    readonly property color sidebar: useQtTheme ? (translucentWindow ? "transparent" : qtColors.window) : (dark ? "#101827" : "#FBFCFE")
+    readonly property color commandBar: useQtTheme ? (translucentWindow ? Qt.rgba(qtColors.button.r, qtColors.button.g, qtColors.button.b, 0.08) : qtColors.window) : (dark ? "#111A2B" : "#FFFFFF")
+    readonly property color popupSurface: useQtTheme ? tint(desktopAppearance.menuBackground, 1) : commandBar
+    // Native view palettes may deliberately contain transparent Base/Window
+    // brushes. Fields and fallback surfaces still need a readable solid fill.
+    readonly property color surface: useQtTheme ? tint(qtColors.base, 1) : (dark ? "#121C2D" : "#FFFFFF")
+    readonly property color surfaceRaised: useQtTheme ? tint(qtColors.window, 1) : (dark ? "#18253A" : "#F8FAFD")
+    readonly property color surfaceSunken: useQtTheme ? tint(qtColors.alternateBase, 1) : (dark ? "#0D1524" : "#EEF2F7")
+    readonly property color viewBackground: translucentWindow ? "transparent" : surfaceRaised
+    readonly property color surfaceHover: useQtTheme ? mix(qtColors.button, qtColors.highlight, 0.10) : (dark ? "#1D2A42" : "#F0F3F9")
     // Keep RGB unchanged while fading in; transparent black darkens intermediate frames.
     readonly property color surfaceHoverTransparent: Qt.rgba(surfaceHover.r, surfaceHover.g, surfaceHover.b, 0)
-    readonly property color surfacePressed: dark ? "#263854" : "#E5EAF3"
-    readonly property color surfaceActive: dark ? "#252C4B" : "#EEECFF"
-    readonly property color cardSurface: dark ? "#121D30" : "#FFFFFF"
-    readonly property color cardHover: dark ? "#192942" : "#FAFBFF"
-    readonly property color border: dark ? "#22304A" : "#DDE3ED"
-    readonly property color borderStrong: dark ? "#334462" : "#C7D0DE"
-    readonly property color text: dark ? "#F4F7FC" : "#1A2030"
-    readonly property color textMuted: dark ? "#A4AFC3" : "#596477"
-    readonly property color textFaint: dark ? "#7F8BA3" : "#7B8598"
-    readonly property color accent: dark ? "#8B7CF6" : "#6357E8"
-    readonly property color accentHover: dark ? "#9E92FA" : "#5548D8"
-    readonly property color accentSoft: dark ? "#29254B" : "#EEECFF"
-    readonly property color accentBorder: dark ? "#504889" : "#D9D5FF"
+    readonly property color surfacePressed: useQtTheme ? mix(qtColors.button, qtColors.highlight, 0.20) : (dark ? "#263854" : "#E5EAF3")
+    readonly property color surfaceActive: useQtTheme ? mix(qtColors.base, qtColors.highlight, 0.16) : (dark ? "#252C4B" : "#EEECFF")
+    readonly property color cardSurface: useQtTheme ? (translucentWindow ? tint(qtColors.base, 0.06) : qtColors.base) : (dark ? "#121D30" : "#FFFFFF")
+    readonly property color cardHover: useQtTheme ? (translucentWindow ? tint(qtColors.highlight, 0.12) : mix(qtColors.base, qtColors.highlight, 0.06)) : (dark ? "#192942" : "#FAFBFF")
+    // QPalette::Mid/Dark are bevel roles, not outline colors. Some native
+    // themes set them to almost black, producing heavy boxes in a flat UI.
+    readonly property color border: useQtTheme ? tint(qtColors.text, 0.13) : (dark ? "#22304A" : "#DDE3ED")
+    readonly property color borderStrong: useQtTheme ? tint(qtColors.text, 0.23) : (dark ? "#334462" : "#C7D0DE")
+    readonly property color panelSurface: useQtTheme && translucentWindow ? tint(qtColors.base, 0.04) : surfaceRaised
+    readonly property color text: useQtTheme ? qtColors.text : (dark ? "#F4F7FC" : "#1A2030")
+    readonly property color textMuted: useQtTheme ? mix(qtColors.text, qtColors.window, 0.30) : (dark ? "#A4AFC3" : "#596477")
+    readonly property color textFaint: useQtTheme ? qtColors.placeholderText : (dark ? "#7F8BA3" : "#7B8598")
+    readonly property color accent: useQtTheme ? qtColors.highlight : (dark ? "#8B7CF6" : "#6357E8")
+    readonly property color accentHover: useQtTheme ? mix(qtColors.highlight, qtColors.text, 0.12) : (dark ? "#9E92FA" : "#5548D8")
+    readonly property color accentSoft: useQtTheme ? mix(qtColors.base, qtColors.highlight, 0.13) : (dark ? "#29254B" : "#EEECFF")
+    readonly property color accentBorder: useQtTheme ? mix(qtColors.mid, qtColors.highlight, 0.50) : (dark ? "#504889" : "#D9D5FF")
     readonly property color success: dark ? "#54D6A0" : "#18885B"
     readonly property color warning: dark ? "#F2BD66" : "#B56C09"
     readonly property color danger: dark ? "#FF8089" : "#D84B57"
@@ -146,20 +169,20 @@ QtObject {
     // for now: on some Qt/Wayland/RHI combinations ShaderEffectSource does
     // not produce a reliable backdrop blur for VideoOutput.  Use fully opaque
     // theme-aware surfaces instead so controls never look like broken glass.
-    readonly property color viewerBackground: dark ? "#080B11" : "#E9EDF4"
+    readonly property color viewerBackground: useQtTheme ? tint(qtColors.window, 1) : (dark ? "#080B11" : "#E9EDF4")
     readonly property color viewerScrim: dark ? "#52080B11" : "#32FFFFFF"
-    readonly property color viewerGlass: dark ? "#1B2533" : "#FBFCFE"
-    readonly property color viewerGlassStrong: dark ? "#18212E" : "#F5F7FB"
-    readonly property color viewerGlassSoft: dark ? "#232E3D" : "#EEF2F7"
-    readonly property color viewerGlassBorder: dark ? "#48FFFFFF" : "#360B1220"
-    readonly property color viewerGlassBorderSoft: dark ? "#30FFFFFF" : "#240B1220"
-    readonly property color viewerGlassHover: dark ? "#2CFFFFFF" : "#180B1220"
-    readonly property color viewerGlassPressed: dark ? "#38FFFFFF" : "#260B1220"
-    readonly property color viewerGlassEmphasis: dark ? "#26FFFFFF" : "#165F52E8"
-    readonly property color viewerText: dark ? "#F7FAFF" : "#1A2030"
-    readonly property color viewerTextMuted: dark ? "#C7FFFFFF" : "#B2596477"
-    readonly property color viewerTrack: dark ? "#36FFFFFF" : "#300B1220"
-    readonly property color viewerHandle: dark ? "#FFFFFFFF" : "#FFFBFCFE"
+    readonly property color viewerGlass: useQtTheme ? surface : (dark ? "#1B2533" : "#FBFCFE")
+    readonly property color viewerGlassStrong: useQtTheme ? surfaceRaised : (dark ? "#18212E" : "#F5F7FB")
+    readonly property color viewerGlassSoft: useQtTheme ? surfaceSunken : (dark ? "#232E3D" : "#EEF2F7")
+    readonly property color viewerGlassBorder: useQtTheme ? borderStrong : (dark ? "#48FFFFFF" : "#360B1220")
+    readonly property color viewerGlassBorderSoft: useQtTheme ? border : (dark ? "#30FFFFFF" : "#240B1220")
+    readonly property color viewerGlassHover: useQtTheme ? surfaceHover : (dark ? "#2CFFFFFF" : "#180B1220")
+    readonly property color viewerGlassPressed: useQtTheme ? surfacePressed : (dark ? "#38FFFFFF" : "#260B1220")
+    readonly property color viewerGlassEmphasis: useQtTheme ? accentSoft : (dark ? "#26FFFFFF" : "#165F52E8")
+    readonly property color viewerText: useQtTheme ? qtColors.text : (dark ? "#F7FAFF" : "#1A2030")
+    readonly property color viewerTextMuted: useQtTheme ? textMuted : (dark ? "#C7FFFFFF" : "#B2596477")
+    readonly property color viewerTrack: useQtTheme ? qtColors.mid : (dark ? "#36FFFFFF" : "#300B1220")
+    readonly property color viewerHandle: useQtTheme ? qtColors.button : (dark ? "#FFFFFFFF" : "#FFFBFCFE")
 
     readonly property int radiusSmall: 8
     readonly property int radiusMedium: 12
@@ -196,7 +219,14 @@ QtObject {
     readonly property int motionNormal: 140
     readonly property int motionSlow: 220
 
-    function toggle() { settings.darkMode = !settings.darkMode }
+    function toggle() { if (!useQtTheme) settings.darkMode = !settings.darkMode }
+    function setQtTheme(enabled) {
+        settings.qtTheme = !!enabled
+        // Settings' property autosave is deferred; also write the key before
+        // syncing so an immediate close/reopen cannot restore the old mode.
+        settings.setValue("qtTheme", !!enabled)
+        settings.sync()
+    }
     function setSingleClickOpen(enabled) { interactionSettings.singleClickOpen = !!enabled }
     function setSystemIcons(enabled) { settings.systemIcons = enabled }
     function setColoredFolderIcons(enabled) { settings.coloredFolderIcons = !!enabled }

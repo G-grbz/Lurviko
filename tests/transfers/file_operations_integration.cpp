@@ -68,12 +68,24 @@ int main(int argc,char **argv) {
         ArkRequestService ark;
         auto bus = QDBusConnection::sessionBus();
         require(bus.registerVirtualObject("/DndExtract/Test", &ark), "Ark D-Bus fixture registers");
+        const QString arkDestination = root + "/ark-idle";
+        require(QDir().mkpath(arkDestination + "/test"), "Ark merge destination creates");
+        int observations = 0;
+        QStringList observedUrls;
+        auto observedConnection = QObject::connect(&ops, &FileOperations::archiveDropItemsChanged, &app,
+            [&](const QString &, const QStringList &urls, bool first) { if (first) ++observations; observedUrls = urls; });
         const int previousResults = results;
-        ops.extractArkDrag(bus.baseService(), "/DndExtract/Test", url(root));
+        ops.extractArkDrag(bus.baseService(), "/DndExtract/Test", url(arkDestination));
         require(until([&] { return ark.requested; }), "Ark extraction is requested asynchronously");
         pause(100);
-        require(results == previousResults && ops.operations().isEmpty(),
+        require(results == previousResults && ops.operations().isEmpty() && observations == 0,
                 "Ark accepting a request never reports a completed extraction or fake progress");
+        write(arkDestination + "/test/actual.txt", "observed contents");
+        require(until([&] { return observations == 1; }) && observedUrls.contains(url(arkDestination + "/test")),
+                "actual writes inside an existing directory report the merged result");
+        require(results == previousResults && ops.operations().isEmpty(),
+                "observing contents does not invent completion of Ark's external job");
+        QObject::disconnect(observedConnection);
         bus.unregisterObject("/DndExtract/Test");
         ops.extractArkDrag(bus.baseService(), "/DndExtract/Missing", url(root));
         require(until([&] { return results > previousResults; }) && !success && !ops.lastError().isEmpty(),

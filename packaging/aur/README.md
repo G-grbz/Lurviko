@@ -80,7 +80,12 @@ and `LICENSE`; application sources and built packages remain upstream.
 Push submissions to the AUR repository's `master` branch.
 
 For a new upstream release, update `pkgver`, reset `pkgrel=1`, and update the
-source checksum from that release's `SHA256SUMS`. For packaging-only changes,
+source checksum from that release's `SHA256SUMS`. The reproducible release
+script can also preview the staged source tree using `RELEASE_REVISION` set to
+the output of `git write-tree`; compare that preview with the published archive
+before pushing to AUR. The package uses the canonical uncompressed `.tar` asset
+so different gzip libraries cannot alter its checksum. AUR recipes are export-ignored to avoid a self-referential
+checksum, and remain available in the GitHub repository. For packaging-only changes,
 increment `pkgrel`. Rebuild, rerun `namcap`, regenerate `.SRCINFO` with
 `makepkg --printsrcinfo > .SRCINFO`, then commit and push the AUR files.
 

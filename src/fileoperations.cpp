@@ -2,6 +2,7 @@
 #include "archivearguments.h"
 #include "archivelisting.h"
 #include "archiveinspectionjob.h"
+#include "archivedropobserver.h"
 #include "archiveoutput.h"
 
 #include <QClipboard>
@@ -2181,33 +2182,49 @@ void FileOperations::extractArkDrag(const QString &serviceName,
         return;
     }
 
-    QDBusInterface interface(serviceName, objectPath,
+    auto *interface = new QDBusInterface(serviceName, objectPath,
                              QStringLiteral("org.kde.ark.DndExtract"),
-                             QDBusConnection::sessionBus());
-    if (!interface.isValid()) {
+                             QDBusConnection::sessionBus(), this);
+    if (!interface->isValid()) {
+        interface->deleteLater();
         const QString error = QStringLiteral("Could not connect to Ark's extraction service.");
         setLastError(error);
         emit operationFinished(false, error, false);
         return;
     }
 
-    // Ark replies as soon as its extraction job starts, even if that job then
-    // fails. Its own KIO job owns progress and completion; never show a false
-    // "extraction complete" card for a successful D-Bus method invocation.
-    auto *watcher = new QDBusPendingCallWatcher(
-        interface.asyncCall(QStringLiteral("extractSelectedFilesTo"), destination.toLocalFile()), this);
-    connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this](QDBusPendingCallWatcher *finishedWatcher) {
-        const QDBusPendingReply<> reply = *finishedWatcher;
-        if (reply.isError()) {
-            const QString error = reply.error().message();
-            setLastError(error);
-            emit operationFinished(false, error, false, !m_kioProgressEnabled);
-        } else {
-            setLastError(QString());
-        }
-        finishedWatcher->deleteLater();
+    // Install temporary destination/child watches BEFORE calling Ark: a tiny
+    // archive can finish before its D-Bus acknowledgement is delivered. Ark
+    // still owns the real KIO job; these signals report observed contents,
+    // never inferred progress, success or completion of that external job.
+    auto *observer = new ArchiveDropObserver(destination.toLocalFile(), this);
+    connect(observer, &ArchiveDropObserver::itemsChanged, this,
+            [this, destination](const QStringList &urls, bool first) {
+        emit archiveDropItemsChanged(destination.toString(), urls, first);
     });
+    QPointer<ArchiveDropObserver> guardedObserver(observer);
+    const auto request = [this, interface, destination, guardedObserver] {
+        auto *watcher = new QDBusPendingCallWatcher(
+            interface->asyncCall(QStringLiteral("extractSelectedFilesTo"), destination.toLocalFile()), this);
+        interface->deleteLater();
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [this, guardedObserver](QDBusPendingCallWatcher *finishedWatcher) {
+            const QDBusPendingReply<> reply = *finishedWatcher;
+            if (reply.isError()) {
+                if (guardedObserver) guardedObserver->deleteLater();
+                const QString error = reply.error().message();
+                setLastError(error);
+                emit operationFinished(false, error, false, !m_kioProgressEnabled);
+            } else {
+                setLastError(QString());
+            }
+            finishedWatcher->deleteLater();
+        });
+    };
+    connect(observer, &ArchiveDropObserver::ready, this, request);
+    // A watch quota/permission failure must not prevent Ark extracting files.
+    connect(observer, &ArchiveDropObserver::unavailable, this, request);
+    observer->start();
 }
 
 

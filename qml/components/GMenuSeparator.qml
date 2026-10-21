@@ -4,11 +4,11 @@ import Lurviko.App
 
 MenuSeparator {
     id: control
-    topPadding: visible ? 6 : 0
-    bottomPadding: visible ? 6 : 0
+    topPadding: visible ? 4 : 0
+    bottomPadding: visible ? 4 : 0
     leftPadding: 8
     rightPadding: 8
-    implicitHeight: visible ? 13 : 0
+    implicitHeight: visible ? 9 : 0
     height: implicitHeight
 
     contentItem: Rectangle {

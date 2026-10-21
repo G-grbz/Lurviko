@@ -169,6 +169,7 @@ Rectangle {
         if (viewModeReady && !updatingViewMode) root.viewMode = gridMode ? "grid" : "list"
     }
     onViewModeChanged: {
+        root.cancelRubberSelection()
         updatingViewMode = true
         gridMode = viewMode === "grid"
         updatingViewMode = false
@@ -269,7 +270,7 @@ Rectangle {
                                                     || !root.hostWindow.activeVideoViewer.visible)
 
     focus: true
-    color: AppTheme.surfaceRaised
+    color: AppTheme.viewBackground
     radius: 16
     border.color: AppTheme.border
 
@@ -619,7 +620,16 @@ Rectangle {
     }
     onCategoryViewRevisionChanged: root.scheduleGroupedCategoryReload()
     onGroupedCategoryChanged: root.scheduleGroupedCategoryReload()
-    onVisibleChanged: root.scheduleGroupedCategoryReload()
+    onVisibleChanged: {
+        if (!visible) root.cancelRubberSelection()
+        root.scheduleGroupedCategoryReload()
+    }
+    Connections {
+        target: root.hostWindow
+        function onActiveChanged() {
+            if (!root.hostWindow || !root.hostWindow.active) root.cancelRubberSelection()
+        }
+    }
     Timer {
         id: groupedCategoryReloadTimer
         interval: 0
@@ -1425,6 +1435,9 @@ Rectangle {
 
     function setSelectedUrls(urls, primary, anchor) {
         const nextUrls = urls.slice()
+        // A cancelled pointer grab must never leave the temporary rectangle
+        // preview masking a later click, keyboard selection or external reveal.
+        root.cancelRubberSelection()
         selectedLookup = buildSelectionLookup(nextUrls)
         selectedUrls = nextUrls
         selectionRevision++
@@ -1521,6 +1534,7 @@ Rectangle {
     }
 
     function clearSelection() {
+        root.cancelRubberSelection()
         selectedLookup = ({})
         selectedUrls = []
         selectionRevision++
@@ -3023,7 +3037,11 @@ Rectangle {
 
     function beginRubberSelection(viewName, x, y, modifiers) {
         dismissTextFocus()
-        rubberSelecting = true
+        root.cancelRubberSelection()
+        const base = ((modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) !== 0)
+                   ? selectedUrls.slice() : []
+        if ((modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0)
+            clearSelection()
         rubberView = viewName
         rubberStartX = x
         rubberStartY = y
@@ -3032,11 +3050,21 @@ Rectangle {
         const view = viewName === "grid" ? grid : listView
         rubberPointerViewportY = y - view.contentY
         rubberModifiers = modifiers
-        rubberBaseSelection = ((modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) !== 0)
-                              ? selectedUrls.slice() : []
+        rubberBaseSelection = base
         rubberPreviewSelection = rubberBaseSelection.slice()
-        if (rubberBaseSelection.length === 0 && (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) === 0)
-            clearSelection()
+        rubberSelecting = true
+        selectionRevision++
+    }
+
+    function cancelRubberSelection() {
+        if (!rubberSelecting)
+            return
+        rubberSelecting = false
+        rubberView = ""
+        rubberBaseSelection = []
+        rubberPreviewSelection = []
+        rubberModifiers = Qt.NoModifier
+        rubberPointerViewportY = 0
         selectionRevision++
     }
 
@@ -3147,13 +3175,11 @@ Rectangle {
             return
         const next = rubberSelectionForRect(viewName)
         const primary = next.length ? directory.indexOfUrl(next[next.length - 1]) : -1
-        rubberSelecting = false
-        rubberView = ""
-        rubberPreviewSelection = []
         setSelectedUrls(next, primary, primary)
     }
 
     function positionMenu(menu, item, x, y) {
+        menu.positioningBounds = root
         const p = item.mapToItem(root, x, y)
         menu.x = Math.max(8, Math.min(root.width - menu.implicitWidth - 8, p.x))
         menu.y = Math.max(8, Math.min(root.height - menu.implicitHeight - 8, p.y))
@@ -3180,6 +3206,7 @@ Rectangle {
     }
 
     function showContextMenu(menu, item, x, y) {
+        menu.positioningBounds = root
         contextReopenTimer.stop()
         pendingContextMenu = null
         if (menu === backgroundContextMenu) {
@@ -3309,6 +3336,28 @@ Rectangle {
         })
     }
 
+    function folderDropDestination(view, source, x, y, fallback) {
+        if (!view || !view.visible) return fallback
+        const local = view.mapFromItem(source, x, y)
+        if (local.x < 0 || local.y < 0 || local.x >= view.width || local.y >= view.height)
+            return fallback
+        const content = view.contentItem.mapFromItem(source, x, y)
+        const index = view.indexAt(content.x, content.y)
+        const entry = index >= 0 ? view.itemAtIndex(index) : null
+        if (!entry || !entry.isDir) return fallback
+        const point = entry.mapFromItem(source, x, y)
+        // List rows deliberately leave an empty strip at the right. Grid/list
+        // indexAt can return a cell even outside the delegate's actual bounds.
+        return point.x >= 0 && point.y >= 0 && point.x < entry.width && point.y < entry.height
+                ? entry.itemUrl : fallback
+    }
+
+    function archiveDropDestinationAt(x, y) {
+        if (root.columnsMode)
+            return millerView.archiveDropDestinationAt(millerView.mapFromItem(root, x, y))
+        return root.folderDropDestination(root.gridMode ? grid : listView, root, x, y, directory.location)
+    }
+
     function extractArkDrop(drop, destination) {
         if (!destination || root.isCloudUrl(destination))
             return false
@@ -3322,8 +3371,6 @@ Rectangle {
         }
         if (!service.length || !objectPath.length)
             return false
-        if (destination === directory.location)
-            root.armResultSelectionForChangedItems(destination)
         fileOps.extractArkDrag(service, objectPath, destination)
         return true
     }
@@ -3411,6 +3458,20 @@ Rectangle {
             if (destinationLocation === directory.location
                     && !root.pendingResultSelection && resultUrls.length > 0)
                 root.armResultSelectionForUrls(resultUrls, destinationLocation)
+        }
+        onArchiveDropItemsChanged: function(destinationLocation, resultUrls, firstChange) {
+            const currentDestination = root.locationsEquivalent(destinationLocation, directory.location)
+            const destinationRow = directory.indexOfUrl(destinationLocation)
+            if (firstChange && resultUrls.length && (currentDestination || destinationRow >= 0)) {
+                // Explicit result URLs also match a merged folder whose own
+                // mtime/size did not change, unlike the old signature guess.
+                root.armResultSelectionForUrls(currentDestination ? resultUrls : [destinationLocation], directory.location)
+                root.pendingResultAwaitRefresh = true
+            }
+            if (currentDestination || destinationRow >= 0)
+                directory.requestRefresh()
+            if (firstChange)
+                root.requestToast(lang.language === "tr" ? "Arşiv içeriği eklendi." : "Archive contents added.")
         }
         onItemsRenamed: function(sourceUrls, resultUrls) {
             if (!root.pendingResultSelection || root.pendingResultMode !== "rename"
@@ -3642,7 +3703,8 @@ Rectangle {
 
     // Ark does not expose dragged archive entries as regular URLs. It sends
     // a D-Bus service and object path, so keep a top-level receiver above the
-    // file delegates and ask Ark to extract the selected entries here.
+    // file delegates. Resolve the folder under the pointer before asking Ark
+    // to extract; this receiver otherwise hides the delegates' own DropAreas.
     DropArea {
         id: arkDropArea
         anchors.fill: parent
@@ -3653,7 +3715,8 @@ Rectangle {
             drag.accepted = !root.isCloudUrl(directory.location) && !root.isCategoryLocation
         }
         onDropped: function(drop) {
-            if (root.extractArkDrop(drop, directory.location))
+            const point = arkDropArea.mapToItem(root, drop.x, drop.y)
+            if (root.extractArkDrop(drop, root.archiveDropDestinationAt(point.x, point.y)))
                 drop.acceptProposedAction()
         }
     }
@@ -3674,6 +3737,7 @@ Rectangle {
     }
 
     ColumnLayout {
+        id: browserContent
         anchors.fill: parent
         anchors.margins: 12
         spacing: 10
@@ -4464,6 +4528,7 @@ Rectangle {
 
                 MouseArea {
                     id: gridBackgroundMouse
+                    objectName: "gridBackgroundMouse"
                     parent: grid.contentItem
                     width: grid.width
                     height: Math.max(grid.height, grid.contentHeight)
@@ -4471,6 +4536,8 @@ Rectangle {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     preventStealing: true
                     cursorShape: Qt.ArrowCursor
+                    onEnabledChanged: if (!enabled && root.rubberView === "grid") root.cancelRubberSelection()
+                    onVisibleChanged: if (!visible && root.rubberView === "grid") root.cancelRubberSelection()
                     onPressed: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
                             root.openBackgroundContextAt(gridBackgroundMouse, mouse)
@@ -4486,6 +4553,7 @@ Rectangle {
                         if (mouse.button === Qt.LeftButton)
                             root.finishRubberSelection("grid")
                     }
+                    onCanceled: if (root.rubberView === "grid") root.cancelRubberSelection()
                 }
 
                 Rectangle {
@@ -5005,7 +5073,7 @@ Rectangle {
                             onCanceled: {
                                 backgroundGesture = false
                                 if (root.rubberSelecting && root.rubberView === "grid")
-                                    root.finishRubberSelection("grid")
+                                    root.cancelRubberSelection()
                             }
                             onClicked: function(mouse) {
                                 if (!AppTheme.singleClickOpen || mouse.button !== Qt.LeftButton
@@ -5147,12 +5215,15 @@ Rectangle {
 
                 MouseArea {
                     id: listBackgroundMouse
+                    objectName: "listBackgroundMouse"
                     parent: listView.contentItem
                     width: listView.width
                     height: Math.max(listView.height, listView.contentHeight)
                     z: -10
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     preventStealing: true
+                    onEnabledChanged: if (!enabled && root.rubberView === "list") root.cancelRubberSelection()
+                    onVisibleChanged: if (!visible && root.rubberView === "list") root.cancelRubberSelection()
                     onPressed: function(mouse) {
                         if (mouse.button === Qt.RightButton) {
                             root.openBackgroundContextAt(listBackgroundMouse, mouse)
@@ -5168,6 +5239,7 @@ Rectangle {
                         if (mouse.button === Qt.LeftButton)
                             root.finishRubberSelection("list")
                     }
+                    onCanceled: if (root.rubberView === "list") root.cancelRubberSelection()
                 }
 
                 Rectangle {
@@ -9324,8 +9396,9 @@ Rectangle {
 
         Repeater {
             model: Math.min(3, fileOps.operations.length)
-            delegate: Rectangle {
+            delegate: GOverlaySurface {
                 id: operationCard
+                sourceItem: browserContent
                 required property int index
                 readonly property var operation: fileOps.operations[Math.max(0, fileOps.operations.length - 3) + index]
                 readonly property real shownPercent: root.transferPercent(operation)
@@ -9388,7 +9461,7 @@ Rectangle {
 
                 Behavior on height { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 radius: 14
-                color: cardHover.hovered && operation.finished ? AppTheme.surfaceHover : AppTheme.surface
+                customColor: cardHover.hovered && operation.finished ? AppTheme.surfaceHover : AppTheme.surface
                 border.color: cardHover.hovered && operation.finished ? AppTheme.accentBorder : AppTheme.borderStrong
                 border.width: 1
 

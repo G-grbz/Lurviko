@@ -41,7 +41,7 @@ The screenshots show the current application with a locally selected icon theme.
 - **Subtitles:** optional local AI translation and Whisper transcription, live translated cues and readable timing-aware splitting.
 - **Cloud:** Google Drive and OneDrive sign-in, browsing and transfers, including context-menu uploads when connected. OAuth application credentials are configured by the user.
 - **Private vault:** encrypted local storage using AES-256-GCM with Argon2id key derivation, optional KWallet quick unlock, configurable auto-lock and failed-password protection. Optional recovery keys are shown once, are single-use for password resets in Lurviko, and can be revoked/replaced. Independent read-only exports do not consume the key. See the [recovery format and independent export tool](docs/vault-recovery.md); a recovery key grants full vault access and must be kept secret.
-- **Appearance:** light/dark application themes, adjustable icons, wheel-scroll speed and persisted window/view preferences. The video player keeps its dark presentation.
+- **Appearance:** light/dark application themes or optional [Qt desktop colors and native window translucency](docs/file-browser.md#qt-desktop-appearance), adjustable icons, wheel-scroll speed and persisted window/view preferences. Translucent windows can use KWin blur; the video player keeps its dark presentation.
 - **Video chapters:** choose embedded chapter titles and timestamps from the **Chapters** control beside Audio. Chapter metadata is read asynchronously with `ffprobe`; selecting a chapter seeks to its start while preserving the playback state.
 
 ## Distribution support
@@ -330,7 +330,14 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 Published tags are immutable: source fixes need a new version/tag rather than
 replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
 
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.3.1`** (or `Lurviko-v1.3.1`). Pushing a version tag runs the build and tests, then creates a release titled **Lurviko v1.3.1** with generated notes, source `.tar.gz` / `.zip` archives and SHA-256 checksums. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.3.2`** (or `Lurviko-v1.3.2`). Push `main` and that tag together. The release workflow waits for that exact commit's existing main-branch build/tests and CodeQL runs, checks for open CodeQL findings, then creates **Lurviko v1.3.2** with generated notes, source `.tar`, `.tar.gz` / `.zip` archives and SHA-256 checksums. It does not start a duplicate build. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+
+Release archives use the exported Git tree with a fixed timestamp. AUR recipe
+metadata stays in Git but is excluded from source archives because it contains
+their own checksum. This allows the source archive and final AUR metadata to
+be prepared before committing, then verified against the tagged release. AUR
+uses the uncompressed `.tar` asset so different gzip libraries cannot change
+its checksum; compressed formats remain available for source downloads.
 
 The workflow publishes source code; it does not produce distribution packages. See [GitHub tag triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push) and [release creation](https://cli.github.com/manual/gh_release_create).
 

@@ -1073,6 +1073,7 @@ Item {
 
         MediaHoverPreview {
             id: imageHoverPreview
+            sourceItem: galleryList
             anchors.fill: parent
             visible: root.imageMode
             itemData: root.hoverPreviewItem
@@ -1081,6 +1082,7 @@ Item {
         }
 
         TmdbHoverPreview {
+            backdropItem: galleryList
             anchors.fill: parent
             visible: root.videoMode
             shown: true

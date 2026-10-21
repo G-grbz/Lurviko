@@ -8,8 +8,14 @@ Item {
     objectName: "millerColumnsView"
     required property var browser
     required property var navigation
-    readonly property var currentListView: columns.itemAt(navigation.activeColumn)
-                                           ? columns.itemAt(navigation.activeColumn).listView : null
+    property int columnItemsRevision: 0
+    readonly property var currentListView: {
+        // itemAt() is not a notifyable property. Switching into columns can
+        // evaluate this before Repeater has created its first delegate.
+        const revision = columnItemsRevision
+        const column = columns.itemAt(navigation.activeColumn)
+        return column ? column.listView : null
+    }
     readonly property var selectedItem: {
         const revision = browser.selectionRevision
         return view.visible && browser.selectedCount === 1
@@ -33,6 +39,19 @@ Item {
             drop.acceptProposedAction()
         } else if (browser.extractArkDrop(drop, destination)) drop.acceptProposedAction()
     }
+    function archiveDropDestinationAt(point) {
+        const local = horizontal.mapFromItem(view, point.x, point.y)
+        if (local.x < 0 || local.y < 0 || local.x >= horizontal.width || local.y >= horizontal.height)
+            return browser.directory.location
+        for (let i = 0; i < columns.count; ++i) {
+            const column = columns.itemAt(i)
+            if (!column) continue
+            const inColumn = column.mapFromItem(view, point.x, point.y)
+            if (inColumn.x >= 0 && inColumn.x < column.width && inColumn.y >= 0 && inColumn.y < column.height)
+                return browser.folderDropDestination(column.listView, view, point.x, point.y, column.columnLocation)
+        }
+        return browser.directory.location
+    }
     Connections {
         target: navigation
         function onActiveDirectoryChanged() { Qt.callLater(function() { view.revealColumn() }) }
@@ -54,6 +73,8 @@ Item {
             Repeater {
                 id: columns
                 model: view.visible ? view.navigation : null
+                onItemAdded: function(index, item) { view.columnItemsRevision++ }
+                onItemRemoved: function(index, item) { view.columnItemsRevision++ }
                 delegate: Rectangle {
                     id: column
                     required property int index

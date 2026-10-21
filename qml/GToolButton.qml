@@ -36,7 +36,7 @@ ToolButton {
 
     palette.buttonText: {
         if (!enabled) return control.colorTheme.textFaint
-        if (primary) return "white"
+        if (primary) return control.colorTheme.highlightedText !== undefined ? control.colorTheme.highlightedText : "white"
         if (danger && !flat) return control.colorTheme.danger
         return control.colorTheme.text
     }

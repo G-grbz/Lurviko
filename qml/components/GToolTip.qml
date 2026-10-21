@@ -27,7 +27,7 @@ ToolTip {
 
     contentItem: Text {
         text: control.text
-        color: "#F7F8FC"
+        color: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.qtColors.toolTipText : "#F7F8FC"
         font.pixelSize: 11
         font.weight: Font.Medium
         lineHeight: 1.08
@@ -38,9 +38,11 @@ ToolTip {
 
     background: Rectangle {
         radius: 9
-        color: control.colorTheme.dark ? "#1A2438" : "#232938"
+        color: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.qtColors.toolTipBase
+               : (control.colorTheme.dark ? "#1A2438" : "#232938")
         border.width: 1
-        border.color: control.colorTheme.dark ? "#3A4862" : "#353D50"
+        border.color: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.borderStrong
+                      : (control.colorTheme.dark ? "#3A4862" : "#353D50")
 
         Rectangle {
             anchors.left: parent.left

@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Lurviko.App
 
-Rectangle {
+GOverlaySurface {
     id: preview
     property var itemData: null
     property string thumbnailSource: ""
@@ -16,7 +16,7 @@ Rectangle {
     // This is a visual overlay, so hover and clicks reach the original card.
     enabled: false
     radius: 14
-    color: AppTheme.surface
+    customColor: AppTheme.surface
     border.width: 1
     border.color: AppTheme.borderStrong
 

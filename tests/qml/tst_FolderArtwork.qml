@@ -226,6 +226,119 @@ Item {
             function test_hidden_files_and_folder_opacity_data() {
                 return [{tag: "grid", grid: true}, {tag: "list", grid: false}]
             }
+            function test_cancelled_background_selection_data() {
+                return [{tag: "grid-disabled", grid: true, disable: true},
+                        {tag: "list-disabled", grid: false, disable: true},
+                        {tag: "grid-cancelled", grid: true, disable: false},
+                        {tag: "list-cancelled", grid: false, disable: false}]
+            }
+            function test_cancelled_background_selection(data) {
+                const pane = page.activePane
+                const savedLocation = pane.currentLocation
+                pane.gridMode = data.grid
+                const background = findChild(pane, data.grid ? "gridBackgroundMouse" : "listBackgroundMouse")
+                verify(background !== null)
+                try {
+                    pane.currentLocation = String(fileArtworkFixtureUrl) + "/visible-folder"
+                    tryVerify(function() { return !pane.directory.loading && pane.itemCount === 0 })
+                    mousePress(background, 30, 30, Qt.LeftButton)
+                    tryCompare(pane, "rubberSelecting", true)
+                    verify(background.pressed)
+                    // Interrupt a real pressed MouseArea by disabling its
+                    // owner. Qt does not always deliver cancelled in this case.
+                    if (data.disable)
+                        background.enabled = false
+                    else
+                        inputTestHelper.cancelMouseGrab(background)
+                    tryCompare(pane, "rubberSelecting", false)
+                } finally {
+                    background.enabled = true
+                    mouseRelease(background, 30, 30, Qt.LeftButton)
+                    pane.finishRubberSelection(data.grid ? "grid" : "list")
+                    pane.currentLocation = savedLocation
+                    tryVerify(function() { return !pane.directory.loading && pane.itemCount > 40 })
+                }
+            }
+            function test_explicit_selection_replaces_interrupted_preview_data() {
+                return [{tag: "click", reveal: false}, {tag: "show-in-folder", reveal: true}]
+            }
+            function test_explicit_selection_replaces_interrupted_preview(data) {
+                const pane = page.activePane
+                const view = findChild(pane, "fileGridView")
+                tryVerify(function() { return !pane.directory.loading && pane.itemCount > 40 })
+                const item = pane.directory.itemAt(0)
+                try {
+                    pane.beginRubberSelection("grid", 0, 0, Qt.NoModifier)
+                    compare(pane.rubberSelecting, true)
+                    if (data.reveal)
+                        pane.revealExternalItem(pane.currentLocation, item.itemUrl, true)
+                    else
+                        pane.selectIndex(0, Qt.NoModifier)
+                    tryCompare(pane, "selectedUrl", item.itemUrl)
+                    tryCompare(pane, "rubberSelecting", false)
+                    verify(pane.isSelected(item.itemUrl))
+                    view.positionViewAtIndex(0, GridView.Beginning)
+                    tryVerify(function() { return view.itemAtIndex(0) !== null })
+                    const highlight = findChild(view.itemAtIndex(0), "gridItemHighlight")
+                    verify(highlight !== null)
+                    tryCompare(highlight, "visible", true)
+                } finally {
+                    pane.finishRubberSelection("grid")
+                }
+            }
+            function test_rectangle_selection_preserves_modifier_behaviour_data() {
+                let cases = []
+                for (const grid of [true, false])
+                    for (const modifier of [Qt.NoModifier, Qt.ControlModifier, Qt.ShiftModifier])
+                        cases.push({tag: (grid ? "grid" : "list") + "-" + modifier,
+                                    grid: grid, modifier: modifier})
+                return cases
+            }
+            function test_rectangle_selection_preserves_modifier_behaviour(data) {
+                const pane = page.activePane
+                pane.gridMode = data.grid
+                tryVerify(function() { return !pane.directory.loading && pane.itemCount > 40 })
+                const view = findChild(pane, data.grid ? "fileGridView" : "fileListView")
+                const first = pane.directory.itemAt(0).itemUrl
+                const second = pane.directory.itemAt(1).itemUrl
+                pane.selectIndex(0, Qt.NoModifier)
+                pane.beginRubberSelection(data.grid ? "grid" : "list", 1, 1, data.modifier)
+                compare(pane.rubberSelecting, true)
+                const rowHeight = Math.round(48 + (pane.activeIconSize - 118) * 0.13)
+                pane.updateRubberSelection(data.grid ? view.cellWidth * 2 - 1 : 15,
+                                          data.grid ? view.cellHeight - 1 : rowHeight * 2 - 1)
+                pane.finishRubberSelection(data.grid ? "grid" : "list")
+                compare(pane.rubberSelecting, false)
+                compare(pane.rubberView, "")
+                compare(pane.rubberPreviewSelection.length, 0)
+                compare(pane.selectedCount, data.modifier === Qt.ControlModifier ? 1 : 2)
+                compare(pane.isSelected(first), data.modifier !== Qt.ControlModifier)
+                verify(pane.isSelected(second))
+            }
+            function test_navigation_discards_interrupted_selection() {
+                const pane = page.activePane
+                const location = pane.currentLocation
+                try {
+                    pane.beginRubberSelection("grid", 1, 1, Qt.NoModifier)
+                    pane.currentLocation = String(fileArtworkFixtureUrl) + "/visible-folder"
+                    tryVerify(function() { return !pane.directory.loading && pane.itemCount === 0 })
+                    compare(pane.rubberSelecting, false)
+                    compare(pane.rubberView, "")
+                } finally {
+                    pane.currentLocation = location
+                    tryVerify(function() { return !pane.directory.loading && pane.itemCount > 40 })
+                }
+            }
+            function test_view_switch_discards_interrupted_selection() {
+                const pane = page.activePane
+                pane.beginRubberSelection("grid", 1, 1, Qt.NoModifier)
+                pane.gridMode = false
+                compare(pane.rubberSelecting, false)
+                pane.beginRubberSelection("list", 1, 1, Qt.NoModifier)
+                pane.visible = false
+                compare(pane.rubberSelecting, false)
+                pane.visible = true
+            }
             function test_hidden_files_and_folder_opacity(data) {
                 const pane = page.activePane
                 pane.gridMode = data.grid

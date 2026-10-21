@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the version tag and archive exactly the checked-out source commit."""
+"""Validate a release tag and reproducibly archive its exported source tree."""
 import hashlib
 import os
 from pathlib import Path
@@ -17,13 +17,22 @@ def release_version(tag: str, cmake: str) -> str:
 
 def main() -> None:
     version = release_version(os.environ["RELEASE_TAG"], Path("CMakeLists.txt").read_text())
+    # A tree object avoids embedding the eventual commit ID in tar/zip metadata.
+    # The fixed timestamp and umask make staged-tree previews match the final
+    # tagged commit. AUR checksum records are export-ignored, not app sources.
+    revision = os.environ.get("RELEASE_REVISION", "HEAD")
+    tree = subprocess.check_output(["git", "rev-parse", "--verify", "--end-of-options",
+                                    f"{revision}^{{tree}}"], text=True).strip()
     destination = Path("release")
     destination.mkdir(exist_ok=True)
     archives = []
-    for extension in ("tar.gz", "zip"):
+    # The uncompressed tar is canonical for AUR: zlib and zlib-ng may produce
+    # different compressed bytes for identical source files across platforms.
+    for extension in ("tar", "tar.gz", "zip"):
         archive = destination / f"Lurviko-{version}.{extension}"
-        subprocess.run(["git", "archive", f"--format={extension}", f"--prefix=Lurviko-{version}/",
-                        "-o", str(archive), "HEAD"], check=True)
+        subprocess.run(["git", "-c", "tar.umask=0022", "archive", f"--format={extension}",
+                        "--mtime=@946684800", f"--prefix=Lurviko-{version}/",
+                        "-o", str(archive), tree], check=True, env={**os.environ, "TZ": "UTC"})
         archives.append(archive)
     (destination / "SHA256SUMS").write_text("".join(
         f"{hashlib.file_digest(p.open('rb'), 'sha256').hexdigest()}  {p.name}\n" for p in archives))

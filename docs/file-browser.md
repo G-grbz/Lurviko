@@ -4,6 +4,49 @@ Use the upper-right **View** menu to choose **Grid**, **List** or **Columns**.
 The preference is saved. The default shortcuts are Ctrl+1, Ctrl+2 and Ctrl+3;
 they can be changed in the keyboard shortcuts dialog.
 
+## Qt desktop appearance
+
+Enable **View → Use Qt theme** to use the Qt application's desktop palette
+instead of Lurviko's light/dark colors. The setting is saved; disabling it
+restores the previous light/dark choice. The sidebar's light/dark switch is
+disabled while Qt mode is active. Icon-theme selection remains independent.
+
+Window backgrounds also sample the selected QWidget style's native painting:
+this includes Kvantum background opacity when its theme enables translucency.
+Large background panels share one backdrop rather than stacking opaque fills.
+The backdrop is painted by the scene graph over a transparent window clear;
+this keeps the color premultiplied correctly on GPU backends. Explore cards
+use light translucent overlays and outlines rather than opaque palette bevels.
+KWin blur is requested for translucent main and detached music windows using
+KWindowEffects. KWin must provide and enable the blur effect; compositor opacity
+rules remain controlled by KWin. Fully opaque styles remain opaque. Lurviko
+keeps its own control layout and does not reproduce a style's SVG textures or
+widget shapes. Qt palette/style changes delivered to the application are
+applied live; styles that only load settings at startup require a restart.
+Qt mode also applies to photo/video controls and photo hover cards. Music and
+video hover previews retain their artwork, dark backgrounds and light text
+independently of the Qt theme. In custom
+light/dark mode the video player keeps its fixed dark chrome; the video canvas
+remains black in either mode.
+
+Menus and combo popups use the selected Qt style's menu background, separately
+from toolbar backgrounds. Embedded overlays compose a native window base and
+the panel/menu tint above their blurred content, preserving both sampled alpha
+values. This reduces show-through without a fixed white or opaque fill.
+Menus stay inside the application
+window to retain their click positions on Wayland and scaled displays. Modal
+settings, keyboard shortcuts, notifications and photo hover surfaces share the
+native window background. Qt Quick blurs the application's content beneath
+these overlays; KWin handles the desktop behind the main window. Captures are
+limited to the visible overlay and released on close. Software rendering or an
+unsafe capture source uses an opaque native color for readability. Video
+controls also use solid native colors because capturing VideoOutput textures
+is unreliable on some drivers. Tooltip colors follow the Qt palette.
+
+Native API references: [Qt palette](https://doc.qt.io/qt-6/qpalette.html),
+[KDE window effects](https://api.kde.org/kwindoweffects.html), and
+[Kvantum native window painting](https://github.com/tsujan/Kvantum/blob/master/Kvantum/style/Kvantum.cpp).
+
 ## Miller Columns
 
 Selecting a folder shows its contents in a column to the right. Selecting a
@@ -88,6 +131,15 @@ Extraction retains libarchive's safe-write and path guards. Cancellation or
 failure can leave entries already extracted; these are retained and the view
 refreshes. There is no whole-directory rollback. Archive tools remain local;
 remote copy/move/delete/restore operations continue through KIO workers.
+
+For drag extraction from Ark, Lurviko briefly watches the destination and its
+immediate children. Actual changes refresh merged-folder counts and select and
+reveal the first observed results, with a short notification even when system
+progress is enabled. Later updates refresh counts without stealing a new user
+selection. This indicates that contents became available; Ark's own job still
+reports extraction progress and errors. Its D-Bus acknowledgement does not
+confirm completion. Monitoring is shallow and temporary (up to 4,096 child
+watches, 30 seconds idle / three minutes total), with no recursive tree scan.
 
 ### Verification limits
 

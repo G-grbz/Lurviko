@@ -4,7 +4,9 @@
 
 static bool containsItem(QQuickItem *item, const QPointF &position)
 {
-    return item && item->isVisible() && item->contains(item->mapFromScene(position));
+    // Menus can live in their own Qt popup window in desktop-theme mode.
+    // Compare global positions so each item uses its own window's coordinates.
+    return item && item->isVisible() && item->contains(item->mapFromGlobal(position));
 }
 
 static bool containsPopup(QObject *popup, const QPointF &position)
@@ -65,11 +67,11 @@ bool PopupDismissFilter::eventFilter(QObject *watched, QEvent *event)
         return false;
     const bool visible = m_popup && m_popup->property("visible").toBool();
     if (event->type() == QEvent::MouseButtonPress) {
-        m_pressedOutside = visible && !contains(mouse->scenePosition());
+        m_pressedOutside = visible && !contains(mouse->globalPosition());
     } else {
         // Dismiss on release so the exit animation cannot cancel a toolbar
         // button halfway through its press. The release still reaches Qt.
-        const bool dismiss = m_pressedOutside && visible && !contains(mouse->scenePosition());
+        const bool dismiss = m_pressedOutside && visible && !contains(mouse->globalPosition());
         m_pressedOutside = false;
         if (dismiss) {
             const char *method = m_popup->metaObject()->indexOfMethod("requestClose()") >= 0 ? "requestClose" : "close";

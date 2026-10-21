@@ -370,6 +370,7 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
+        anchors.rightMargin: 4
         spacing: 14
 
         RowLayout {
@@ -444,8 +445,8 @@ Rectangle {
             }
 
             ColumnLayout {
-                width: Math.max(0, navScroll.availableWidth - 4)
-                spacing: 4
+                width: Math.max(0, navScroll.availableWidth)
+                spacing: 2
 
                 Repeater {
                     model: sidebar.systemItems
@@ -527,7 +528,7 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: 4
-                        spacing: 3
+                        spacing: 2
 
                         Text {
                             visible: favoritesModel.count === 0
@@ -758,12 +759,17 @@ Rectangle {
             Item { Layout.fillWidth: true }
             GButton {
                 id: themeSwitch
+                objectName: "themeSwitch"
+                enabled: !AppTheme.useQtTheme
+                opacity: enabled ? 1 : 0.45
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 Layout.preferredWidth: 68
                 Layout.preferredHeight: 32
                 onClicked: AppTheme.toggle()
                 GToolTip {
-                    text: AppTheme.dark
+                    text: AppTheme.useQtTheme
+                          ? (lang.language === "tr" ? "Qt teması kullanılıyor" : "Using the Qt theme")
+                          : AppTheme.dark
                           ? (lang.language === "tr" ? "Aydınlık görünüm" : "Light appearance")
                           : (lang.language === "tr" ? "Karanlık görünüm" : "Dark appearance")
                 }
@@ -828,11 +834,10 @@ Rectangle {
         width: Math.max(218, sidebar.width - 20)
         height: 246
         padding: 10
-        background: Rectangle {
+        background: GPopupSurface {
+            popup: miniMusicPopup
+            customColor: AppTheme.surface
             radius: 14
-            color: AppTheme.surface
-            border.width: 1
-            border.color: AppTheme.borderStrong
         }
         contentItem: ColumnLayout {
             spacing: 7

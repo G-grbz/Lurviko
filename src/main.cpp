@@ -39,6 +39,7 @@
 #include "appmigration.h"
 #include <QSettings>
 #include "updatechecker.h"
+#include "desktopappearance.h"
 #include "videochapterreader.h"
 #include "directorymodel.h"
 #include "millernavigationmodel.h"
@@ -375,6 +376,9 @@ int main(int argc, char *argv[])
     // Native glyph rasterization is noticeably sharper for the small UI labels
     // used by Lurviko on fractional-scale Plasma desktops.
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+    // Allocate alpha before creating Quick surfaces so the optional native
+    // theme can be enabled live. Opaque Lurviko themes still clear opaquely.
+    QQuickWindow::setDefaultAlphaBuffer(true);
     QQuickStyle::setStyle("Basic");
     // Lurviko is a normal desktop application: closing its last main window
     // must terminate the process rather than leaving the single-instance
@@ -382,6 +386,8 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(true);
 
     qmlRegisterType<StorageModel>("Lurviko.Backend", 1, 0, "StorageModel");
+    qmlRegisterType<DesktopAppearance>("Lurviko.Backend", 1, 0, "DesktopAppearance");
+    qmlRegisterType<DesktopWindowEffects>("Lurviko.Backend", 1, 0, "DesktopWindowEffects");
     qmlRegisterType<UpdateChecker>("Lurviko.Backend", 1, 0, "UpdateChecker");
     qmlRegisterType<VideoChapterReader>("Lurviko.Backend", 1, 0, "VideoChapterReader");
     qmlRegisterType<MillerNavigationModel>("Lurviko.Backend", 1, 0, "MillerNavigationModel");

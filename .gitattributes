@@ -8,3 +8,7 @@
 *.md text eol=lf
 *.svg text eol=lf
 *.png binary
+
+# AUR metadata contains the checksum of the source archive itself. Keep it in
+# Git, but outside that archive so it can be finalized in the same commit.
+/packaging/aur export-ignore

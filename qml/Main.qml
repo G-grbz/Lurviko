@@ -17,7 +17,15 @@ ApplicationWindow {
     title: "Lurviko"
     UpdateChecker { id: appUpdates }
     Timer { interval: 2500; running: true; onTriggered: appUpdates.checkForUpdates() }
-    color: AppTheme.background
+    // Translucent clear colors are not premultiplied on all RHI backends.
+    // Paint the native background through the scene graph, as an ordinary
+    // rectangle, so KWin receives correct premultiplied pixels.
+    color: AppTheme.useQtTheme ? "transparent" : AppTheme.background
+    background: Rectangle {
+        objectName: "desktopWindowBackdrop"
+        visible: AppTheme.useQtTheme
+        color: AppTheme.background
+    }
     palette.window: AppTheme.background
     palette.windowText: AppTheme.text
     palette.base: AppTheme.surface
@@ -26,9 +34,13 @@ ApplicationWindow {
     palette.button: AppTheme.surfaceRaised
     palette.buttonText: AppTheme.text
     palette.highlight: AppTheme.accent
-    palette.highlightedText: "white"
+    palette.highlightedText: AppTheme.highlightedText
     palette.placeholderText: AppTheme.textFaint
     property string launchLocation: ""
+    DesktopWindowEffects {
+        window: root
+        enabled: AppTheme.translucentWindow
+    }
     property bool fileManagerActivation: false
     property bool waitingForExternalLocation: fileManagerActivation && launchLocation.length === 0
     property bool windowStateReady: false
@@ -454,9 +466,10 @@ ApplicationWindow {
     }
 
     RowLayout {
+        id: shellLayout
         anchors.fill: parent
         anchors.margins: AppTheme.shellMargin
-        spacing: AppTheme.shellMargin
+        spacing: 4
 
         AppSidebar {
             id: appSidebar
@@ -564,7 +577,17 @@ ApplicationWindow {
         minimumWidth: 780
         minimumHeight: 540
         visible: root.musicDetached && globalMusicPlayer.opened
-        color: AppTheme.workspace
+        color: AppTheme.useQtTheme ? "transparent" : AppTheme.workspace
+        Rectangle {
+            objectName: "detachedDesktopBackdrop"
+            anchors.fill: parent
+            visible: AppTheme.useQtTheme
+            color: AppTheme.background
+        }
+        DesktopWindowEffects {
+            window: musicDetachedWindow
+            enabled: AppTheme.translucentWindow
+        }
         onClosing: function(close) {
             root.musicDetached = false
         }
@@ -620,7 +643,7 @@ ApplicationWindow {
         x: {
             const host = root.activeMusicDockHost || root.activeMusicPlayerArea
             if (!host)
-                return appSidebar.x + appSidebar.width + AppTheme.shellMargin
+                return shellLayout.x + workspaceShell.x + workspaceShell.border.width
             // Explicit reads keep this binding live across pane/layout changes.
             const revision = host.x + host.y + host.width + host.height
                              + (stack.currentItem ? stack.currentItem.x : 0)
@@ -687,13 +710,14 @@ ApplicationWindow {
 
     Popup {
         id: globalToast
+        objectName: "globalToast"
         x: root.width - width - 26
         y: root.height - height - 26
         width: Math.min(380, Math.max(190, globalToastLabel.implicitWidth + 42))
         height: 54
         z: 11000
         closePolicy: Popup.NoAutoClose
-        background: Rectangle { radius: 18; color: AppTheme.commandBar; border.color: AppTheme.accentBorder; opacity: 0.99 }
+        background: GPopupSurface { popup: globalToast; radius: 18; border.color: AppTheme.accentBorder }
         contentItem: Text {
             id: globalToastLabel
             color: AppTheme.text
@@ -718,8 +742,9 @@ ApplicationWindow {
         }
     }
 
-    Rectangle {
+    GOverlaySurface {
         id: globalDriveTransferCard
+        sourceItem: stack
         visible: root.transferManager.transferActive
         z: 10000
         anchors.right: parent.right
@@ -729,7 +754,7 @@ ApplicationWindow {
         width: 340
         height: 92
         radius: 20
-        color: AppTheme.commandBar
+        customColor: AppTheme.popupSurface
         border.color: AppTheme.borderStrong
         border.width: 1
 

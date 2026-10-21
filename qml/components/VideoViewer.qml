@@ -13,38 +13,39 @@ Popup {
     id: viewer
     required property var lang
 
-    // The player has its own dark palette, independent of the file manager.
+    // Custom mode keeps the player dark; Qt mode follows desktop chrome colors.
+    // The actual video canvas remains black in either mode.
     QtObject {
         id: videoTheme
-        readonly property bool dark: true
+        readonly property bool dark: AppTheme.useQtTheme ? AppTheme.dark : (true)
         readonly property color viewerBackground: "#080B11"
-        readonly property color viewerGlass: "#1B2533"
-        readonly property color viewerGlassStrong: "#18212E"
-        readonly property color viewerGlassSoft: "#232E3D"
-        readonly property color viewerGlassBorder: "#48FFFFFF"
-        readonly property color viewerGlassBorderSoft: "#30FFFFFF"
-        readonly property color viewerGlassHover: "#2CFFFFFF"
-        readonly property color viewerGlassPressed: "#38FFFFFF"
-        readonly property color viewerGlassEmphasis: "#26FFFFFF"
-        readonly property color viewerText: "#F7FAFF"
-        readonly property color viewerTextMuted: "#C7FFFFFF"
-        readonly property color viewerTrack: "#36FFFFFF"
+        readonly property color viewerGlass: AppTheme.useQtTheme ? AppTheme.viewerGlass : ("#1B2533")
+        readonly property color viewerGlassStrong: AppTheme.useQtTheme ? AppTheme.viewerGlassStrong : ("#18212E")
+        readonly property color viewerGlassSoft: AppTheme.useQtTheme ? AppTheme.viewerGlassSoft : ("#232E3D")
+        readonly property color viewerGlassBorder: AppTheme.useQtTheme ? AppTheme.viewerGlassBorder : ("#48FFFFFF")
+        readonly property color viewerGlassBorderSoft: AppTheme.useQtTheme ? AppTheme.viewerGlassBorderSoft : ("#30FFFFFF")
+        readonly property color viewerGlassHover: AppTheme.useQtTheme ? AppTheme.viewerGlassHover : ("#2CFFFFFF")
+        readonly property color viewerGlassPressed: AppTheme.useQtTheme ? AppTheme.viewerGlassPressed : ("#38FFFFFF")
+        readonly property color viewerGlassEmphasis: AppTheme.useQtTheme ? AppTheme.viewerGlassEmphasis : ("#26FFFFFF")
+        readonly property color viewerText: AppTheme.useQtTheme ? AppTheme.viewerText : ("#F7FAFF")
+        readonly property color viewerTextMuted: AppTheme.useQtTheme ? AppTheme.viewerTextMuted : ("#C7FFFFFF")
+        readonly property color viewerTrack: AppTheme.useQtTheme ? AppTheme.viewerTrack : ("#36FFFFFF")
         readonly property color text: viewerText
         readonly property color textMuted: viewerTextMuted
-        readonly property color textFaint: "#7F8BA3"
-        readonly property color accent: "#8B7CF6"
-        readonly property color accentHover: "#9E92FA"
-        readonly property color accentSoft: "#29254B"
-        readonly property color accentBorder: "#504889"
+        readonly property color textFaint: AppTheme.useQtTheme ? AppTheme.textFaint : ("#7F8BA3")
+        readonly property color accent: AppTheme.useQtTheme ? AppTheme.accent : ("#8B7CF6")
+        readonly property color accentHover: AppTheme.useQtTheme ? AppTheme.accentHover : ("#9E92FA")
+        readonly property color accentSoft: AppTheme.useQtTheme ? AppTheme.accentSoft : ("#29254B")
+        readonly property color accentBorder: AppTheme.useQtTheme ? AppTheme.accentBorder : ("#504889")
         readonly property color selection: accent
-        readonly property color danger: "#FF8089"
-        readonly property color border: "#22304A"
-        readonly property color borderStrong: "#334462"
-        readonly property color surface: "#121C2D"
-        readonly property color surfaceRaised: "#18253A"
-        readonly property color surfaceSunken: "#0D1524"
-        readonly property color surfaceHover: "#1D2A42"
-        readonly property color surfacePressed: "#263854"
+        readonly property color danger: AppTheme.useQtTheme ? AppTheme.danger : ("#FF8089")
+        readonly property color border: AppTheme.useQtTheme ? AppTheme.border : ("#22304A")
+        readonly property color borderStrong: AppTheme.useQtTheme ? AppTheme.borderStrong : ("#334462")
+        readonly property color surface: AppTheme.useQtTheme ? AppTheme.surface : ("#121C2D")
+        readonly property color surfaceRaised: AppTheme.useQtTheme ? AppTheme.surfaceRaised : ("#18253A")
+        readonly property color surfaceSunken: AppTheme.useQtTheme ? AppTheme.surfaceSunken : ("#0D1524")
+        readonly property color surfaceHover: AppTheme.useQtTheme ? AppTheme.surfaceHover : ("#1D2A42")
+        readonly property color surfacePressed: AppTheme.useQtTheme ? AppTheme.surfacePressed : ("#263854")
     }
 
     palette.window: videoTheme.viewerGlassStrong
@@ -54,7 +55,7 @@ Popup {
     palette.text: videoTheme.viewerText
     palette.buttonText: videoTheme.viewerText
     palette.highlight: videoTheme.accent
-    palette.highlightedText: "white"
+    palette.highlightedText: AppTheme.useQtTheme ? AppTheme.highlightedText : "white"
     palette.mid: videoTheme.borderStrong
     palette.dark: videoTheme.surfaceSunken
     palette.light: videoTheme.borderStrong
@@ -1189,7 +1190,7 @@ Popup {
                 iconOpacity: control.enabled ? 0.96 : 0.42
             }
         }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 9
             tintColor: control.down ? videoTheme.viewerGlassPressed
@@ -1223,7 +1224,7 @@ Popup {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 9
             tintColor: textControl.down ? videoTheme.viewerGlassPressed
@@ -1888,7 +1889,7 @@ Popup {
             visible: opacity > 0.01
             Behavior on opacity { NumberAnimation { duration: 150 } }
 
-            GGlassPanel {
+            GGlassPanel { nativeBlurEnabled: false;
                 id: infoCard
                 sourceItem: videoScene
                 anchors.left: parent.left
@@ -1926,7 +1927,7 @@ Popup {
                 }
             }
 
-            GGlassPanel {
+            GGlassPanel { nativeBlurEnabled: false;
                 sourceItem: videoScene
                 anchors.top: parent.top
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -1955,7 +1956,7 @@ Popup {
                 }
             }
 
-            GGlassPanel {
+            GGlassPanel { nativeBlurEnabled: false;
                 id: bottomPanel
                 sourceItem: videoScene
                 anchors.left: parent.left
@@ -2101,7 +2102,7 @@ Popup {
                 }
             }
 
-            GGlassPanel {
+            GGlassPanel { nativeBlurEnabled: false;
                 id: stripPanel
                 sourceItem: videoScene
                 anchors.left: parent.left
@@ -2168,7 +2169,7 @@ Popup {
                 chapterList.forceActiveFocus()
             })
         }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 14
             tintColor: videoTheme.viewerGlassStrong
@@ -2267,7 +2268,7 @@ Popup {
         padding: 10
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onOpened: { viewer.refreshSubtitleAiExistingSources(); viewer.revealControls() }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 14
             tintColor: videoTheme.viewerGlassStrong
@@ -2355,7 +2356,7 @@ Popup {
             viewer.refreshSubtitleAiExistingSources()
             viewer.revealControls()
         }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 14
             tintColor: videoTheme.viewerGlassStrong
@@ -2573,7 +2574,7 @@ Popup {
         padding: 0
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         Overlay.modal: Rectangle { color: "#A0000000" }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 16
             tintColor: videoTheme.viewerGlassStrong
@@ -2735,7 +2736,7 @@ Popup {
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onOpened: viewer.revealControls()
         Overlay.modal: Rectangle { color: "#92000000" }
-        background: GGlassPanel { sourceItem: videoScene; radius: 16; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.72 }
+        background: GGlassPanel { nativeBlurEnabled: false; sourceItem: videoScene; radius: 16; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.72 }
         GPopupWheelScroll {
             parent: subtitleStyleScroll
             anchors.fill: parent
@@ -2981,7 +2982,7 @@ Popup {
         onOpened: viewer.revealControls()
 
         Overlay.modal: Rectangle { color: "#92000000" }
-        background: GGlassPanel {
+        background: GGlassPanel { nativeBlurEnabled: false;
             sourceItem: videoScene
             radius: 16
             tintColor: videoTheme.viewerGlassStrong
@@ -3081,7 +3082,7 @@ Popup {
                             palette: viewer.palette
                             y: subtitleAiExistingCombo.height + 4; width: subtitleAiExistingCombo.width; padding: 5
                             implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
-                            background: GGlassPanel { sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
+                            background: GGlassPanel { nativeBlurEnabled: false; sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
                             contentItem: ListView { clip: true; implicitHeight: Math.min(contentHeight, 260); model: subtitleAiExistingCombo.popup.visible ? subtitleAiExistingCombo.delegateModel : null; currentIndex: subtitleAiExistingCombo.highlightedIndex; ScrollIndicator.vertical: ScrollIndicator {} }
                         }
                         delegate: ItemDelegate {
@@ -3131,7 +3132,7 @@ Popup {
                             palette: viewer.palette
                             y: subtitleAiLanguageCombo.height + 4; width: subtitleAiLanguageCombo.width; padding: 5
                             implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
-                            background: GGlassPanel { sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
+                            background: GGlassPanel { nativeBlurEnabled: false; sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
                             contentItem: ListView { clip: true; implicitHeight: Math.min(contentHeight, 260); model: subtitleAiLanguageCombo.popup.visible ? subtitleAiLanguageCombo.delegateModel : null; currentIndex: subtitleAiLanguageCombo.highlightedIndex; ScrollIndicator.vertical: ScrollIndicator {} }
                         }
                         delegate: ItemDelegate {
@@ -3178,7 +3179,7 @@ Popup {
                             palette: viewer.palette
                             y: subtitleAiProfileCombo.height + 4; width: subtitleAiProfileCombo.width; padding: 5
                             implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
-                            background: GGlassPanel { sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
+                            background: GGlassPanel { nativeBlurEnabled: false; sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
                             contentItem: ListView { clip: true; implicitHeight: Math.min(contentHeight, 220); model: subtitleAiProfileCombo.popup.visible ? subtitleAiProfileCombo.delegateModel : null; currentIndex: subtitleAiProfileCombo.highlightedIndex }
                         }
                         delegate: ItemDelegate {
@@ -3209,7 +3210,7 @@ Popup {
                             palette: viewer.palette
                             y: subtitleAiTargetCombo.height + 4; width: subtitleAiTargetCombo.width; padding: 5
                             implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
-                            background: GGlassPanel { sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
+                            background: GGlassPanel { nativeBlurEnabled: false; sourceItem: videoScene; radius: 10; tintColor: videoTheme.viewerGlassStrong; borderColor: videoTheme.viewerGlassBorder; blurAmount: 0.64 }
                             contentItem: ListView { clip: true; implicitHeight: Math.min(contentHeight, 260); model: subtitleAiTargetCombo.popup.visible ? subtitleAiTargetCombo.delegateModel : null; currentIndex: subtitleAiTargetCombo.highlightedIndex; ScrollIndicator.vertical: ScrollIndicator {} }
                         }
                         delegate: ItemDelegate {
