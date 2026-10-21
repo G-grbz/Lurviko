@@ -44,7 +44,7 @@ optdepends=(
 )
 install=lurviko.install
 source=("Lurviko-${pkgver}-${pkgrel}.tar::${url}/releases/download/v${pkgver}/Lurviko-${pkgver}.tar")
-sha256sums=('4ee500314afbc2290c073fe9ccd578b28c275183938172f2545028ed36b64fb0')
+sha256sums=('e82100e43aa3678b24cbfe37a02aed1328cf47c3f925ac117cfe8281ea927778')
 
 prepare() {
   # Installed workers are found in /usr/share/Lurviko. Do not embed the
