@@ -13,6 +13,9 @@ Rectangle {
     property bool compact: false
     property bool singleClickOpen: false
     property bool selected: false
+    property bool selectionEnabled: false
+    property var contextHandler: null
+    signal toggleSelection()
     property real textScale: 1.0
     required property var lang
     signal activated()
@@ -85,6 +88,8 @@ Rectangle {
             border.color: "#A0FFFFFF"
             CrispIcon {
                 anchors.centerIn: parent
+                // Center the triangle's visual mass, not the SVG canvas.
+                anchors.horizontalCenterOffset: width * 0.10
                 width: Math.round((card.compact ? 15 : 20) * Math.min(1.12, card.textScale))
                 height: width
                 source: "qrc:/qt/qml/Lurviko/App/assets/icons/viewer-play.svg"
@@ -163,10 +168,15 @@ Rectangle {
             if (!card.itemData)
                 return
             if (event.button === Qt.RightButton) {
-                menu.popup()
+                if (card.contextHandler) card.contextHandler(card.itemData, mouse, event.x, event.y)
+                else menu.popup()
                 return
             }
             if (event.button === Qt.LeftButton) {
+                if (card.selectionEnabled && (event.modifiers & Qt.ControlModifier)) {
+                    card.toggleSelection()
+                    return
+                }
                 card.pressed(event.modifiers)
                 if (card.singleClickOpen)
                     card.activated()
@@ -178,6 +188,17 @@ Rectangle {
             if (event.button === Qt.LeftButton)
                 card.activated()
         }
+    }
+
+    GCheckBox {
+        objectName: "mediaSelectionCheck"
+                    width: 30; height: 30
+        visible: card.selectionEnabled
+        anchors { top: parent.top; left: parent.left; margins: 5 }
+        z: 5
+        checked: card.selected
+        onClicked: { card.previewDismissed(card); card.toggleSelection() }
+        Accessible.name: card.lang.t(card.selected ? "deselect_all" : "select_all")
     }
 
     GMenu {

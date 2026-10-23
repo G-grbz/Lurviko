@@ -907,6 +907,53 @@ Item {
             checked: AppTheme.kioProgressEnabled
             onTriggered: AppTheme.setKioProgressEnabled(!AppTheme.kioProgressEnabled)
         }
+        Item {
+            objectName: "operationAutoHideSettings"
+            visible: !AppTheme.kioProgressEnabled
+            implicitWidth: 310
+            implicitHeight: visible ? (AppTheme.operationAutoHide ? 92 : 40) : 0
+            width: parent ? parent.width : implicitWidth
+            height: implicitHeight
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 6
+                GSwitch {
+                    objectName: "operationAutoHideSwitch"
+                    Layout.fillWidth: true
+                    text: lang.t("operation_auto_hide")
+                    checked: AppTheme.operationAutoHide
+                    onToggled: AppTheme.setOperationAutoHide(checked)
+                }
+                RowLayout {
+                    visible: AppTheme.operationAutoHide
+                    Text {
+                        Layout.fillWidth: true
+                        text: lang.t("operation_hide_seconds")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                    }
+                    GTextField {
+                        id: operationHideDelay
+                        objectName: "operationAutoHideDelay"
+                        Layout.preferredWidth: 90
+                        Layout.minimumWidth: 70
+                        Layout.preferredHeight: 34
+                        horizontalAlignment: Text.AlignHCenter
+                        inputMethodHints: Qt.ImhDigitsOnly
+                        validator: IntValidator { bottom: 1; top: 300 }
+                        text: String(AppTheme.operationAutoHideSeconds)
+                        Accessible.name: lang.t("operation_hide_seconds")
+                        function saveDelay() {
+                            if (acceptableInput) AppTheme.setOperationAutoHideSeconds(Number(text))
+                            text = Qt.binding(function() { return String(AppTheme.operationAutoHideSeconds) })
+                        }
+                        onAccepted: saveDelay()
+                        onEditingFinished: saveDelay()
+                    }
+                }
+            }
+        }
         GMenuSeparator {}
         GMenuItem {
             objectName: "skipHiddenNameConfirmationItem"
@@ -1288,21 +1335,11 @@ Item {
                         CrispIcon {
                             anchors.centerIn: parent
                             width: 16; height: 16
-                            source: AppTheme.icon("split-view.svg")
+                            objectName: "splitViewIcon"
+                            source: AppTheme.icon(page.splitEnabled ? "split-view.svg" : "split-view-off.svg")
                             opacity: page.splitEnabled ? 1.0 : 0.88
                         }
-                        Rectangle {
-                            visible: page.splitEnabled
-                            width: 10
-                            height: 2
-                            radius: 1
-                            color: AppTheme.accent
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.rightMargin: -1
-                            anchors.topMargin: -1
-                            rotation: -45
-                        }
+
                     }
                     background: Rectangle {
                         radius: 11

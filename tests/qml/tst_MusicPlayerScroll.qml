@@ -11,6 +11,7 @@ Item {
         property string language: "en"
         function t(key) { return key }
     }
+    Rectangle { id: desktopContent; anchors.fill: parent; color: "#74889a" }
     MusicPlayer {
         id: player
         width: 1200
@@ -63,6 +64,35 @@ Item {
             player.opened = false
             wait(60)
         }
+        function test_expanded_qt_theme_has_a_safe_backdrop_in_both_modes() {
+            const oldQt = AppTheme.useQtTheme
+            try {
+                inputTestHelper.setSystemThemeTestAppearance(false, true)
+                AppTheme.desktopAppearance.refresh()
+                AppTheme.setQtTheme(true)
+                expanded.backdropSource = desktopContent
+                expanded.visible = true
+                const backdrop = findChild(expanded, "musicExpandedQtBackdrop")
+                verify(backdrop !== null)
+                verify(backdrop.visible)
+                compare(backdrop.sourceItem, desktopContent)
+                // Software rendering must provide a readable native fill;
+                // GPU rendering can blur the sibling beneath the music view.
+                if (expanded.GraphicsInfo.api !== GraphicsInfo.Software && AppTheme.background.a < 1) {
+                    verify(backdrop.blurActive)
+                    verify(findChild(backdrop, "surfaceBlurLoader").active)
+                } else compare(backdrop.color.a, 1)
+                expanded.detached = true
+                verify(!backdrop.visible, "Detached window retains its own native/KWin background")
+            } finally {
+                expanded.detached = false
+                expanded.backdropSource = null
+                AppTheme.setQtTheme(oldQt)
+                inputTestHelper.restoreSystemThemeTestAppearance()
+                AppTheme.desktopAppearance.refresh()
+            }
+        }
+
         function test_player_wheel_uses_shared_speed_data() {
             const rows = [
                 {tag: "normal-queue", view: "musicQueueList", tab: 0},

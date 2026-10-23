@@ -255,6 +255,8 @@ qt_add_qml_module(lurviko
         qml/components/BrowserPane.qml
         qml/components/MillerColumnsView.qml
         qml/components/GitStatusBadge.qml
+        qml/components/DropTargetBadge.qml
+        qml/components/OperationPresentation.qml
         qml/components/GMenu.qml
         qml/components/GPopupWheelScroll.qml
         qml/components/GPopupDismissHandler.qml
@@ -288,6 +290,7 @@ qt_add_qml_module(lurviko
         qml/components/CategoryGroupedView.qml
         qml/components/PhotoViewer.qml
         qml/components/VideoViewer.qml
+        qml/components/VideoMetadata.js
         qml/components/SubtitleBackdrop.qml
         qml/components/SubtitleLabel.qml
         qml/components/MusicPlayer.qml

@@ -11,6 +11,13 @@ Item {
     required property int cardSize
     required property int selectionRevision
     property var isSelected: function(url) { return false }
+    property bool selectionEnabled: false
+    property var groupSelected: null
+    signal toggleItems(var items)
+    function groupItems(key) {
+        for (const group of groups) if (group.key === key) return group.items
+        return []
+    }
     property string inlineRenameUrl: ""
     property bool dateAscending: false
     property bool singleClickOpen: false
@@ -296,6 +303,12 @@ Item {
                 count: rowDelegate.rowData && rowDelegate.rowData.kind === "header" ? Number(rowDelegate.rowData.count || 0) : 0
                 lang: root.lang
                 textScale: root.textScale
+                selectionEnabled: root.selectionEnabled
+                allSelected: {
+                    const revision = root.selectionRevision
+                    return root.groupSelected ? root.groupSelected(root.groupItems(rowDelegate.rowData.key)) : false
+                }
+                onToggleSelection: root.toggleItems(root.groupItems(rowDelegate.rowData.key))
             }
             Row {
                 width: parent.width
@@ -328,6 +341,16 @@ Item {
                             color: AppTheme.accentSoft
                             border.width: 1
                             border.color: AppTheme.accent
+                        }
+
+                        GCheckBox {
+                            objectName: "categoryItemSelectionCheck"
+                            width: 30; height: 30
+                            visible: root.selectionEnabled
+                            anchors { top: parent.top; left: parent.left; margins: 5 }
+                            z: 5
+                            checked: parent.selected
+                            onClicked: function() { root.toggleItems([this.parent.modelData]) }
                         }
 
                         ColumnLayout {
@@ -474,14 +497,14 @@ Item {
                                     return
                                 }
                                 if (mouse.button === Qt.RightButton) {
-                                    root.itemPressed(Number(cell.modelData.modelIndex), Qt.NoModifier)
                                     root.contextRequested(cellMouse, Number(cell.modelData.modelIndex), mouse.x, mouse.y)
                                 } else {
                                     root.itemPressed(Number(cell.modelData.modelIndex), mouse.modifiers)
                                 }
                             }
                             onClicked: function(mouse) {
-                                if (root.singleClickOpen && mouse.button === Qt.LeftButton && isContentHit(mouse.x))
+                                if (root.singleClickOpen && mouse.button === Qt.LeftButton
+                                        && !(mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) && isContentHit(mouse.x))
                                     root.itemActivated(Number(cell.modelData.modelIndex))
                             }
                             onDoubleClicked: function(mouse) {

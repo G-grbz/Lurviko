@@ -13,6 +13,8 @@ QtObject {
         property bool systemIcons: false
         property bool coloredFolderIcons: false
         property bool kioProgressEnabled: false
+        property bool operationAutoHide: true
+        property int operationAutoHideSeconds: 8
         property int sidebarIconSize: 19
         property int homeIconSize: 28
         property int systemSidebarIconSize: 22
@@ -101,6 +103,17 @@ QtObject {
         return leaf.startsWith(".")
     }
     readonly property bool kioProgressEnabled: settings.kioProgressEnabled
+    readonly property bool operationAutoHide: settings.operationAutoHide
+    readonly property int operationAutoHideSeconds: Math.max(1, Math.min(300, settings.operationAutoHideSeconds))
+    function setOperationAutoHide(enabled) { settings.operationAutoHide = !!enabled }
+    function setOperationAutoHideSeconds(seconds) {
+        if (isFinite(seconds)) settings.operationAutoHideSeconds = Math.max(1, Math.min(300, Math.round(seconds)))
+    }
+    // Accepted drop targets must remain distinct from ordinary selection,
+    // including when the desktop's highlight color is already green.
+    readonly property color dropTargetColor: Math.abs(accent.r - success.r) + Math.abs(accent.g - success.g)
+                                             + Math.abs(accent.b - success.b) > 0.45 ? success : warning
+    readonly property color dropTargetSurface: mix(surface, dropTargetColor, dark ? 0.24 : 0.15)
     readonly property int sidebarIconSize: Math.max(14, Math.min(32, settings.sidebarIconSize))
     readonly property int homeIconSize: Math.max(20, Math.min(44, settings.homeIconSize))
     readonly property int systemSidebarIconSize: Math.max(8, Math.min(128, settings.systemSidebarIconSize))
@@ -483,7 +496,7 @@ QtObject {
         // their original colors. Include the color in the URL for Qt's cache.
         const monochrome = ["history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
             "nav-back.svg", "nav-forward.svg", "nav-up.svg",
-            "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "split-view.svg", "view-layout.svg",
+            "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "split-view.svg", "split-view-off.svg", "view-layout.svg",
             "music-chevron-up.svg", "music-expand.svg", "music-minimize.svg", "music-playlist.svg",
             "music-queue.svg", "music-refresh.svg", "music-repeat.svg", "music-repeat-one.svg",
             "music-shuffle.svg", "music-stop.svg", "music-heart.svg", "music-heart-filled.svg",

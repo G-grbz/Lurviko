@@ -4,6 +4,52 @@ Use the upper-right **View** menu to choose **Grid**, **List** or **Columns**.
 The preference is saved. The default shortcuts are Ctrl+1, Ctrl+2 and Ctrl+3;
 they can be changed in the keyboard shortcuts dialog.
 
+## Directory size
+
+Local directory footers show the recursive logical file size beside the item
+count, in IEC units (KiB, MiB, GiB). The calculation includes hidden descendants
+and skips symbolic links. It runs in the background and is cancelled when the
+pane leaves that directory. A short delay avoids scanning locations passed
+through during navigation; transfers take priority over automatic recalculation.
+
+Properties shares this calculation and its immediate-child subtotals. Selecting
+all visible items therefore reuses the ready result, or waits for the same
+in-flight scan, rather than starting another recursive walk. Hidden items that
+are not selected are excluded from selection totals. Results are snapshots;
+refreshing the directory recalculates its size.
+
+## Video titles and episodes
+
+The video's lower strip uses Lurviko tooltips. Available TMDB titles replace
+release filenames there; otherwise the original filename is shown. Recognized
+`S01E03`, `1x03` and explicit season/episode names add the episode identity.
+
+For a matched TV series, the playing file can resolve its episode through
+[TMDB episode details](https://developer.themoviedb.org/reference/tv-episode-details).
+The pause screen and local video hover cards keep the series title/logo and
+add the episode name and number, preferring the episode overview and runtime
+when available. Missing
+localized plots can fall back to English; missing episodes retain the existing
+series information. Episode results are cached, and hovering the strip does
+not start episode requests.
+
+## Category selections
+
+Explore categories provide **Select all / Deselect all** and **Actions** controls.
+The same toggle on the right of a date header affects only that day's items;
+other selected dates remain selected. Card checkboxes select individual files
+without opening them. In Music, album, artist and playlist checkboxes select
+those collections' underlying tracks; repeated tracks are counted once.
+
+Right-clicking a selected item preserves the whole selection. **Actions** opens
+the same context menu for cut, copy, copy actions, batch rename, sharing,
+compression, copy/move to a destination, Trash and properties. Hold Shift to
+switch Trash to permanent deletion, with the existing confirmation preference.
+Available actions depend on the selection. Selections store original file URLs,
+even when the files belong to different directories. Duplicates are created
+beside their respective originals; mixed-directory archives retain relative
+parent paths so files with equal names remain distinct.
+
 ## Qt desktop appearance
 
 Enable **View → Use Qt theme** to use the Qt application's desktop palette

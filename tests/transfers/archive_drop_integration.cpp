@@ -3,6 +3,7 @@
 #include <QDBusMessage>
 #include <QDBusVirtualObject>
 #include <QDragEnterEvent>
+#include <QDragLeaveEvent>
 #include <QDropEvent>
 #include <QDir>
 #include <QElapsedTimer>
@@ -92,13 +93,32 @@ ApplicationWindow {
     ArkService ark;
     auto bus = QDBusConnection::sessionBus();
     require(bus.registerVirtualObject("/DndExtract/Test", &ark), "Ark fixture registers");
-    auto dropAt = [&](QPointF point) {
+    auto dropAt = [&](QPointF point, const QString &expectedTarget = QString()) {
         QMimeData mime;
         mime.setData("application/x-kde-ark-dndextract-service", bus.baseService().toUtf8());
         mime.setData("application/x-kde-ark-dndextract-path", "/DndExtract/Test");
         QDragEnterEvent enter(point.toPoint(), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
         QDropEvent drop(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
-        app.sendEvent(window, &enter); app.sendEvent(window, &drop);
+        app.sendEvent(window, &enter);
+        require(until([&] { return pane->property("dropTargetUrl").toString() == expectedTarget; }),
+                "Ark drag highlights the actual hovered folder before extraction");
+        if (!expectedTarget.isEmpty()) {
+            auto *entry = qobject_cast<QQuickItem *>(eval(pane,
+                QString("root.directoryView().itemAtIndex(root.directory.indexOfUrl('%1'))").arg(expectedTarget)).value<QObject *>());
+            auto *badge = entry ? entry->findChild<QQuickItem *>("folderDropBadge") : nullptr;
+            require(badge && badge->isVisible(), "hovered folder displays the bundled drop badge");
+            const auto *glyph = badge->findChild<QQuickItem *>("folderDropBadgeIcon");
+            require(glyph && glyph->property("source").toUrl().toString().contains("plus.svg"), "drop badge uses the supplied plus glyph");
+            QQuickItem *artwork = nullptr;
+            for (auto *sibling : badge->parentItem()->childItems()) {
+                if (sibling != badge && sibling->property("source").isValid()) { artwork = sibling; break; }
+            }
+            require(artwork && qAbs(badge->x() - artwork->x()) < 1 && qAbs(badge->y() - artwork->y()) < 1,
+                    "drop badge sits at the icon's upper-left corner");
+            require(eval(pane, "AppTheme.dropTargetColor !== AppTheme.accent").toBool(), "drop color differs from selection color");
+        }
+        app.sendEvent(window, &drop);
+        require(pane->property("dropTargetUrl").toString().isEmpty(), "drop feedback clears after extraction starts");
     };
     for (bool kio : {false, true}) {
         const QString destination = base + (kio ? "/kio" : "/integrated");
@@ -186,7 +206,7 @@ ApplicationWindow {
             process->start("bsdtar", {"-xf", zip, "-C", output, "--safe-writes"});
         };
         ark.lastDestination.clear();
-        dropAt(itemPoint(QUrl::fromLocalFile(folder).toString()));
+        dropAt(itemPoint(QUrl::fromLocalFile(folder).toString()), QUrl::fromLocalFile(folder).toString());
         require(until([&] { return extracted; }), "dropping onto a folder extracts successfully");
         require(QDir::cleanPath(ark.lastDestination) == QDir::cleanPath(folder), "Ark receives hovered folder, not current directory");
         require(QFileInfo::exists(folder + "/zz-test/a.txt") && !QFileInfo::exists(destination + "/zz-test"),
@@ -198,6 +218,16 @@ ApplicationWindow {
         require(QDir::cleanPath(ark.lastDestination) == QDir::cleanPath(destination)
                     && QFileInfo::exists(destination + "/zz-test/a.txt"),
                 "file drop retains the current-directory fallback");
+        QMimeData regularFile;
+        regularFile.setUrls({QUrl::fromLocalFile(base + "/source/zz-test/a.txt")});
+        const QPointF folderPoint = itemPoint(QUrl::fromLocalFile(folder).toString());
+        QDragEnterEvent regularEnter(folderPoint.toPoint(), Qt::CopyAction, &regularFile, Qt::LeftButton, Qt::NoModifier);
+        app.sendEvent(window, &regularEnter);
+        require(until([&] { return pane->property("dropTargetUrl").toString() == QUrl::fromLocalFile(folder).toString(); }),
+                "regular external file drag uses the same folder feedback");
+        QDragLeaveEvent leave;
+        app.sendEvent(window, &leave);
+        require(until([&] { return pane->property("dropTargetUrl").toString().isEmpty(); }), "cancelled drag clears folder feedback");
     }
     bus.unregisterObject("/DndExtract/Test");
     std::fprintf(stderr, "PASS: native Ark drops, small ZIP merge/counts/focus in both KIO modes, scrolled folder and file drop targets in grid/list/columns\n");

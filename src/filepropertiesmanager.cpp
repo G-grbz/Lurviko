@@ -12,6 +12,8 @@
 #include <QUrl>
 #include <QSet>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QElapsedTimer>
+#include <QThread>
 
 #include <cerrno>
 #include <cstdio>
@@ -33,6 +35,7 @@ struct FolderStats {
     qint64 bytes = 0;
     int files = 0;
     int folders = 0;
+    QVariantMap children;
 };
 
 QString localPathFromInput(const QString &value, const QString &baseDirectory)
@@ -103,8 +106,52 @@ QString FilePropertiesManager::readFolderIcon(const QString &path)
 void FilePropertiesManager::cancelInspection()
 {
     ++m_generation;
+    disconnect(m_statsConnection);
+    m_statsReady = false;
+    m_childStats.clear();
     if (m_statsCancelled) m_statsCancelled->store(true);
     setCalculating(false);
+}
+
+// Share the visible directory's recursive snapshot with Properties. Each
+// immediate child's contribution includes hidden descendants, so subsets and
+// selections that hide dotfiles never accidentally inherit the entire total.
+bool FilePropertiesManager::reuseStatsOrWait(const QStringList &paths, bool selection, int generation)
+{
+    auto *source = m_statsSource.data();
+    if (!source || source->m_path.isEmpty() || paths.isEmpty()) return false;
+    for (const auto &path : paths)
+        if (path != source->m_path && QFileInfo(path).absolutePath() != source->m_path) return false;
+    if (source->calculating()) {
+        setCalculating(true);
+        m_statsConnection = connect(source, &FilePropertiesManager::calculatingChanged, this,
+            [this, paths, selection, generation] {
+                if (generation != m_generation || !m_statsSource || m_statsSource->calculating()) return;
+                disconnect(m_statsConnection);
+                if (selection) inspectSelection(paths); else inspect(paths.first());
+            }, Qt::QueuedConnection);
+        return true;
+    }
+    if (!source->m_statsReady) return false;
+    qint64 bytes = 0; int files = 0, folders = 0;
+    const bool entireRoot = paths.contains(source->m_path);
+    for (const auto &path : paths) {
+        if (entireRoot && path != source->m_path) continue;
+        if (path == source->m_path) {
+            bytes += source->m_totalSize; files += source->m_fileCount;
+            folders += source->m_folderCount + (selection ? 1 : 0);
+        } else {
+            if (!source->m_childStats.contains(path)) return false;
+            const auto child = source->m_childStats.value(path).toMap();
+            bytes += child.value("bytes").toLongLong(); files += child.value("files").toInt();
+            folders += child.value("folders").toInt();
+            if (!selection && child.value("directory").toBool()) --folders;
+        }
+    }
+    m_totalSize = bytes; m_fileCount = files; m_folderCount = folders;
+    m_statsReady = true;
+    setCalculating(false); emit propertiesChanged();
+    return true;
 }
 
 void FilePropertiesManager::inspect(const QString &urlOrPath)
@@ -173,11 +220,12 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     refreshPermissions();
     emit propertiesChanged();
 
-    if (!m_directory || info.isSymLink() || !info.exists()) {
+    if (!m_directory || (info.isSymLink() && !m_backgroundStats) || !info.exists()) {
         setCalculating(false);
         return;
     }
 
+    if (reuseStatsOrWait({m_path}, false, generation)) return;
     setCalculating(true);
     auto *watcher = new QFutureWatcher<FolderStats>(this);
     connect(watcher, &QFutureWatcher<FolderStats>::finished, this, [this, watcher, generation]() {
@@ -188,26 +236,41 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
         m_totalSize = stats.bytes;
         m_fileCount = stats.files;
         m_folderCount = stats.folders;
+        m_childStats = stats.children;
+        m_statsReady = true;
         setCalculating(false);
         emit propertiesChanged();
     });
     const QString root = m_path;
-    watcher->setFuture(QtConcurrent::run([root, cancelled]() {
+    const bool background = m_backgroundStats;
+    watcher->setFuture(QtConcurrent::run([root, cancelled, background]() {
         FolderStats stats;
+        QElapsedTimer budget; budget.start();
+        const QDir rootDirectory(root);
         QDirIterator it(root,
                         QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
                         QDirIterator::Subdirectories);
         while (!cancelled->load() && it.hasNext()) {
             it.next();
             const QFileInfo item = it.fileInfo();
-            if (item.isSymLink())
-                continue;
-            if (item.isDir()) {
-                ++stats.folders;
-            } else if (item.isFile()) {
-                ++stats.files;
-                stats.bytes += item.size();
+            const QString relative = rootDirectory.relativeFilePath(item.absoluteFilePath());
+            const QString topName = relative.section(QLatin1Char('/'), 0, 0);
+            const QString topPath = rootDirectory.filePath(topName);
+            auto child = stats.children.value(topPath).toMap();
+            const bool topLevel = !relative.contains(QLatin1Char('/'));
+            if (topLevel) child.insert("directory", item.isDir() && !item.isSymLink());
+            if (!item.isSymLink()) {
+                if (item.isDir()) {
+                    ++stats.folders;
+                    child.insert("folders", child.value("folders").toInt() + 1);
+                } else if (item.isFile()) {
+                    ++stats.files; stats.bytes += item.size();
+                    child.insert("files", child.value("files").toInt() + 1);
+                    child.insert("bytes", child.value("bytes").toLongLong() + item.size());
+                }
             }
+            stats.children.insert(topPath, child);
+            if (background && budget.elapsed() >= 8) { QThread::msleep(8); budget.restart(); }
         }
         return stats;
     }));
@@ -256,12 +319,14 @@ void FilePropertiesManager::inspectSelection(const QStringList &urls)
     refreshPermissions();
     emit propertiesChanged();
     if (!m_localFile) { setCalculating(false); return; }
+    if (reuseStatsOrWait(selection, true, generation)) return;
     setCalculating(true);
     auto *watcher = new QFutureWatcher<FolderStats>(this);
     connect(watcher, &QFutureWatcher<FolderStats>::finished, this, [this, watcher, generation] {
         const auto stats = watcher->result(); watcher->deleteLater();
         if (generation != m_generation) return;
         m_totalSize = stats.bytes; m_fileCount = stats.files; m_folderCount = stats.folders;
+        m_statsReady = true;
         setCalculating(false); emit propertiesChanged();
     });
     watcher->setFuture(QtConcurrent::run([selection, cancelled] {

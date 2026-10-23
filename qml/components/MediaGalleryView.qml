@@ -18,6 +18,14 @@ Item {
     property var hostWindow: null
     property int selectionRevision: 0
     property var isSelected: null
+    property bool selectionEnabled: false
+    property var groupSelected: null
+    property var contextHandler: null
+    signal toggleItems(var items)
+    function groupItems(key) {
+        for (const group of dateGroups) if (group.key === key) return group.items
+        return []
+    }
     signal browseRequested(string location)
     signal revealRequested(string location, string itemUrl)
     signal zoomRequested(int delta)
@@ -50,6 +58,27 @@ Item {
     readonly property var displayFiles: imageMode && activeAlbumPath.length > 0
                                         ? (albumsByPath[activeAlbumPath] ? albumsByPath[activeAlbumPath].items : [])
                                         : files
+    // Only the player's queue is sorted; the category's date layout and sort
+    // preference remain untouched. Compare digit runs without numeric overflow.
+    function compareVideoNames(a, b) {
+        const left = String(a.name || a.path || "").toLocaleLowerCase().match(/\d+|\D+/g) || []
+        const right = String(b.name || b.path || "").toLocaleLowerCase().match(/\d+|\D+/g) || []
+        for (let i = 0; i < Math.min(left.length, right.length); ++i) {
+            const x = left[i], y = right[i]
+            if (x === y) continue
+            if (/^\d+$/.test(x) && /^\d+$/.test(y)) {
+                const nx = x.replace(/^0+/, "") || "0", ny = y.replace(/^0+/, "") || "0"
+                if (nx.length !== ny.length) return nx.length - ny.length
+                if (nx !== ny) return nx < ny ? -1 : 1
+            } else {
+                const order = x.localeCompare(y)
+                if (order) return order
+            }
+        }
+        return left.length - right.length || String(a.path || a.url || "").localeCompare(String(b.path || b.url || ""))
+    }
+    readonly property var orderedVideoFiles: root.videoMode ? root.displayFiles.slice().sort(compareVideoNames) : []
+
     property bool albumScrollResetPending: false
     property var hoverPreviewAnchor: null
     property var hoverPreviewPendingItem: null
@@ -116,7 +145,7 @@ Item {
                 return
             const activePath = String(root.hoverPreviewItem.path || "")
             if (activePath === filePath)
-                root.tmdbInfo = metadata
+                root.tmdbInfo = root.resolveHoverMetadata(metadata, root.hoverPreviewItem)
         }
         onMetadataFailed: function(filePath, message) {
             root.finishLocalArtworkRequest(filePath)
@@ -286,6 +315,19 @@ Item {
         }
     }
 
+    function resolveHoverMetadata(metadata, item) {
+        if (!item || !metadata || metadata.state !== "ready") return metadata
+        return tmdbManager.lookupEpisode(String(item.path || item.url || ""), metadata,
+                                         String(tmdbManager.preferredLanguage || "tr"))
+    }
+    function refreshHoverMetadata() {
+        const item = root.hoverPreviewItem
+        if (!root.videoMode || !item) return
+        const metadata = tmdbManager.lookup(String(item.path || item.url || ""), String(item.name || ""),
+                                             String(tmdbManager.preferredLanguage || "tr"))
+        root.tmdbInfo = root.resolveHoverMetadata(metadata, item)
+    }
+
     function showHoverPreview() {
         if (hoverPreviewFadingOut || !hoverPreviewAnchor || !hoverPreviewPendingItem || !root.visible
                 || (videoMode && !tmdbManager.hoverEnabled)
@@ -302,8 +344,7 @@ Item {
                                   point.y + (hoverPreviewAnchor.height - hoverPreview.height) / 2))
         hoverPreviewItem = hoverPreviewPendingItem
         if (videoMode && hoverPreviewItem) {
-            const sourcePath = String(hoverPreviewItem.path || hoverPreviewItem.url || "")
-            tmdbInfo = tmdbManager.lookup(sourcePath, String(hoverPreviewItem.name || ""), String(tmdbManager.preferredLanguage || "tr"))
+            root.refreshHoverMetadata()
         }
         hoverPreviewShowing = true
     }
@@ -461,8 +502,9 @@ Item {
     }
 
     function fileIndex(path) {
-        for (let i = 0; i < displayFiles.length; ++i) {
-            if (displayFiles[i].path === path)
+        const source = root.videoMode ? root.orderedVideoFiles : root.displayFiles
+        for (let i = 0; i < source.length; ++i) {
+            if (source[i].path === path)
                 return i
         }
         return -1
@@ -739,6 +781,12 @@ Item {
                 count: Number(virtualRow.rowData.count || 0)
                 lang: root.lang
                 textScale: root.textScale
+                selectionEnabled: root.selectionEnabled
+                allSelected: {
+                    const revision = root.selectionRevision
+                    return root.groupSelected ? root.groupSelected(root.groupItems(virtualRow.rowData.key)) : false
+                }
+                onToggleSelection: root.toggleItems(root.groupItems(virtualRow.rowData.key))
             }
 
             Row {
@@ -775,6 +823,9 @@ Item {
                         onModelDataChanged: if (root.videoMode) root.requestLocalArtwork(modelData)
                         singleClickOpen: root.singleClickOpen
                         selected: root.itemSelected(itemData)
+                        selectionEnabled: root.selectionEnabled
+                        contextHandler: root.contextHandler
+                        onToggleSelection: root.toggleItems([itemData])
                         onPressed: function(modifiers) { root.pressItem(itemData, modifiers) }
                         textScale: root.textScale
                         lang: root.lang
@@ -966,6 +1017,9 @@ Item {
                         onItemDataChanged: if (root.videoMode && itemData) root.requestLocalArtwork(itemData)
                         singleClickOpen: root.singleClickOpen
                         selected: root.itemSelected(itemData)
+                        selectionEnabled: root.selectionEnabled
+                        contextHandler: root.contextHandler
+                        onToggleSelection: root.toggleItems([itemData])
                         onPressed: function(modifiers) { root.pressItem(itemData, modifiers) }
                         featured: true
                         textScale: root.textScale
@@ -1004,6 +1058,9 @@ Item {
                                 onItemDataChanged: if (root.videoMode && itemData) root.requestLocalArtwork(itemData)
                                 singleClickOpen: root.singleClickOpen
                                 selected: root.itemSelected(itemData)
+                        selectionEnabled: root.selectionEnabled
+                        contextHandler: root.contextHandler
+                        onToggleSelection: root.toggleItems([itemData])
                                 onPressed: function(modifiers) { root.pressItem(itemData, modifiers) }
                                 compact: true
                                 textScale: root.textScale
@@ -1082,6 +1139,7 @@ Item {
         }
 
         TmdbHoverPreview {
+            objectName: "galleryVideoHoverMetadata"
             backdropItem: galleryList
             anchors.fill: parent
             visible: root.videoMode
@@ -1099,8 +1157,7 @@ Item {
             if (root.videoMode)
                 root.resetLocalArtwork(tmdbManager.localArtworkEnabled)
             if (root.videoMode && root.hoverPreviewShowing && root.hoverPreviewItem) {
-                const sourcePath = String(root.hoverPreviewItem.path || root.hoverPreviewItem.url || "")
-                root.tmdbInfo = tmdbManager.lookup(sourcePath, String(root.hoverPreviewItem.name || ""), String(tmdbManager.preferredLanguage || "tr"))
+                root.refreshHoverMetadata()
             }
         }
         function onHoverEnabledChanged() {
@@ -1632,8 +1689,7 @@ Item {
                         videoRootsEditor.save()
                         tmdbSettingsPopup.close()
                         if (root.videoMode && root.hoverPreviewShowing && root.hoverPreviewItem) {
-                            const sourcePath = String(root.hoverPreviewItem.path || root.hoverPreviewItem.url || "")
-                            root.tmdbInfo = tmdbManager.lookup(sourcePath, String(root.hoverPreviewItem.name || ""), String(tmdbManager.preferredLanguage || "tr"))
+                            root.refreshHoverMetadata()
                         }
                     }
                 }
@@ -1654,13 +1710,15 @@ Item {
     VideoViewer {
         id: videoViewer
         objectName: "galleryVideoViewer"
-        files: root.videoMode ? root.displayFiles : []
+        files: root.orderedVideoFiles
         lang: root.lang
         hostWindow: root.hostWindow
         metadataManager: tmdbManager
         metadataForItem: function(item) {
             if (!item) return null
-            return root.localArtworkByPath[String(item.path || "")] || null
+            const path = String(item.path || "")
+            return root.localArtworkByPath[path]
+                    || tmdbManager.cachedLookup(path, String(tmdbManager.preferredLanguage || "tr"))
         }
         onBrowseRequested: function(location) { root.browseRequested(location) }
     }

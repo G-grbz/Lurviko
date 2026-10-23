@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Lurviko.App
+import "VideoMetadata.js" as VideoMetadata
 
 Item {
     id: panel
@@ -17,6 +18,9 @@ Item {
     // Full-screen pause mode: keep the premium metadata layout, but remove the card chrome.
     property bool frameless: false
     property bool showFooter: true
+    property bool episodeDetails: false
+    readonly property string episodeHeading: episodeDetails && tvSeries ? VideoMetadata.episodeLabel(metadata, itemData) : ""
+    readonly property string overviewText: VideoMetadata.overview(metadata, episodeDetails && tvSeries)
 
     readonly property string state: metadata && metadata.state ? String(metadata.state) : "loading"
     readonly property bool ready: state === "ready"
@@ -47,7 +51,7 @@ Item {
     Behavior on scale { NumberAnimation { duration: panel.animationsEnabled ? 185 : 0; easing.type: Easing.OutCubic } }
     readonly property int releaseYear: Number(panel.metadata.year || 0)
     readonly property var displayGenres: (panel.metadata.genres || []).slice(0, 3)
-    readonly property int runtimeMinutes: Number(panel.metadata.runtime || 0)
+    readonly property int runtimeMinutes: Number((panel.episodeDetails ? panel.metadata.episodeRuntime : 0) || panel.metadata.runtime || 0)
     readonly property string localizedRuntime: {
         const mins = Math.max(0, panel.runtimeMinutes)
         if (mins <= 0)
@@ -332,6 +336,21 @@ Item {
                 }
 
                 Text {
+                    objectName: "pauseEpisodeHeading"
+                    Layout.fillWidth: true
+                    visible: panel.ready && panel.episodeHeading.length > 0
+                    text: panel.episodeHeading
+                    horizontalAlignment: Text.AlignRight
+                    color: panel.cardText
+                    font.family: panel.premiumFont
+                    font.pixelSize: Math.max(12, Math.min(19, card.height * 0.034))
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
+
+                Text {
                     Layout.fillWidth: true
                     visible: String(panel.metadata.tagline || "").length > 0
                     text: "“" + String(panel.metadata.tagline || "") + "”"
@@ -347,7 +366,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     Layout.maximumHeight: 82
-                    text: String(panel.metadata.overview || (panel.lang.language === "tr" ? "Konu bilgisi bulunamadı." : "No overview available."))
+                    text: panel.overviewText || (panel.lang.language === "tr" ? "Konu bilgisi bulunamadı." : "No overview available.")
                     color: panel.cardText
                     horizontalAlignment: Text.AlignRight
                     font.family: panel.premiumFont

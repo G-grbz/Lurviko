@@ -546,6 +546,7 @@ ApplicationWindow {
                     height: embeddedMusicLoader.height
                     player: globalMusicPlayer
                     lang: root.appLang
+                    backdropSource: stack
                     sideTab: root.embeddedMusicSideTab
                     showRemainingTime: root.embeddedMusicRemainingTime
                     onSideTabChanged: root.embeddedMusicSideTab = sideTab

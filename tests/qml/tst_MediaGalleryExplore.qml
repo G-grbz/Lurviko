@@ -17,12 +17,14 @@ Item {
         gallerySize: 230
         contentIndexModel: null
     }
+    SignalSpy { id: selectionSpy; target: gallery; signalName: "toggleItems" }
     SignalSpy { id: revealSpy; target: gallery; signalName: "revealRequested" }
     TestCase {
         id: tests
         name: "MediaGalleryExplore"
         when: windowShown
         function init() {
+            gallery.categoryKey = "images"
             AppTheme.setSingleClickOpen(true)
             mouseMove(gallery, 1, gallery.height - 2)
             gallery.dismissHoverPreview()
@@ -46,6 +48,7 @@ Item {
             AppTheme.setSingleClickOpen(false)
             gallery.dismissHoverPreview()
             findChild(gallery, "galleryPhotoViewer").close()
+            findChild(gallery, "galleryVideoViewer").close()
         }
         function firstCard() {
             const view = findChild(gallery, "categoryGalleryList")
@@ -53,6 +56,80 @@ Item {
             wait(220)
             return findChild(view.itemAtIndex(1), "galleryMediaCard")
         }
+        function test_real_video_hover_receives_episode_metadata() {
+            gallery.categoryKey = "videos"
+            const item = {name: "Show.S01E03.mkv", path: "/videos/Show.S01E03.mkv", url: "file:///videos/Show.S01E03.mkv"}
+            const metadata = {state: "ready", mediaType: "tv", tmdbId: 123, title: "Dizi", overview: "Genel konu",
+                episodeChecked: true, episodeSeriesId: 123, seasonNumber: 1, episodeNumber: 3,
+                episodeTitle: "Bölüm adı", episodeOverview: "Bölüm konusu", episodeRuntime: 47}
+            gallery.hoverPreviewItem = item
+            gallery.tmdbInfo = gallery.resolveHoverMetadata(metadata, item)
+            const card = findChild(gallery, "galleryVideoHoverMetadata")
+            verify(card !== null)
+            compare(card.episodeHeading, "S01E03 · Bölüm adı")
+            compare(card.overviewText, "Bölüm konusu")
+            compare(card.runtimeMinutes, 47)
+            gallery.hoverPreviewItem = null
+        }
+
+        function test_video_strip_uses_natural_order_and_cached_tmdb_artwork() {
+            gallery.categoryKey = "videos"
+            gallery.files = [10, 2, 1].map(function(number) {
+                return {name: "Episode " + number + ".mp4", path: "/videos/" + number + ".mp4",
+                        url: "file:///videos/" + number + ".mp4", modifiedMs: 1700000000000}
+            })
+            compare(gallery.orderedVideoFiles.map(function(item) { return item.name }).join(","),
+                    "Episode 1.mp4,Episode 2.mp4,Episode 10.mp4")
+            compare(gallery.fileIndex("/videos/10.mp4"), 2)
+            const video = findChild(gallery, "galleryVideoViewer")
+            compare(video.files[0].path, "/videos/1.mp4")
+            const backdrop = Qt.resolvedUrl("fixtures/landscape.svg").toString()
+            const poster = Qt.resolvedUrl("fixtures/portrait.svg").toString()
+            gallery.localArtworkByPath = ({
+                "/videos/1.mp4": {backdropUrl: backdrop, posterUrl: poster, title: "Dizi", mediaType: "tv", seasonNumber: 1, episodeNumber: 3, episodeTitle: "Bölüm adı"},
+                "/videos/2.mp4": {posterUrl: poster}
+            })
+            compare(video.filmstripSource(video.files[0]), backdrop)
+            compare(video.filmstripSource(video.files[1]), poster)
+            compare(video.filmstripSource(video.files[2]), video.thumbSource(video.files[2]))
+            compare(video.filmstripTitle(video.files[0]), "Dizi · S01E03 · Bölüm adı")
+            compare(video.filmstripTitle(video.files[2]), "Episode 10.mp4")
+            const oldQt = AppTheme.useQtTheme
+            try {
+                AppTheme.setQtTheme(true)
+                video.normalOverlayParent = gallery
+                video.open()
+                tryVerify(function() { return findChild(video.contentItem, "videoFilmstripPlayIcon") !== null })
+                const glyph = findChild(video.contentItem, "videoFilmstripPlayIcon")
+                compare(glyph.tintColor, "#ffffff")
+                const tooltip = glyph.parent.parent.hoverTooltip
+                verify(tooltip !== null)
+                verify(tooltip.text === "Dizi · S01E03 · Bölüm adı" || tooltip.text === "Episode 2.mp4" || tooltip.text === "Episode 10.mp4")
+                compare(tooltip.delay, 420)
+            } finally { video.close(); AppTheme.setQtTheme(oldQt) }
+        }
+
+        function test_media_checkbox_and_date_scope_do_not_open_the_viewer() {
+            gallery.selectionEnabled = true
+            selectionSpy.clear()
+            const card = firstCard()
+            const check = findChild(card, "mediaSelectionCheck")
+            verify(check !== null)
+            mouseClick(check)
+            compare(selectionSpy.count, 1)
+            compare(selectionSpy.signalArguments[0][0][0].path, card.itemData.path)
+            verify(!findChild(gallery, "galleryPhotoViewer").visible)
+            const view = findChild(gallery, "categoryGalleryList")
+            view.positionViewAtIndex(0, ListView.Beginning)
+            wait(40)
+            const header = findChild(view.itemAtIndex(0), "dateGroupSelectAll")
+            verify(header !== null)
+            mouseClick(header)
+            compare(selectionSpy.count, 2)
+            compare(selectionSpy.signalArguments[1][0].length, 40)
+            gallery.selectionEnabled = false
+        }
+
         function test_open_containing_folder_carries_the_target_item() {
             const card = firstCard()
             verify(card !== null)

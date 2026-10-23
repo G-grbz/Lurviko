@@ -16,6 +16,7 @@ Item {
         manager: library
         player: player
     }
+    SignalSpy { id: selectionSpy; target: music; signalName: "toggleItems" }
     SignalSpy { id: revealSpy; target: music; signalName: "revealRequested" }
     TestCase {
         name: "MusicLibraryView"
@@ -44,6 +45,26 @@ Item {
             grid.positionViewAtBeginning()
             wait(30)
         }
+        function test_selection_tracks_cover_collections_without_duplicates() {
+            compare(music.selectionTracks().length, 2836)
+            music.tabIndex = 1
+            tryCompare(music, "trackTab", false)
+            tryVerify(function() { return music.viewItems.length === 1 })
+            compare(music.selectionTracks().length, 2836)
+        }
+        function test_track_checkbox_selects_without_playing() {
+            music.selectionEnabled = true
+            selectionSpy.clear()
+            const grid = findChild(music, "musicLibraryGrid")
+            const check = findChild(grid.itemAtIndex(0), "musicTrackSelectionCheck")
+            verify(check !== null)
+            mouseClick(check)
+            compare(selectionSpy.count, 1)
+            compare(selectionSpy.signalArguments[0][0].length, 1)
+            compare(selectionSpy.signalArguments[0][0][0].itemUrl, music.viewItems[0].track.itemUrl)
+            music.selectionEnabled = false
+        }
+
         function test_resize_keeps_visible_track_across_column_changes() {
             const grid = findChild(music, "musicLibraryGrid")
             grid.positionViewAtIndex(1100, GridView.Beginning)

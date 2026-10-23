@@ -16,7 +16,8 @@ static void require(bool ok, const char *message) {
 class FakeTmdb final : public TmdbMetadataManager {
 public:
     enum Mode { Unmatched, NetworkError, RelaxedMatch, TvFallbackMatch,
-                FestivalYear, UnverifiedYear, DateError };
+                FestivalYear, UnverifiedYear, DateError, EpisodeLocalized, EpisodeEnglishFallback,
+                EpisodeMissing, EpisodeWrongNumber, EpisodeNoPlot };
     Mode mode = Unmatched;
     QList<QUrl> requests;
     int callbacksAlive = 0;
@@ -29,6 +30,17 @@ private:
         QJsonObject json;
         QString error;
         if (mode == NetworkError) error = QStringLiteral("Fixture network error");
+        else if (url.path().contains("/episode/")) {
+            if (mode == EpisodeMissing) error = "TMDB 404: Episode unavailable";
+            else {
+                const bool english = QUrlQuery(url).queryItemValue("language").startsWith("en");
+                json = QJsonObject{{"id", 456}, {"season_number", mode == EpisodeWrongNumber ? 2 : 1},
+                    {"episode_number", 3}, {"name", english ? "Episode name" : "Bölüm adı"},
+                    {"overview", mode == EpisodeNoPlot || (mode == EpisodeEnglishFallback && !english)
+                        ? "" : english ? "Episode plot" : "Bölüm konusu"},
+                    {"runtime", 47}, {"air_date", "2024-03-04"}};
+            }
+        }
         else if (url.path().contains("/search/")) {
             const bool tv = url.path().endsWith("/tv");
             const int phase = tv ? ++tvSearches : ++movieSearches;
@@ -89,6 +101,25 @@ static QVariantMap lookup(FakeTmdb &manager, const QString &path, bool typed = f
     return result;
 }
 
+static QVariantMap episodeLookup(FakeTmdb &manager, const QString &path,
+                                 const QVariantMap &series, const QString &language) {
+    QEventLoop loop;
+    QTimer timeout; timeout.setSingleShot(true);
+    QVariantMap result;
+    const auto connection = QObject::connect(&manager, &TmdbMetadataManager::metadataReady, &loop,
+        [&](const QString &source, const QVariantMap &value) { require(source == path, "episode retains source"); result = value; loop.quit(); });
+    const int requests = manager.requests.size();
+    const auto initial = manager.lookupEpisode(path, series, language);
+    manager.lookupEpisode(path, series, language);
+    require(manager.requests.size() == requests + 1, "in-flight episode queries are deduplicated");
+    require(initial.value("seasonNumber").toInt() == 1 && initial.value("episodeNumber").toInt() == 3, "episode identity is available immediately");
+    QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timeout.start(5000); loop.exec(); QObject::disconnect(connection);
+    require(result.value("episodeChecked").toBool() && manager.callbacksAlive == 0, "episode callbacks finish and release captures");
+    require(result.value("title") == series.value("title") && result.value("overview") == series.value("overview"), "series fallback metadata is preserved");
+    return result;
+}
+
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     app.setOrganizationName("Lurviko-QA"); app.setApplicationName("TmdbLifetime");
@@ -139,5 +170,34 @@ int main(int argc, char **argv) {
         result = lookup(manager, prefix + "date-error", false, wizard);
         require(result.value("state") == "unmatched", "date verification failure does not accept a conflicting year");
     }
+    FakeTmdb episodes;
+    episodes.setApiToken("fixture-token");
+    const QVariantMap series{{"state", "ready"}, {"mediaType", "tv"}, {"tmdbId", 123},
+                            {"title", "Series title"}, {"overview", "Series plot"}};
+    episodes.mode = FakeTmdb::EpisodeLocalized;
+    const QString source = "dlna://fixture/episodes/Show.S01E03.mkv";
+    auto details = episodeLookup(episodes, source, series, "tr");
+    require(details.value("episodeTitle") == "Bölüm adı" && details.value("episodeOverview") == "Bölüm konusu"
+        && details.value("episodeRuntime").toInt() == 47, "localized episode metadata is returned");
+    const int cachedRequests = episodes.requests.size();
+    require(episodes.lookupEpisode(source, series, "tr").value("episodeTitle") == "Bölüm adı"
+        && episodes.requests.size() == cachedRequests, "episode cache avoids repeated requests");
+    episodes.mode = FakeTmdb::EpisodeEnglishFallback;
+    details = episodeLookup(episodes, "dlna://fixture/episodes/fallback/Show.1x03.mkv", series, "tr");
+    require(details.value("episodeTitle") == "Bölüm adı" && details.value("episodeOverview") == "Episode plot", "English overview fills missing localized plot without replacing localized title");
+    episodes.mode = FakeTmdb::EpisodeMissing;
+    details = episodeLookup(episodes, "dlna://fixture/episodes/missing/Show.S01E03.mkv", series, "en");
+    require(!details.contains("episodeOverview"), "unavailable episode retains series fallback");
+    episodes.mode = FakeTmdb::EpisodeWrongNumber;
+    details = episodeLookup(episodes, "dlna://fixture/episodes/wrong/Show.S01E03.mkv", series, "en");
+    require(!details.contains("episodeTitle"), "mismatched season response is never shown");
+    episodes.mode = FakeTmdb::EpisodeLocalized;
+    details = episodeLookup(episodes, "dlna://fixture/episodes/words/Show Sezon 1 Bölüm 3.mkv", series, "tr");
+    const int beforeIgnored = episodes.requests.size();
+    episodes.lookupEpisode("dlna://fixture/episodes/movie.2024.mkv", series, "en");
+    auto movie = series; movie.insert("mediaType", "movie");
+    episodes.lookupEpisode(source, movie, "en");
+    require(episodes.requests.size() == beforeIgnored, "movies and ambiguous filenames never start an episode lookup");
+    std::puts("PASS: episode identity, localization/fallback, cache/deduplication, unavailable/wrong episodes and callback lifetimes");
     std::puts("PASS: 30 cycles of unmatched/fallback/error/retry/matched TMDB lookups and callback release");
 }

@@ -46,6 +46,33 @@ int main(int argc, char **argv) {
     // REGISTER_BACKEND_TYPES
     const QString base = QString::fromLocal8Bit(qgetenv("LURVIKO_PROPERTIES_TEST_ROOT")) + "/fixture";
     require(QDir().mkpath(base), "fixture directory created");
+    // Footer and Properties share one recursive snapshot, including per-child
+    // contributions so selecting visible items does not count hidden siblings.
+    const QString sizeRoot = base + "-size-snapshot";
+    require(QDir().mkpath(sizeRoot + "/nested/deeper"), "size fixture created");
+    for (const auto &entry : QList<QPair<QString, int>>{{"visible.txt", 3}, {".hidden", 7}, {"nested/deeper/data", 5}}) {
+        QFile file(sizeRoot + "/" + entry.first);
+        require(file.open(QIODevice::WriteOnly) && file.write(QByteArray(entry.second, 'x')) == entry.second, "size fixture bytes");
+    }
+    require(::symlink(QFile::encodeName(sizeRoot).constData(), QFile::encodeName(sizeRoot + "/loop").constData()) == 0, "size symlink loop fixture");
+    FilePropertiesManager directoryStats, sharedProperties;
+    sharedProperties.setStatsSource(&directoryStats);
+    directoryStats.inspect(sizeRoot);
+    sharedProperties.inspectSelection({sizeRoot + "/visible.txt", sizeRoot + "/nested"});
+    require(until([&] { return directoryStats.statsReady() && sharedProperties.statsReady(); }), "in-flight size request is shared");
+    require(directoryStats.totalSize() == 15 && sharedProperties.totalSize() == 8, "recursive size includes hidden files without following symlinks; subsets stay exact");
+    sharedProperties.inspectSelection({sizeRoot + "/visible.txt", sizeRoot + "/.hidden", sizeRoot + "/nested", sizeRoot + "/loop"});
+    require(!sharedProperties.calculating() && sharedProperties.totalSize() == 15, "all-selected Properties reuses ready footer bytes synchronously");
+    require(sharedProperties.fileCount() == 3 && sharedProperties.folderCount() == 2, "shared snapshot preserves file/folder counts");
+    sharedProperties.inspect(sizeRoot + "/nested");
+    require(!sharedProperties.calculating() && sharedProperties.totalSize() == 5 && sharedProperties.folderCount() == 1, "single subfolder reuses snapshot excluding its root count");
+    directoryStats.inspect(sizeRoot);
+    sharedProperties.inspectSelection({sizeRoot + "/visible.txt", sizeRoot + "/nested"});
+    sharedProperties.cancelInspection();
+    require(until([&] { return directoryStats.statsReady(); }), "closing Properties does not cancel the footer owner");
+    require(!sharedProperties.statsReady(), "cancelled consumer ignores shared completion");
+
+    std::fprintf(stderr, "PASS: shared recursive footer/Properties snapshot, hidden subsets, symlink exclusion and independent consumer cancellation\n");
     const QString longName = "LICENSE-FontAwesome-with-a-very-long-file-name.txt";
     const QString path = base + "/" + longName;
     { QFile file(path); require(file.open(QIODevice::WriteOnly), "fixture opens"); file.write("Permission and filename layout test\n"); }
@@ -286,6 +313,15 @@ ApplicationWindow {
         if (code.hasError()) std::fprintf(stderr, "%s\n", qPrintable(code.error().toString()));
         require(!code.hasError(), "QML expression executes"); return value;
     };
+    auto footerStats = pane->findChild<FilePropertiesManager *>("directorySizeProperties");
+    auto footerLabel = findItem(pane, "directorySizeLabel");
+    require(footerStats && footerLabel && until([&] { return footerStats->statsReady() && footerLabel->property("ready").toBool(); }), "footer prepares the real recursive directory size");
+    require(footerLabel->isVisible() && !footerLabel->property("text").toString().contains(QChar(0x2026)), "footer displays a completed size beside item count");
+    eval("selectAll(); showPropertiesForSelection()");
+    auto sizeDialog = pane->findChild<QObject *>("filePropertiesDialog");
+    require(sizeDialog && until([&] { return sizeDialog->property("opened").toBool(); }), "all-selected Properties opens");
+    require(!eval("fileProperties.calculating").toBool() && eval("fileProperties.totalSize").toLongLong() == footerStats->totalSize(), "all-selected real Properties uses the footer snapshot without a new scan");
+    QMetaObject::invokeMethod(sizeDialog, "close");
     const auto select = [&](const QString &name) {
         const int index = directory->indexOfUrl(QUrl::fromLocalFile(base + "/" + name).toString());
         require(index >= 0 && QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(index)), Q_ARG(QVariant, QVariant(0))), "fixture selected");

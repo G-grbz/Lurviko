@@ -33,6 +33,26 @@ Item {
     property var hoverAnchor: null
     property var pendingHoverTrack: null
     property var pendingHoverAnchor: null
+    property bool selectionEnabled: false
+    property int selectionRevision: 0
+    property var itemsSelected: null
+    property var contextHandler: null
+    signal toggleItems(var items)
+    function entrySelected(entry) {
+        const revision = selectionRevision
+        return itemsSelected ? itemsSelected(entry.tracks || []) : false
+    }
+    function selectionTracks() {
+        const tracks = []
+        const seen = new Set()
+        for (const entry of viewItems) {
+            for (const track of (entry.tracks || [])) {
+                const url = String(track.itemUrl || "")
+                if (url && !seen.has(url)) { seen.add(url); tracks.push(track) }
+            }
+        }
+        return tracks
+    }
     signal revealRequested(string itemUrl)
 
     function requestHoverPreview(track, anchor) {
@@ -731,10 +751,10 @@ Item {
                 anchors.fill: parent
                 anchors.margins: root.cellGap / 2
                 radius: 12
-                color: trackCell.nowPlaying ? AppTheme.accentSoft
+                color: root.entrySelected(trackCell.entry) || trackCell.nowPlaying ? AppTheme.accentSoft
                        : (trackMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surface)
                 border.width: 1
-                border.color: trackCell.nowPlaying ? AppTheme.accentBorder : AppTheme.border
+                border.color: root.entrySelected(trackCell.entry) || trackCell.nowPlaying ? AppTheme.accentBorder : AppTheme.border
                 MouseArea {
                     id: trackMouse
                     objectName: "musicTrackMouse"
@@ -747,11 +767,22 @@ Item {
                     onPositionChanged: if (containsMouse && !pressed) root.requestHoverPreview(trackCell.track, trackCardSurface)
                     onClicked: function(event) {
                         root.dismissHoverPreview()
-                        if (event.button === Qt.RightButton)
-                            root.showTrackMenu(trackCell.track, trackMouse, event.x, event.y)
-                        else
-                            root.activate(trackCell.entry)
+                        if (event.button === Qt.RightButton) {
+                            if (root.contextHandler) root.contextHandler([trackCell.track], trackMouse, event.x, event.y)
+                            else root.showTrackMenu(trackCell.track, trackMouse, event.x, event.y)
+                        } else if (root.selectionEnabled && (event.modifiers & Qt.ControlModifier)) {
+                            root.toggleItems([trackCell.track])
+                        } else root.activate(trackCell.entry)
                     }
+                }
+                GCheckBox {
+                    objectName: "musicTrackSelectionCheck"
+                    width: 30; height: 30
+                    visible: root.selectionEnabled
+                    anchors { left: parent.left; top: parent.top }
+                    z: 5
+                    checked: root.entrySelected(trackCell.entry)
+                    onClicked: { root.dismissHoverPreview(); root.toggleItems([trackCell.track]) }
                 }
                 Rectangle {
                     id: trackArtwork
@@ -870,13 +901,20 @@ Item {
                 radius: 14
                 color: collectionMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surface
                 border.width: 1
-                border.color: collectionMouse.containsMouse ? AppTheme.accentBorder : AppTheme.border
+                border.color: root.entrySelected(collectionCell.entry) || collectionMouse.containsMouse ? AppTheme.accentBorder : AppTheme.border
                 MouseArea {
                     id: collectionMouse
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.browseGroup(collectionCell.entry)
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: function(event) {
+                        if (event.button === Qt.RightButton && root.contextHandler)
+                            root.contextHandler(collectionCell.entry.tracks || [], collectionMouse, event.x, event.y)
+                        else if (event.button === Qt.LeftButton && root.selectionEnabled && (event.modifiers & Qt.ControlModifier))
+                            root.toggleItems(collectionCell.entry.tracks || [])
+                        else if (event.button === Qt.LeftButton) root.browseGroup(collectionCell.entry)
+                    }
                 }
                 Rectangle {
                     id: collectionArtwork
@@ -924,6 +962,15 @@ Item {
                     onClicked: root.activate(collectionCell.entry)
                     Accessible.name: root.tr("Çal", "Play")
                     background: Rectangle { radius: 16; color: AppTheme.accentSoft; border.color: AppTheme.accentBorder }
+                }
+                GCheckBox {
+                    objectName: "musicCollectionSelectionCheck"
+                    width: 30; height: 30
+                    visible: root.selectionEnabled
+                    anchors { left: parent.left; top: parent.top; margins: 5 }
+                    z: 5
+                    checked: root.entrySelected(collectionCell.entry)
+                    onClicked: root.toggleItems(collectionCell.entry.tracks || [])
                 }
                 Column {
                     anchors.top: collectionArtwork.bottom

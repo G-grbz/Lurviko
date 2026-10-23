@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Lurviko.App
+import "VideoMetadata.js" as VideoMetadata
 
 Item {
     id: panel
@@ -20,6 +21,9 @@ Item {
                                         : (metadata && metadata.parsedTitle ? String(metadata.parsedTitle)
                                                                             : (itemData ? String(itemData.name || "") : ""))
     readonly property bool tvSeries: String(metadata && metadata.mediaType ? metadata.mediaType : "") === "tv"
+    readonly property string episodeHeading: ready && tvSeries ? VideoMetadata.episodeLabel(metadata, itemData) : ""
+    readonly property string overviewText: VideoMetadata.overview(metadata, tvSeries)
+    readonly property int runtimeMinutes: Number((tvSeries ? metadata.episodeRuntime : 0) || metadata.runtime || 0)
     readonly property color cardText: "#F8FBFF"
     readonly property color cardTextMuted: "#D7DEEA"
     readonly property color cardTextFaint: "#AFBCD0"
@@ -47,8 +51,8 @@ Item {
         const genres = panel.metadata.genres || []
         if (genres.length > 0)
             parts.push(genres.slice(0, 3).join(", ").toUpperCase())
-        if (Number(panel.metadata.runtime || 0) > 0) {
-            const mins = Number(panel.metadata.runtime)
+        if (panel.runtimeMinutes > 0) {
+            const mins = panel.runtimeMinutes
             const h = Math.floor(mins / 60)
             const m = mins % 60
             parts.push((h > 0 ? h + "h " : "") + m + "m")
@@ -232,21 +236,24 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    visible: String(panel.metadata.tagline || "").length > 0
-                    text: "“" + String(panel.metadata.tagline || "") + "”"
-                    color: panel.cardTextMuted
+                    objectName: "hoverEpisodeHeading"
+                    visible: panel.episodeHeading.length > 0 || String(panel.metadata.tagline || "").length > 0
+                    text: panel.episodeHeading.length ? panel.episodeHeading : "“" + String(panel.metadata.tagline || "") + "”"
+                    color: panel.episodeHeading.length ? panel.cardText : panel.cardTextMuted
                     horizontalAlignment: Text.AlignRight
                     font.family: panel.premiumFont
-                    font.pixelSize: 11
-                    font.italic: true
+                    font.pixelSize: panel.episodeHeading.length ? 12 : 11
+                    font.italic: panel.episodeHeading.length === 0
+                    font.weight: panel.episodeHeading.length ? Font.DemiBold : Font.Normal
+                    wrapMode: Text.Wrap
                     elide: Text.ElideRight
-                    maximumLineCount: 1
+                    maximumLineCount: panel.episodeHeading.length ? 2 : 1
                 }
 
                 Text {
                     Layout.fillWidth: true
                     Layout.maximumHeight: 82
-                    text: String(panel.metadata.overview || (panel.lang.language === "tr" ? "Konu bilgisi bulunamadı." : "No overview available."))
+                    text: panel.overviewText || (panel.lang.language === "tr" ? "Konu bilgisi bulunamadı." : "No overview available.")
                     color: panel.cardText
                     horizontalAlignment: Text.AlignRight
                     font.family: panel.premiumFont

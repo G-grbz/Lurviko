@@ -955,6 +955,105 @@ QVariantMap TmdbMetadataManager::lookupById(const QString &sourcePathValue,
     return loadingResult(pending, QStringLiteral("loading"));
 }
 
+QVariantMap TmdbMetadataManager::lookupEpisode(const QString &sourcePathValue,
+                                               const QVariantMap &seriesMetadata,
+                                               const QString &language)
+{
+    const QString sourcePath = normalizedLocalPath(sourcePathValue);
+    const int seriesId = seriesMetadata.value(QStringLiteral("tmdbId")).toInt();
+    if (sourcePath.isEmpty() || seriesId <= 0
+            || seriesMetadata.value(QStringLiteral("mediaType")).toString() != QStringLiteral("tv"))
+        return seriesMetadata;
+
+    static const QRegularExpression marker(QStringLiteral(
+        R"((?:^|[\s._\-])(?:S(\d{1,2})[\s._\-]*E(\d{1,3})|(\d{1,2})x(\d{1,3}))(?=$|[\s._\-]))"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QString name = QFileInfo(sourcePath).completeBaseName();
+    const auto match = marker.match(name);
+    int season = seriesMetadata.value(QStringLiteral("seasonNumber"), -1).toInt();
+    int episode = seriesMetadata.value(QStringLiteral("episodeNumber")).toInt();
+    if (match.hasMatch()) {
+        season = match.captured(match.captured(1).isEmpty() ? 3 : 1).toInt();
+        episode = match.captured(match.captured(2).isEmpty() ? 4 : 2).toInt();
+    }
+    if (!match.hasMatch()) {
+        static const QRegularExpression words(QStringLiteral(
+            R"((?:^|[\s._\-])(?:season|sezon)[\s._\-]*(\d{1,2})[\s._\-]*(?:episode|ep|b[oö]l[uü]m)[\s._\-]*(\d{1,3})(?=$|[\s._\-]))"),
+            QRegularExpression::CaseInsensitiveOption);
+        const auto wordMatch = words.match(name);
+        if (wordMatch.hasMatch()) { season = wordMatch.captured(1).toInt(); episode = wordMatch.captured(2).toInt(); }
+    }
+    if (season < 0 || season > 99 || episode <= 0 || episode > 999) return seriesMetadata;
+    const QString lang = normalizeLanguageCode(language.isEmpty() ? m_preferredLanguage : language);
+    const auto complete = [seriesId, season, episode](const QVariantMap &value) {
+        return value.value(QStringLiteral("episodeChecked")).toBool()
+            && value.value(QStringLiteral("episodeSeriesId")).toInt() == seriesId
+            && value.value(QStringLiteral("seasonNumber"), -1).toInt() == season
+            && value.value(QStringLiteral("episodeNumber")).toInt() == episode;
+    };
+    if (complete(seriesMetadata)) return seriesMetadata;
+    const auto cached = readCache(sourcePath, lang);
+    if (complete(cached)) return cached;
+
+    QVariantMap result = seriesMetadata;
+    for (const auto *field : {"episodeChecked", "episodeSeriesId", "episodeTitle", "episodeOverview", "episodeRuntime", "episodeAirDate"})
+        result.remove(QString::fromLatin1(field));
+    result.insert(QStringLiteral("sourcePath"), sourcePath);
+    result.insert(QStringLiteral("seasonNumber"), season);
+    result.insert(QStringLiteral("episodeNumber"), episode);
+    if (!configured()) return result;
+    PendingLookup pending;
+    pending.sourcePath = sourcePath; pending.language = lang;
+    pending.cacheKey = cacheKeyFor(sourcePath, lang);
+    const QString requestKey = sourcePath + QLatin1Char('\n') + lang + QStringLiteral("\nepisode");
+    if (m_pending.contains(requestKey)) return result;
+    m_pending.insert(requestKey, pending);
+
+    const auto finish = [this, pending, requestKey, result, seriesId, season, episode]
+            (const QJsonObject &localized, const QJsonObject &english, bool persist) {
+        auto metadata = result;
+        const auto valid = [season, episode](const QJsonObject &json) {
+            return json.value(QStringLiteral("id")).toInt() > 0
+                && json.value(QStringLiteral("season_number")).toInt(-1) == season
+                && json.value(QStringLiteral("episode_number")).toInt() == episode;
+        };
+        const bool available = valid(localized) || valid(english);
+        const QJsonObject local = valid(localized) ? localized : QJsonObject{};
+        const QJsonObject en = valid(english) ? english : QJsonObject{};
+        metadata.insert(QStringLiteral("episodeChecked"), true);
+        metadata.insert(QStringLiteral("episodeSeriesId"), seriesId);
+        if (available) {
+            metadata.insert(QStringLiteral("episodeTitle"), chooseLocalizedString(local, en, QStringLiteral("name")));
+            metadata.insert(QStringLiteral("episodeOverview"), chooseLocalizedString(local, en, QStringLiteral("overview")));
+            metadata.insert(QStringLiteral("episodeAirDate"), chooseLocalizedString(local, en, QStringLiteral("air_date")));
+            const int runtime = local.value(QStringLiteral("runtime")).toInt(en.value(QStringLiteral("runtime")).toInt());
+            if (runtime > 0) metadata.insert(QStringLiteral("episodeRuntime"), runtime);
+        }
+        m_pending.remove(requestKey);
+        // Missing episodes retain the series information. Transient failures
+        // are remembered in this session only, allowing a later startup retry.
+        if (available || persist) writeCache(pending, metadata);
+        emit metadataReady(pending.sourcePath, metadata);
+    };
+    const auto endpoint = [seriesId, season, episode, this](const QString &code) {
+        QUrl url(QStringLiteral("https://api.themoviedb.org/3/tv/%1/season/%2/episode/%3")
+                 .arg(seriesId).arg(season).arg(episode));
+        QUrlQuery query; query.addQueryItem(QStringLiteral("language"), localeForLanguage(code));
+        url.setQuery(query); return url;
+    };
+    getJson(endpoint(lang), [this, lang, endpoint, finish](const QJsonObject &local, const QString &error) {
+        if (!error.isEmpty()) { finish({}, {}, error.startsWith(QStringLiteral("TMDB 404:"))); return; }
+        if (lang == QStringLiteral("en") || (!local.value(QStringLiteral("name")).toString().trimmed().isEmpty()
+                && !local.value(QStringLiteral("overview")).toString().trimmed().isEmpty())) {
+            finish(local, {}, false); return;
+        }
+        getJson(endpoint(QStringLiteral("en")), [local, finish](const QJsonObject &english, const QString &) {
+            finish(local, english, false);
+        });
+    });
+    return result;
+}
+
 QVariantMap TmdbMetadataManager::cachedLookup(const QString &sourcePathValue,
                                               const QString &language) const
 {

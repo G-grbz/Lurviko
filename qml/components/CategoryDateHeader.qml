@@ -10,6 +10,10 @@ Item {
     property var lang: null
     property real textScale: 1.0
 
+    property bool selectionEnabled: false
+    property bool allSelected: false
+    signal toggleSelection()
+
     implicitHeight: 48
 
     Rectangle {
@@ -66,6 +70,13 @@ Item {
                 Layout.preferredHeight: 1
                 color: AppTheme.border
                 opacity: 0.78
+            }
+            GButton {
+                objectName: "dateGroupSelectAll"
+                visible: root.selectionEnabled
+                text: root.lang ? root.lang.t(root.allSelected ? "deselect_all" : "select_all") : "Select all"
+                implicitHeight: 28
+                onClicked: root.toggleSelection()
             }
         }
     }

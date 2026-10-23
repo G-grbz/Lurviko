@@ -25,6 +25,7 @@ Item {
         gallerySize: 168
         contentIndexModel: null
     }
+    SignalSpy { id: toggled; target: grouped; signalName: "toggleItems" }
     SignalSpy { id: pressed; target: grouped; signalName: "itemPressed" }
     SignalSpy { id: activated; target: grouped; signalName: "itemActivated" }
     SignalSpy { id: context; target: grouped; signalName: "contextRequested" }
@@ -63,6 +64,30 @@ Item {
             for (let i = 0; i < children.length; ++i) count += countCards(children[i])
             return count
         }
+        function test_date_and_individual_selection_use_the_exact_group() {
+            grouped.selectionEnabled = true
+            verify(waitForRendering(grouped))
+            toggled.clear()
+            const view = findChild(grouped, "categoryGroupedList")
+            const header = findChild(view.itemAtIndex(0), "dateGroupSelectAll")
+            verify(header !== null)
+            mouseClick(header)
+            compare(toggled.count, 1)
+            const items = toggled.signalArguments[0][0]
+            compare(items.length, 100)
+            const key = grouped.rows[0].key
+            for (const item of items) compare(grouped.dateKey(item.groupDateMs), key)
+            const card = findChild(view.itemAtIndex(1), "categoryGroupedCard")
+            const check = findChild(card, "categoryItemSelectionCheck")
+            verify(check !== null)
+            compare(check.parent.modelData.itemUrl, card.modelData.itemUrl, "Selection checkbox belongs to the requested visible card")
+            mouseClick(check, 10, 15)
+            compare(toggled.count, 2)
+            compare(toggled.signalArguments[1][0].length, 1)
+            compare(toggled.signalArguments[1][0][0].itemUrl, card.modelData.itemUrl)
+            grouped.selectionEnabled = false
+        }
+
         function test_large_category_only_creates_viewport_cards_and_reopens() {
             const view = findChild(grouped, "categoryGroupedList")
             verify(countCards(grouped) > 10)

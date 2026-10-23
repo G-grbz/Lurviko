@@ -39,18 +39,18 @@ Item {
             drop.acceptProposedAction()
         } else if (browser.extractArkDrop(drop, destination)) drop.acceptProposedAction()
     }
-    function archiveDropDestinationAt(point) {
+    function archiveDropDestinationAt(point, foldersOnly) {
         const local = horizontal.mapFromItem(view, point.x, point.y)
         if (local.x < 0 || local.y < 0 || local.x >= horizontal.width || local.y >= horizontal.height)
-            return browser.directory.location
+            return foldersOnly ? "" : browser.directory.location
         for (let i = 0; i < columns.count; ++i) {
             const column = columns.itemAt(i)
             if (!column) continue
             const inColumn = column.mapFromItem(view, point.x, point.y)
             if (inColumn.x >= 0 && inColumn.x < column.width && inColumn.y >= 0 && inColumn.y < column.height)
-                return browser.folderDropDestination(column.listView, view, point.x, point.y, column.columnLocation)
+                return browser.folderDropDestination(column.listView, view, point.x, point.y, foldersOnly ? "" : column.columnLocation)
         }
-        return browser.directory.location
+        return foldersOnly ? "" : browser.directory.location
     }
     Connections {
         target: navigation
@@ -66,6 +66,7 @@ Item {
         flickableDirection: Flickable.HorizontalFlick
         boundsBehavior: Flickable.StopAtBounds
         clip: true
+        onContentXChanged: browser.refreshArchiveDropTarget()
         Row {
             id: columnRow
             height: horizontal.height
@@ -125,7 +126,10 @@ Item {
                         reuseItems: true
                         cacheBuffer: 160
                         boundsBehavior: Flickable.StopAtBounds
-                        onContentYChanged: if (column.index === navigation.activeColumn) browser.scheduleTabScrollSnapshot()
+                        onContentYChanged: {
+                            if (column.index === navigation.activeColumn) browser.scheduleTabScrollSnapshot()
+                            browser.refreshArchiveDropTarget()
+                        }
                         delegate: Rectangle {
                             id: entry
                             required property int index
@@ -144,9 +148,11 @@ Item {
                             height: Math.round(Math.max(36, Math.min(64, 18 + browser.activeIconSize * 0.2)))
                             radius: 7
                             opacity: hidden ? AppTheme.hiddenItemOpacity : 1
-                            color: chosen || column.columnSelection === itemUrl ? AppTheme.accentSoft
+                            color: browser.dropTargetUrl === itemUrl ? AppTheme.dropTargetSurface
+                                  : chosen || column.columnSelection === itemUrl ? AppTheme.accentSoft
                                   : pointer.containsMouse ? AppTheme.surfaceHover : "transparent"
-                            border.color: chosen ? AppTheme.accentBorder : "transparent"
+                            border.color: browser.dropTargetUrl === itemUrl ? AppTheme.dropTargetColor
+                                        : chosen ? AppTheme.accentBorder : "transparent"
                             Drag.dragType: Drag.Automatic
                             Drag.source: entry
                             Drag.supportedActions: Qt.MoveAction | Qt.CopyAction
@@ -170,6 +176,11 @@ Item {
                                 anchors { right: artwork.right; bottom: artwork.bottom }
                                 status: entry.gitStatus
                                 language: browser.lang.language
+                            }
+                            DropTargetBadge {
+                                anchors { left: artwork.left; top: artwork.top }
+                                width: 18; height: 18; radius: 6
+                                visible: entry.isDir && browser.dropTargetUrl === entry.itemUrl
                             }
                             Text {
                                 anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
@@ -238,7 +249,12 @@ Item {
                             DropArea {
                                 anchors.fill: parent
                                 enabled: entry.isDir
-                                onDropped: function(drop) { view.dropOn(drop, entry.itemUrl) }
+                                onEntered: browser.dropTargetUrl = entry.itemUrl
+                                onExited: browser.resetDropTarget(entry.itemUrl)
+                                onDropped: function(drop) {
+                                    browser.resetDropTarget(entry.itemUrl)
+                                    view.dropOn(drop, entry.itemUrl)
+                                }
                             }
                         }
                         GPopupWheelScroll { anchors.fill: parent; view: entries }

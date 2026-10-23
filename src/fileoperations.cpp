@@ -1867,12 +1867,19 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
          << output->path();
     args << ArchiveArguments::creationPathOptions();
 
+    // Preserve relative parent paths for mixed-directory selections. Flattening
+    // them would create duplicate archive members for equal basenames.
+    QDir archiveRoot = parent;
+    for (const QFileInfo &info : std::as_const(sources)) {
+        while (archiveRoot.relativeFilePath(info.absoluteFilePath()).startsWith(QStringLiteral("../"))) {
+            if (!archiveRoot.cdUp()) break;
+        }
+    }
     QStringList sourcePaths;
     args << QStringLiteral("-v");
     for (const QFileInfo &info : std::as_const(sources)) {
-        // -C before each operand avoids embedding absolute paths even when a
-        // category selection contains files from different directories.
-        args << ArchiveArguments::sourceOperand(info);
+        args << QStringLiteral("-C") << archiveRoot.absolutePath()
+             << QStringLiteral("./") + archiveRoot.relativeFilePath(info.absoluteFilePath());
         sourcePaths.append(info.absoluteFilePath());
     }
 

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtTest
+import QtCore
 import Lurviko.App
 import Lurviko.Backend
 
@@ -50,24 +51,48 @@ Item {
         }
         SignalSpy { id: newTabSpy; target: page.activePane; signalName: "requestNewTab" }
         TestCase {
+            id: checks
             name: "FolderArtwork"
             when: windowShown
             property bool savedSystem
             property bool savedColored
+            property bool injectOperations: false
+            property var fakeOperations: []
+            // Keep this binding dependent on the pane, not every retiring visual delegate.
+            readonly property var presentation: page.activePane ? inputTestHelper.objectChild(page.activePane, "operationPresentation") : null
+            Binding {
+                target: checks.presentation
+                property: "operations"
+                value: checks.fakeOperations
+                when: checks.injectOperations && checks.presentation !== null
+                restoreMode: Binding.RestoreBindingOrValue
+            }
             function initTestCase() {
                 savedSystem = AppTheme.useSystemIcons
                 savedColored = AppTheme.useColoredFolderIcons
                 tryVerify(function() { return page.activePane !== null && page.activePane.itemCount > 40 })
             }
             function cleanupTestCase() {
+                page.activePane.directoryView().forceLayout()
+                verify(inputTestHelper.settleQmlCreations(page))
                 AppTheme.setSystemIcons(savedSystem)
                 AppTheme.setColoredFolderIcons(savedColored)
+                wait(40)
+                verify(inputTestHelper.settleQmlCreations(page))
+                // Finish delegate creation before visibility detaches models.
+                page.visible = false
+                window.hide()
+                wait(50)
+                verify(inputTestHelper.settleQmlCreations(page))
             }
             function init() {
                 AppTheme.setSystemIcons(false)
                 AppTheme.setColoredFolderIcons(true)
                 page.activePane.gridMode = true
                 page.activePane.showHiddenFiles = true
+                tryVerify(function() { return !page.activePane.directory.loading && page.activePane.itemCount > 40 })
+                verify(inputTestHelper.settleQmlCreations(page))
+                wait(40) // Deferred control polish without requiring an exposed headless window.
             }
             function test_multilingual_keywords_data() {
                 return [
@@ -236,7 +261,16 @@ Item {
                 const pane = page.activePane
                 const savedLocation = pane.currentLocation
                 pane.gridMode = data.grid
-                const background = findChild(pane, data.grid ? "gridBackgroundMouse" : "listBackgroundMouse")
+                // Qt 6.12's recursive TestCase.findChild can encounter retired
+                // delegates while switching views. The gesture surface is a
+                // direct contentItem child; resolve it without traversing them.
+                const view = pane.directoryView()
+                view.forceLayout()
+                verify(inputTestHelper.settleQmlCreations(page))
+                const name = data.grid ? "gridBackgroundMouse" : "listBackgroundMouse"
+                let background = null
+                for (const child of view.contentItem.children)
+                    if (child && child.objectName === name) { background = child; break }
                 verify(background !== null)
                 try {
                     pane.currentLocation = String(fileArtworkFixtureUrl) + "/visible-folder"
@@ -257,6 +291,8 @@ Item {
                     pane.finishRubberSelection(data.grid ? "grid" : "list")
                     pane.currentLocation = savedLocation
                     tryVerify(function() { return !pane.directory.loading && pane.itemCount > 40 })
+                    view.forceLayout()
+                    verify(inputTestHelper.settleQmlCreations(page))
                 }
             }
             function test_explicit_selection_replaces_interrupted_preview_data() {
@@ -319,6 +355,9 @@ Item {
                 const pane = page.activePane
                 const location = pane.currentLocation
                 try {
+                    // Start from a fully created viewport. This test interrupts
+                    // rubber selection, not Qt's asynchronous delegate setup.
+                    verify(inputTestHelper.settleQmlCreations(page))
                     pane.beginRubberSelection("grid", 1, 1, Qt.NoModifier)
                     pane.currentLocation = String(fileArtworkFixtureUrl) + "/visible-folder"
                     tryVerify(function() { return !pane.directory.loading && pane.itemCount === 0 })
@@ -327,6 +366,7 @@ Item {
                 } finally {
                     pane.currentLocation = location
                     tryVerify(function() { return !pane.directory.loading && pane.itemCount > 40 })
+                    verify(inputTestHelper.settleQmlCreations(page))
                 }
             }
             function test_view_switch_discards_interrupted_selection() {
@@ -334,10 +374,14 @@ Item {
                 pane.beginRubberSelection("grid", 1, 1, Qt.NoModifier)
                 pane.gridMode = false
                 compare(pane.rubberSelecting, false)
+                pane.directoryView().forceLayout()
+                verify(inputTestHelper.settleQmlCreations(page))
                 pane.beginRubberSelection("list", 1, 1, Qt.NoModifier)
                 pane.visible = false
                 compare(pane.rubberSelecting, false)
                 pane.visible = true
+                pane.directoryView().forceLayout()
+                verify(inputTestHelper.settleQmlCreations(page))
             }
             function test_hidden_files_and_folder_opacity(data) {
                 const pane = page.activePane
@@ -387,6 +431,97 @@ Item {
                 operation.paused = false
                 operation.speed = 0
                 compare(pane.transferRemaining(operation), "Calculating remaining time")
+            }
+            function test_progress_cards_minimize_restore_and_clear_the_status_icon() {
+                const native = AppTheme.kioProgressEnabled
+                const automatic = AppTheme.operationAutoHide
+                try {
+                    AppTheme.setKioProgressEnabled(false)
+                    AppTheme.setOperationAutoHide(false)
+                    fakeOperations = [{id: 90001, kind: "copy", detail: "A long transfer", percent: 20,
+                        finished: false, success: false, controllable: false}]
+                    injectOperations = true
+                    const cards = findChild(page.activePane, "operationCards")
+                    const toggle = findChild(page.activePane, "operationProgressToggle")
+                    tryCompare(cards, "visible", true)
+                    tryCompare(toggle, "visible", true)
+                    const minimize = findChild(cards, "operationCardMinimize")
+                    verify(minimize !== null)
+                    mouseClick(minimize, minimize.width / 2, minimize.height / 2)
+                    tryCompare(cards, "visible", false)
+                    verify(toggle.visible)
+                    mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+                    tryCompare(cards, "visible", true)
+                    mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+                    tryCompare(cards, "visible", false)
+                    fakeOperations = [{id: 90001, kind: "copy", percent: 100, finished: true, success: true}]
+                    tryCompare(toggle, "visible", false)
+                    verify(!cards.visible, "A minimized successful operation must not reopen its toast")
+                } finally {
+                    injectOperations = false
+                    fakeOperations = []
+                    AppTheme.setOperationAutoHide(automatic)
+                    AppTheme.setKioProgressEnabled(native)
+                }
+            }
+            function test_auto_hide_settings_visibility_editing_and_persistence() {
+                const native = AppTheme.kioProgressEnabled
+                const automatic = AppTheme.operationAutoHide
+                const seconds = AppTheme.operationAutoHideSeconds
+                const menu = findChild(page, "toolbarViewMenu")
+                try {
+                    window.requestActivate()
+                    tryCompare(window, "active", true)
+                    AppTheme.setKioProgressEnabled(false)
+                    AppTheme.setOperationAutoHide(true)
+                    AppTheme.setOperationAutoHideSeconds(9)
+                    menu.open()
+                    tryCompare(menu, "opened", true)
+                    const row = findChild(page, "operationAutoHideSettings")
+                    const toggle = findChild(page, "operationAutoHideSwitch")
+                    const delay = findChild(page, "operationAutoHideDelay")
+                    let rowIndex = -1
+                    for (let i = 0; i < menu.count; ++i)
+                        if (menu.itemAt(i) === row) rowIndex = i
+                    verify(rowIndex >= 0)
+                    menu.currentIndex = rowIndex
+                    wait(100)
+                    verify(row.visible)
+                    compare(delay.text, "9")
+                    mouseClick(delay, delay.width / 2, delay.height / 2)
+                    tryCompare(delay, "activeFocus", true)
+                    keyClick(Qt.Key_A, Qt.ControlModifier)
+                    keyClick(Qt.Key_1)
+                    keyClick(Qt.Key_2)
+                    keyClick(Qt.Key_Return)
+                    compare(delay.text, "12", "The editable delay receives typed digits")
+                    tryCompare(AppTheme, "operationAutoHideSeconds", 12)
+                    mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+                    tryCompare(AppTheme, "operationAutoHide", false)
+                    verify(menu.visible, "Embedded preferences keep the view menu open")
+                    // QtCore.Settings batches property writes. Wait for that
+                    // batch before reading through a fresh native QSettings instance.
+                    tryVerify(function() {
+                        return String(AppTheme.settings.value("operationAutoHide", true)) === "false"
+                                && Number(AppTheme.settings.value("operationAutoHideSeconds", 0)) === 12
+                    })
+                    AppTheme.settings.sync()
+                    compare(inputTestHelper.savedAppearanceSetting("operationAutoHide"), false)
+                    compare(inputTestHelper.savedAppearanceSetting("operationAutoHideSeconds"), 12)
+                    AppTheme.setKioProgressEnabled(true)
+                    verify(!row.visible)
+                    AppTheme.setOperationAutoHideSeconds(-20)
+                    compare(AppTheme.operationAutoHideSeconds, 1)
+                    AppTheme.setOperationAutoHideSeconds(9999)
+                    compare(AppTheme.operationAutoHideSeconds, 300)
+                } finally {
+                    menu.close()
+                    tryCompare(menu, "visible", false)
+                    AppTheme.setOperationAutoHide(automatic)
+                    AppTheme.setOperationAutoHideSeconds(seconds)
+                    AppTheme.setKioProgressEnabled(native)
+                    AppTheme.settings.sync()
+                }
             }
             function selectNamedFixture(name, modifiers) {
                 const pane = page.activePane

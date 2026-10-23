@@ -8,6 +8,7 @@ import QtQml
 import QtMultimedia
 import Lurviko.App
 import Lurviko.Backend
+import "VideoMetadata.js" as VideoMetadata
 
 Popup {
     id: viewer
@@ -210,6 +211,19 @@ Popup {
                                                     ? sourceVideoWidth + "×" + sourceVideoHeight : ""
 
     function viewerIcon(name) { return AppTheme.icon(name, videoTheme.viewerText) }
+    function filmstripMetadata(item) {
+        return metadataForItem ? (metadataForItem(item) || ({})) : ({})
+    }
+    function filmstripTitle(item) { return VideoMetadata.displayTitle(filmstripMetadata(item), item) }
+    function withEpisodeDetails(metadata, item) {
+        if (!metadataManager || typeof metadataManager.lookupEpisode !== "function" || !item) return metadata
+        return metadataManager.lookupEpisode(String(item.tmdbSource || item.path || item.url || ""), metadata,
+                                             String(metadataManager.preferredLanguage || "tr"))
+    }
+    function filmstripSource(item) {
+        const metadata = filmstripMetadata(item)
+        return metadata ? String(metadata.backdropUrl || metadata.posterUrl || metadata.artworkUrl || thumbSource(item)) : thumbSource(item)
+    }
     function thumbSource(item) {
         if (!item) return ""
         if (item.thumbnailUrl && String(item.thumbnailUrl).length)
@@ -777,7 +791,7 @@ Popup {
             const known = metadataForItem(currentItem)
             if (known && String(known.state || "") === "ready") {
                 pauseLookupSource = String(known.sourcePath || currentItem.path || currentItem.url || "")
-                pauseMetadata = known
+                pauseMetadata = withEpisodeDetails(known, currentItem)
                 return
             }
         }
@@ -797,7 +811,7 @@ Popup {
         const cached = metadataManager.cachedLookup(sourcePath, language)
         if (cached && String(cached.state || "") === "ready") {
             pauseLookupSource = String(cached.sourcePath || sourcePath)
-            pauseMetadata = cached
+            pauseMetadata = withEpisodeDetails(cached, currentItem)
             return
         }
 
@@ -1426,7 +1440,7 @@ Popup {
         function onMetadataReady(filePath, metadata) {
             if (!viewer.currentItem) return
             if (String(filePath || "") === String(viewer.pauseLookupSource || ""))
-                viewer.pauseMetadata = metadata
+                viewer.pauseMetadata = viewer.withEpisodeDetails(metadata, viewer.currentItem)
         }
         function onMetadataFailed(filePath, message) {
             if (!viewer.currentItem) return
@@ -1759,6 +1773,7 @@ Popup {
                 anchors.fill: parent
                 z: 2
                 metadata: viewer.pauseMetadata
+                episodeDetails: true
                 itemData: viewer.currentItem
                 lang: viewer.lang
                 metadataLanguage: viewer.metadataManager
@@ -2129,19 +2144,28 @@ Popup {
                     delegate: Rectangle {
                         required property var modelData
                         required property int index
+                        property alias hoverTooltip: filmstripTip
                         width: 96; height: 60; radius: 8
                         color: "#16000000"
                         border.width: index === viewer.currentIndex ? 2 : 1
                         border.color: index === viewer.currentIndex ? videoTheme.accent : videoTheme.viewerGlassBorderSoft
                         clip: true
-                        Image { anchors.fill: parent; anchors.margins: 2; source: viewer.thumbSource(modelData); fillMode: Image.PreserveAspectCrop; asynchronous: true; cache: true; sourceSize.width: 192; sourceSize.height: 128 }
+                        Image { anchors.fill: parent; anchors.margins: 2; objectName: "videoFilmstripArtwork"; source: viewer.filmstripSource(modelData); fillMode: Image.PreserveAspectCrop; asynchronous: true; cache: true; sourceSize.width: 192; sourceSize.height: 128 }
                         Rectangle {
                             anchors.centerIn: parent
                             width: 25; height: 25; radius: 13
                             color: "#B0000000"
-                            GViewerIcon { anchors.centerIn: parent; width: 12; height: 12; source: viewer.viewerIcon("viewer-play.svg"); tintColor: videoTheme.viewerText }
+                            GViewerIcon { anchors.centerIn: parent; anchors.horizontalCenterOffset: width * 0.10; width: 12; height: 12; objectName: "videoFilmstripPlayIcon"; source: AppTheme.icon("viewer-play.svg", "white"); tintColor: "white" }
                         }
-                        MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: viewer.setIndex(index, true) }
+                        MouseArea { id: filmstripPointer; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: viewer.setIndex(index, true) }
+                        GToolTip {
+                            id: filmstripTip
+                            objectName: "videoFilmstripTooltip"
+                            visible: filmstripPointer.containsMouse
+                            text: viewer.filmstripTitle(modelData)
+                            y: -height - 8
+                            maximumWidth: Math.max(80, Math.min(420, viewer.width - 32))
+                        }
                     }
                 }
             }

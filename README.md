@@ -44,6 +44,8 @@ The screenshots show the current application with a locally selected icon theme.
 - **Appearance:** light/dark application themes or optional [Qt desktop colors and native window translucency](docs/file-browser.md#qt-desktop-appearance), adjustable icons, wheel-scroll speed and persisted window/view preferences. Translucent windows can use KWin blur; the video player keeps its dark presentation.
 - **Video chapters:** choose embedded chapter titles and timestamps from the **Chapters** control beside Audio. Chapter metadata is read asynchronously with `ffprobe`; selecting a chapter seeks to its start while preserving the playback state.
 
+Folder drop targets use a distinct highlight and a plus badge at the top-left of the icon in Grid, List and Columns views. When KIO operation notifications are disabled, in-app progress can be minimized and restored using the button beside the item count. **View → Automatically minimize progress** controls automatic hiding, with a delay of 1–300 seconds (8 seconds by default). Completed minimized operations leave the indicator automatically; failures remain visible.
+
 ## Distribution support
 
 **Primary target: Linux with KDE Plasma.** Development and desktop testing have been performed on **Manjaro Linux, x86_64, KDE Plasma/Wayland, Qt 6.11.2**. X11 launch profiles are available but do not imply equivalent testing on every graphics stack.

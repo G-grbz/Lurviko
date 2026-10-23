@@ -11,6 +11,7 @@ python3 tests/test-source-uninstall.py
 python3 tests/run-security-tests.py
 python3 tests/run-memory-tests.py
 python3 tests/run-history-tests.py
+python3 tests/run-category-selection-tests.py
 python3 tests/run-columns-tests.py
 python3 tests/run-search-tests.py
 python3 tests/run-git-tests.py

@@ -56,6 +56,10 @@ Rectangle {
     property bool backNavigationEnabled: true
     property bool forwardNavigationEnabled: true
 
+    property string dropTargetUrl: ""
+    property bool archiveDragActive: false
+    property point archiveDragPoint: Qt.point(0, 0)
+
     property string selectedUrl: ""
     property string selectedLocalPath: ""
     property string selectedName: ""
@@ -169,6 +173,7 @@ Rectangle {
         if (viewModeReady && !updatingViewMode) root.viewMode = gridMode ? "grid" : "list"
     }
     onViewModeChanged: {
+        root.resetDropTarget()
         root.cancelRubberSelection()
         updatingViewMode = true
         gridMode = viewMode === "grid"
@@ -1524,6 +1529,46 @@ Rectangle {
         setSelectedUrls(next, next.length ? 0 : -1, next.length ? 0 : -1)
     }
 
+    // Category selections always contain real file URLs, never category:/ paths.
+    function categorySelectionUrls() {
+        const items = root.categoryKey === "music" ? musicLibraryView.selectionTracks()
+                    : root.mediaGalleryCategory ? root.galleryFilesForView() : root.groupedCategoryFiles
+        return categoryItemUrls(items)
+    }
+    function categoryItemUrls(items) {
+        const found = new Set()
+        for (const item of (items || [])) {
+            const url = String(item.itemUrl || item.url || "")
+            if (url.length) found.add(url)
+        }
+        return Array.from(found)
+    }
+    function categoryUrlsSelected(urls) {
+        const revision = root.selectionRevision
+        return urls.length > 0 && urls.every(function(url) { return root.selectedLookup[url] === true })
+    }
+    function toggleCategoryUrls(urls) {
+        if (!urls.length) return
+        const remove = categoryUrlsSelected(urls)
+        const next = new Set(root.selectedUrls)
+        const available = new Set(directory.allItemUrls())
+        for (const url of urls) {
+            if (remove) next.delete(url)
+            else if (available.has(url)) next.add(url)
+        }
+        setSelectedUrls(Array.from(next), -1, -1)
+    }
+    function categoryContextForUrls(urls, source, x, y) {
+        const available = new Set(directory.allItemUrls())
+        urls = urls.filter(function(url) { return available.has(url) })
+        if (!urls.length) return
+        if (!categoryUrlsSelected(urls)) setSelectedUrls(urls, -1, -1)
+        if (root.selectedCount) root.showContextMenu(itemContextMenu, source, x, y)
+    }
+    function openCategoryActions(source) {
+        if (root.selectedCount) root.showContextMenu(itemContextMenu, source, 0, source.height)
+    }
+
     function togglePrimarySelection() {
         if (primaryIndex < 0) {
             if (directory.count > 0)
@@ -2021,10 +2066,9 @@ Rectangle {
     function duplicateSelection() {
         if (!selectedUrls.length)
             return
-        if (root.isCategoryLocation && selectedUrls.length > 1) {
-            root.requestToast(lang.language === "tr"
-                              ? "Farklı klasörlerdeki dosyaları birlikte çoğaltmak için içeren klasörlerini açın."
-                              : "Open the containing folders to duplicate files from different locations together.")
+        if (root.isCategoryLocation) {
+            // Each copy stays beside its own source; category:/ is not a destination.
+            for (const url of selectedLocalOrRemoteUrls()) fileOps.duplicateItem(url)
             return
         }
         if (root.isCloudUrl(directory.location)) {
@@ -2054,10 +2098,12 @@ Rectangle {
                               : "Cloud items can only be renamed one at a time.")
             return
         }
-        if (selectedCount === 1) {
+        if (selectedCount === 1 && !(root.mediaGalleryCategory || root.categoryKey === "music")) {
             beginInlineRename()
             return
         }
+        // Media/music cards have no inline filename editor; reuse the existing
+        // single-file dialog rather than starting an invisible rename session.
         renameDialog.batchMode = selectedCount > 1
         renameDialog.targetUrls = selectedUrlsInViewOrder()
         renameDialog.errorText = ""
@@ -2612,6 +2658,7 @@ Rectangle {
 
 
     function handleDirectoryLocationChanged(model) {
+        root.resetDropTarget()
         // A NOTIFY handler can run before bindings to activeDirectory have
         // updated. Use the new model directly for tab/history notifications.
         const directory = model || root.directory
@@ -3336,6 +3383,23 @@ Rectangle {
         })
     }
 
+    function resetDropTarget(url) {
+        if (!url || dropTargetUrl === url) dropTargetUrl = ""
+        if (!url) archiveDragActive = false
+    }
+    function refreshArchiveDropTarget() {
+        if (!archiveDragActive) return
+        dropTargetUrl = root.columnsMode
+                ? millerView.archiveDropDestinationAt(millerView.mapFromItem(root, archiveDragPoint.x, archiveDragPoint.y), true)
+                : root.folderDropDestination(root.gridMode ? grid : listView, root,
+                                             archiveDragPoint.x, archiveDragPoint.y, "")
+    }
+    function trackArchiveDrop(drag) {
+        archiveDragActive = true
+        archiveDragPoint = Qt.point(drag.x, drag.y)
+        refreshArchiveDropTarget()
+    }
+
     function folderDropDestination(view, source, x, y, fallback) {
         if (!view || !view.visible) return fallback
         const local = view.mapFromItem(source, x, y)
@@ -3534,8 +3598,49 @@ Rectangle {
 
     IconPickerManager { id: iconPicker }
 
+    // Share this one recursive calculation with Properties instead of scanning
+    // the same folder a second time when all children are selected.
+    FilePropertiesManager {
+        id: directoryProperties
+        objectName: "directorySizeProperties"
+        backgroundStats: true
+        Component.onCompleted: root.scheduleDirectorySize()
+    }
+    function scheduleDirectorySize() {
+        if (!root.visible || !root.currentLocationIsLocal || directory.searchActive) {
+            directorySizeTimer.stop()
+            directoryProperties.cancelInspection()
+            return
+        }
+        directorySizeTimer.restart()
+    }
+    Timer {
+        id: directorySizeTimer
+        interval: 350
+        onTriggered: {
+            if (fileOps.ioBusy) { directorySizeTimer.restart(); return }
+            if (root.visible && root.currentLocationIsLocal && !directory.searchActive && !directory.loading)
+                directoryProperties.inspect(directory.location)
+        }
+    }
+    Connections {
+        target: root
+        function onCurrentLocationChanged() {
+            directoryProperties.cancelInspection()
+            root.scheduleDirectorySize()
+        }
+        function onVisibleChanged() { root.scheduleDirectorySize() }
+    }
+    Connections {
+        target: directory
+        function onLoadingChanged() { if (!directory.loading) root.scheduleDirectorySize() }
+        function onRefreshCompleted() { root.scheduleDirectorySize() }
+        function onSearchChanged() { root.scheduleDirectorySize() }
+    }
+
     FilePropertiesManager {
         id: fileProperties
+        statsSource: directoryProperties
         onPermissionsChanged: propertiesDialog.resetAccessDraft()
         onPermissionsApplied: directory.requestRefresh()
         onAccessFinished: function(success, cancelled, changed, failed) {
@@ -3713,9 +3818,13 @@ Rectangle {
                "application/x-kde-ark-dndextract-path"]
         onEntered: function(drag) {
             drag.accepted = !root.isCloudUrl(directory.location) && !root.isCategoryLocation
+            if (drag.accepted) root.trackArchiveDrop(drag)
         }
+        onPositionChanged: function(drag) { if (containsDrag) root.trackArchiveDrop(drag) }
+        onExited: root.resetDropTarget()
         onDropped: function(drop) {
             const point = arkDropArea.mapToItem(root, drop.x, drop.y)
+            root.resetDropTarget()
             if (root.extractArkDrop(drop, root.archiveDropDestinationAt(point.x, point.y)))
                 drop.acceptProposedAction()
         }
@@ -4445,6 +4554,39 @@ Rectangle {
             }
         }
 
+        RowLayout {
+            objectName: "categorySelectionToolbar"
+            visible: root.isCategoryLocation && !(root.categoryKey === "videos" && root.dlnaViewActive)
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 34 : 0
+            spacing: 8
+            GButton {
+                objectName: "categorySelectAll"
+                readonly property var scopeUrls: root.categorySelectionUrls()
+                readonly property bool allSelected: {
+                    const revision = root.selectionRevision
+                    return root.categoryUrlsSelected(scopeUrls)
+                }
+                text: lang.t(allSelected ? "deselect_all" : "select_all")
+                enabled: scopeUrls.length > 0
+                implicitHeight: 30
+                onClicked: root.toggleCategoryUrls(scopeUrls)
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.selectedCount + (lang.language === "tr" ? " öğe seçili" : " selected")
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+            }
+            GButton {
+                objectName: "categorySelectionActions"
+                text: lang.language === "tr" ? "Eylemler" : "Actions"
+                implicitHeight: 30
+                enabled: root.selectedCount > 0
+                onClicked: root.openCategoryActions(this)
+            }
+        }
+
         StackLayout {
             id: viewStack
             Layout.fillWidth: true
@@ -4500,7 +4642,7 @@ Rectangle {
                     // overflowed as soon as the F2 editor grew by a few pixels.
                     cellHeight: Math.round(iconExtent + 68 + AppTheme.fileLabelExtraHeight(itemNameFontPixels, 10))
                     boundsBehavior: Flickable.StopAtBounds
-                    onContentYChanged: root.scheduleTabScrollSnapshot()
+                    onContentYChanged: { root.scheduleTabScrollSnapshot(); root.refreshArchiveDropTarget() }
 
                     WheelHandler {
                         target: null
@@ -4633,10 +4775,12 @@ Rectangle {
                             radius: 12
                             readonly property bool contentHovered: itemMouse.containsMouse
                                                                    && itemMouse.isContentHit(itemMouse.mouseX)
-                            visible: root.isSelected(itemUrl) || contentHovered
-                            color: root.isSelected(itemUrl) ? AppTheme.accentSoft : AppTheme.surfaceHover
+                            visible: root.dropTargetUrl === itemUrl || root.isSelected(itemUrl) || contentHovered
+                            color: root.dropTargetUrl === itemUrl ? AppTheme.dropTargetSurface
+                                  : root.isSelected(itemUrl) ? AppTheme.accentSoft : AppTheme.surfaceHover
                             border.width: 1
-                            border.color: root.isSelected(itemUrl) ? AppTheme.accent : AppTheme.accentBorder
+                            border.color: root.dropTargetUrl === itemUrl ? AppTheme.dropTargetColor
+                                          : root.isSelected(itemUrl) ? AppTheme.accent : AppTheme.accentBorder
                             opacity: visible ? 1.0 : 0.0
                             Behavior on opacity { NumberAnimation { duration: 90 } }
                             Behavior on color { ColorAnimation { duration: 100 } }
@@ -4646,7 +4790,10 @@ Rectangle {
                         DropArea {
                             anchors.fill: parent
                             enabled: isDir
+                            onEntered: root.dropTargetUrl = itemUrl
+                            onExited: root.resetDropTarget(itemUrl)
                             onDropped: function(drop) {
+                                root.resetDropTarget(itemUrl)
                                 if (drop.source && drop.source.dragUrls && drop.source.dragUrls.length > 0) {
                                     const copyMode = (drop.modifiers & Qt.ControlModifier) !== 0
                                     root.dropUrls(drop.source.dragUrls, itemUrl, copyMode)
@@ -4697,6 +4844,10 @@ Rectangle {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: Math.min(grid.iconExtent, Math.max(36, grid.cellWidth - 20))
                                 Layout.preferredHeight: Math.min(grid.iconExtent, Math.max(36, grid.cellWidth - 20))
+                                DropTargetBadge {
+                                    anchors { left: parent.left; top: parent.top }
+                                    visible: isDir && root.dropTargetUrl === itemUrl
+                                }
                                 CrispIcon {
                                     objectName: "gridFileIcon"
                                     anchors.fill: parent
@@ -5186,7 +5337,7 @@ Rectangle {
                     model: root.visible && !root.isCategoryLocation && !root.columnsMode && !root.gridMode ? directory : null
                     spacing: 5
                     boundsBehavior: Flickable.StopAtBounds
-                    onContentYChanged: root.scheduleTabScrollSnapshot()
+                    onContentYChanged: { root.scheduleTabScrollSnapshot(); root.refreshArchiveDropTarget() }
 
                     WheelHandler {
                         target: null
@@ -5309,9 +5460,11 @@ Rectangle {
                             : hidden ? AppTheme.hiddenItemOpacity : 1.0
                         Behavior on opacity { NumberAnimation { duration: 120 } }
                         radius: 12
-                        color: root.isSelected(itemUrl) ? AppTheme.accentSoft
+                        color: root.dropTargetUrl === itemUrl ? AppTheme.dropTargetSurface
+                              : root.isSelected(itemUrl) ? AppTheme.accentSoft
                               : (listMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surface)
-                        border.color: root.isSelected(itemUrl) ? AppTheme.accent
+                        border.color: root.dropTargetUrl === itemUrl ? AppTheme.dropTargetColor
+                                    : root.isSelected(itemUrl) ? AppTheme.accent
                                     : (listMouse.containsMouse ? AppTheme.accentBorder : AppTheme.border)
                         Behavior on color { ColorAnimation { duration: 100 } }
                         Behavior on border.color { ColorAnimation { duration: 100 } }
@@ -5319,7 +5472,10 @@ Rectangle {
                         DropArea {
                             anchors.fill: parent
                             enabled: isDir
+                            onEntered: root.dropTargetUrl = itemUrl
+                            onExited: root.resetDropTarget(itemUrl)
                             onDropped: function(drop) {
+                                root.resetDropTarget(itemUrl)
                                 if (drop.source && drop.source.dragUrls && drop.source.dragUrls.length > 0) {
                                     const copyMode = (drop.modifiers & Qt.ControlModifier) !== 0
                                     root.dropUrls(drop.source.dragUrls, itemUrl, copyMode)
@@ -5362,6 +5518,10 @@ Rectangle {
                                        ? Math.min(256, root.activeIconSize)
                                        : Math.max(24, Math.min(38, root.activeIconSize * 0.18))
                                 height: width
+                                DropTargetBadge {
+                                    anchors { left: parent.left; top: parent.top }
+                                    visible: isDir && root.dropTargetUrl === itemUrl
+                                }
                                 CrispIcon {
                                     objectName: "listFileIcon"
                                     anchors.fill: parent
@@ -5957,6 +6117,12 @@ Rectangle {
                                 hostWindow: root.hostWindow
                                 selectionRevision: root.selectionRevision
                                 isSelected: function(url) { return root.isSelected(url) }
+                                selectionEnabled: true
+                                groupSelected: function(items) { return root.categoryUrlsSelected(root.categoryItemUrls(items)) }
+                                onToggleItems: function(items) { root.toggleCategoryUrls(root.categoryItemUrls(items)) }
+                                contextHandler: function(item, source, x, y) {
+                                    root.categoryContextForUrls([String(item.url || item.itemUrl)], source, x, y)
+                                }
                                 onItemPressed: function(modelIndex, modifiers) { root.selectIndex(modelIndex, modifiers) }
                                 onBrowseRequested: function(location) {
                                     if (location && location.length)
@@ -6188,6 +6354,9 @@ Rectangle {
                     cardSize: root.categoryIconSize
                     selectionRevision: root.selectionRevision
                     isSelected: function(url) { return root.isSelected(url) }
+                    selectionEnabled: true
+                    groupSelected: function(items) { return root.categoryUrlsSelected(root.categoryItemUrls(items)) }
+                    onToggleItems: function(items) { root.toggleCategoryUrls(root.categoryItemUrls(items)) }
                     inlineRenameUrl: root.inlineRenameUrl
                     onRenamePrepare: function(editor, itemName, itemIsDir) {
                         root.prepareInlineRenameEditor(editor, itemName, itemIsDir)
@@ -6222,8 +6391,8 @@ Rectangle {
                                       String(item.name || ""), String(item.mimeType || ""))
                     }
                     onContextRequested: function(sourceItem, modelIndex, x, y) {
-                        root.selectIndex(modelIndex, Qt.NoModifier)
-                        root.showContextMenu(itemContextMenu, sourceItem, x, y)
+                        const item = directory.itemAt(modelIndex)
+                        if (item) root.categoryContextForUrls([String(item.itemUrl)], sourceItem, x, y)
                     }
                     onRenameCommit: function(itemUrl, value, backwards, advance) {
                         if (advance)
@@ -6247,6 +6416,13 @@ Rectangle {
                     lang: root.lang
                     manager: root.musicPlayer ? root.musicPlayer.libraryManager : null
                     player: root.musicPlayer
+                    selectionEnabled: true
+                    selectionRevision: root.selectionRevision
+                    itemsSelected: function(items) { return root.categoryUrlsSelected(root.categoryItemUrls(items)) }
+                    onToggleItems: function(items) { root.toggleCategoryUrls(root.categoryItemUrls(items)) }
+                    contextHandler: function(items, source, x, y) {
+                        root.categoryContextForUrls(root.categoryItemUrls(items), source, x, y)
+                    }
                     tabIndex: root.musicLibraryTab
                     query: ((root.searchVisible ? searchInput.text : "") + " " + root.musicLibraryFilter).trim()
                     genreFilter: root.musicGenreFilter
@@ -6295,7 +6471,7 @@ Rectangle {
         }
 
         Rectangle {
-            visible: !directory.searchActive
+            visible: !directory.searchActive || (!AppTheme.kioProgressEnabled && operationPresentation.activeCount > 0)
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 30 : 0
             color: "transparent"
@@ -6392,19 +6568,52 @@ Rectangle {
                     color: AppTheme.border
                 }
 
-                Text {
-                    readonly property int visibleCount: root.categoryKey === "videos" && root.dlnaViewActive
-                                                        ? (dlnaMedia && dlnaMedia.displayEntries ? dlnaMedia.displayEntries.length : 0)
-                                                        : (root.mediaGalleryCategory && root.searchVisible
-                                                           ? root.galleryFilesForView().length
-                                                           : (root.groupedCategory && root.searchVisible
-                                                              ? root.groupedCategoryFiles.length : directory.count))
-                    text: lang.language === "tr"
-                          ? visibleCount + " öğe"
-                          : visibleCount + (visibleCount === 1 ? " item" : " items")
-                    color: AppTheme.textMuted
+                RowLayout {
+                    Layout.fillWidth: false
+                    spacing: 4
+                    Text {
+                        readonly property int visibleCount: root.categoryKey === "videos" && root.dlnaViewActive
+                                                            ? (dlnaMedia && dlnaMedia.displayEntries ? dlnaMedia.displayEntries.length : 0)
+                                                            : (root.mediaGalleryCategory && root.searchVisible
+                                                               ? root.galleryFilesForView().length
+                                                               : (root.groupedCategory && root.searchVisible
+                                                                  ? root.groupedCategoryFiles.length : directory.count))
+                        text: lang.language === "tr"
+                              ? visibleCount + " öğe"
+                              : visibleCount + (visibleCount === 1 ? " item" : " items")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        font.weight: Font.Medium
+                    }
+                    Text {
+                        objectName: "directorySizeLabel"
+                        visible: root.currentLocationIsLocal && !directory.searchActive
+                        readonly property bool ready: directoryProperties.statsReady
+                                && root.locationsEquivalent(directoryProperties.path, directory.location)
+                                && !directorySizeTimer.running
+                        text: "· " + (ready ? root.formatTransferBytes(directoryProperties.totalSize) : "…")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        HoverHandler { id: directorySizeHover }
+                        GToolTip {
+                            visible: directorySizeHover.hovered
+                            text: lang.language === "tr" ? "Alt klasörler ve gizli dosyalar dahil toplam boyut; sembolik bağlantılar izlenmez."
+                                                        : "Total size including subfolders and hidden files; symbolic links are not followed."
+                        }
+                    }
+                }
+                GToolButton {
+                    objectName: "operationProgressToggle"
+                    visible: !AppTheme.kioProgressEnabled && operationPresentation.activeCount > 0
+                    implicitWidth: 48; implicitHeight: 24
+                    leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
+                    text: String(operationPresentation.activeCount)
                     font.pixelSize: 10
-                    font.weight: Font.Medium
+                    icon.width: 13; icon.height: 13
+                    icon.source: AppTheme.icon(operationPresentation.minimized ? "music-queue.svg" : "music-minimize.svg")
+                    primary: operationPresentation.minimized
+                    onClicked: operationPresentation.toggle()
+                    GToolTip { visible: parent.hovered; text: lang.t(operationPresentation.minimized ? "operation_restore" : "operation_minimize") }
                 }
             }
         }
@@ -6991,6 +7200,7 @@ Rectangle {
 
         GMenuItem {
             text: lang.t("open"); shortcutAction: "open"
+            visible: !root.isCategoryLocation || root.selectedCount <= 1
             enabled: root.selectedCount > 0
             onTriggered: root.openSelected()
         }
@@ -7338,16 +7548,22 @@ Rectangle {
             visible: root.selectedIsArchive
             text: lang.language === "tr" ? "Buraya çıkar" : "Extract here"
             onTriggered: {
-                root.armResultSelectionForChangedItems(directory.location)
-                fileOps.extractArchive(root.selectedUrl, directory.location, false)
+                const destination = root.isCategoryLocation
+                        ? String(fileOps.navigationTarget(root.selectedUrl, root.selectedLocalPath).parentLocation)
+                        : directory.location
+                if (!root.isCategoryLocation) root.armResultSelectionForChangedItems(destination)
+                if (destination.length) fileOps.extractArchive(root.selectedUrl, destination, false)
             }
         }
         GMenuItem {
             visible: root.selectedIsArchive
             text: lang.language === "tr" ? "Adıyla yeni dizine çıkar" : "Extract to named folder"
             onTriggered: {
-                root.armResultSelectionForChangedItems(directory.location)
-                fileOps.extractArchive(root.selectedUrl, directory.location, true)
+                const destination = root.isCategoryLocation
+                        ? String(fileOps.navigationTarget(root.selectedUrl, root.selectedLocalPath).parentLocation)
+                        : directory.location
+                if (!root.isCategoryLocation) root.armResultSelectionForChangedItems(destination)
+                if (destination.length) fileOps.extractArchive(root.selectedUrl, destination, true)
             }
         }
         GMenuItem {
@@ -7384,7 +7600,9 @@ Rectangle {
                         driveFolderPickerModel.location = directory.location
                         driveFolderPicker.open()
                     } else {
-                        destinationInput.text = directory.parentLocation
+                        destinationInput.text = root.isCategoryLocation
+                                                ? String(fileOps.navigationTarget(root.selectedUrl, root.selectedLocalPath).parentLocation || root.homeLocation)
+                                                : directory.parentLocation
                         destinationDialog.open()
                     }
                 }
@@ -7399,7 +7617,9 @@ Rectangle {
                         driveFolderPickerModel.location = directory.location
                         driveFolderPicker.open()
                     } else {
-                        destinationInput.text = directory.parentLocation
+                        destinationInput.text = root.isCategoryLocation
+                                                ? String(fileOps.navigationTarget(root.selectedUrl, root.selectedLocalPath).parentLocation || root.homeLocation)
+                                                : directory.parentLocation
                         destinationDialog.open()
                     }
                 }
@@ -7686,6 +7906,12 @@ Rectangle {
             propertiesWheel.reset()
             recursiveDraft = false
             administratorDraft = false
+            // A fast Properties click may arrive before the footer's debounce.
+            // Start the shared source first so the dialog joins that one scan.
+            if (directorySizeTimer.running && root.currentLocationIsLocal && !directory.loading) {
+                directorySizeTimer.stop()
+                directoryProperties.inspect(directory.location)
+            }
             fileProperties.inspectSelection(selectionUrls)
             resetAccessDraft()
             if (!multiple) openWithModel.setContext(root.selectedUrl, root.selectedMimeType)
@@ -8409,6 +8635,7 @@ Rectangle {
 
     GModalPopup {
         id: renameDialog
+        objectName: "renameDialog"
         property bool batchMode: false
         property var targetUrls: []
         property string errorText: ""
@@ -9383,9 +9610,19 @@ Rectangle {
         onRejected: root.pendingArchiveUrl = ""
     }
 
+    OperationPresentation {
+        id: operationPresentation
+        objectName: "operationPresentation"
+        operations: fileOps.operations
+        nativeProgress: AppTheme.kioProgressEnabled
+        autoHide: AppTheme.operationAutoHide
+        hideDelayMs: AppTheme.operationAutoHideSeconds * 1000
+        hovered: operationCardsHover.hovered
+    }
     Column {
         id: operationCards
-        visible: fileOps.operations.length > 0
+        objectName: "operationCards"
+        visible: operationPresentation.visibleOperations.length > 0
         z: 30000
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -9394,13 +9631,14 @@ Rectangle {
         width: Math.min(350, root.width - 28)
         spacing: 8
 
+        HoverHandler { id: operationCardsHover }
         Repeater {
-            model: Math.min(3, fileOps.operations.length)
+            model: Math.min(3, operationPresentation.visibleOperations.length)
             delegate: GOverlaySurface {
                 id: operationCard
                 sourceItem: browserContent
                 required property int index
-                readonly property var operation: fileOps.operations[Math.max(0, fileOps.operations.length - 3) + index]
+                readonly property var operation: operationPresentation.visibleOperations[Math.max(0, operationPresentation.visibleOperations.length - 3) + index] || ({id: -1, finished: false, detail: ""})
                 readonly property real shownPercent: root.transferPercent(operation)
                 property real completionCountdown: 1.0
                 property int trackedOperationId: -1
@@ -9511,6 +9749,14 @@ Rectangle {
                             color: operation.finished ? (operation.success ? AppTheme.success : AppTheme.danger) : AppTheme.accent
                             font.pixelSize: 11
                             font.bold: true
+                        }
+                        GToolButton {
+                            objectName: "operationCardMinimize"
+                            visible: !operation.finished && !AppTheme.kioProgressEnabled
+                            implicitWidth: 24; implicitHeight: 24
+                            text: "−"
+                            onClicked: operationPresentation.minimize()
+                            GToolTip { visible: parent.hovered; text: lang.t("operation_minimize") }
                         }
                         Rectangle {
                             id: dismissButton

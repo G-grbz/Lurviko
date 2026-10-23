@@ -373,46 +373,6 @@ Rectangle {
         anchors.rightMargin: 4
         spacing: 14
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 11
-
-            Rectangle {
-                Layout.preferredWidth: 48
-                Layout.preferredHeight: 48
-                radius: 16
-                color: AppTheme.accentSoft
-                border.width: 1
-                border.color: AppTheme.accentBorder
-                CrispIcon {
-                    anchors.centerIn: parent
-                    source: AppTheme.icon("logo.png")
-                    width: 34
-                    height: 34
-                }
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 1
-                Text {
-                    text: "Lurviko"
-                    color: AppTheme.text
-                    font.pixelSize: 16
-                    font.weight: Font.DemiBold
-                }
-                Text {
-                    text: lang.language === "tr" ? "Dosyaların, tek yerde" : "Your files, one place"
-                    color: AppTheme.textMuted
-                    font.pixelSize: 9
-                }
-            }
-
-
-        }
-
-        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
-
         ScrollView {
             id: navScroll
             Layout.fillWidth: true

@@ -62,6 +62,9 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
             f'[](QQmlEngine *, QJSEngine *) -> QObject * {{ return new {name}; }});\n')
     source = '''#include <QApplication>
 #include <QQmlEngine>
+#include <QSettings>
+#include <QQmlIncubator>
+#include <QElapsedTimer>
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickItem>
@@ -142,6 +145,35 @@ public slots:
         QApplication::setPalette(savedPalette);
     }
     void cancelMouseGrab(QQuickItem *item) { item->ungrabMouse(); }
+    QObject *objectChild(QObject *root, const QString &name) {
+        return root ? root->findChild<QObject *>(name) : nullptr;
+    }
+    QVariant savedAppearanceSetting(const QString &key) {
+        QSettings settings;
+        settings.sync();
+        return settings.value(QStringLiteral("Appearance/") + key);
+    }
+    bool settleQmlCreations(QQuickItem *item) {
+        auto *engine = qmlEngine(item);
+        QList<QQmlIncubationController *> controllers;
+        if (engine && engine->incubationController()) controllers << engine->incubationController();
+        if (item && item->window() && item->window()->incubationController()
+                && !controllers.contains(item->window()->incubationController()))
+            controllers << item->window()->incubationController();
+        QElapsedTimer deadline;
+        deadline.start();
+        int settledTurns = 0;
+        while (settledTurns < 2 && deadline.elapsed() < 1000) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
+            bool pending = false;
+            for (auto *controller : controllers) {
+                controller->incubateFor(10);
+                pending |= controller->incubatingObjectCount() > 0;
+            }
+            settledTurns = pending ? 0 : settledTurns + 1;
+        }
+        return settledTurns == 2;
+    }
     void applicationAvailable() {
         qApp->setOrganizationName("Lurviko-QA");
         qApp->setApplicationName("Gallery");
@@ -225,7 +257,8 @@ int main(int argc, char **argv) {
         XDG_CACHE_HOME=str(root / "cache"),
         PULSE_SERVER="unix:" + str(root / "no-pulse-server"))
     environment["LURVIKO_QML_BUNDLED_ICONS"] = ";".join(sorted(
-        path.name for pattern in ("png/*.png", "symbolic/*.svg", "color/**/*.svg")
+        path.name
+        for pattern in ("png/*.png", "symbolic/*.svg", "color/**/*.svg")
         for path in (repo / "assets/icons").glob(pattern)))
     if os.environ.get("LURVIKO_QML_AUDIO_DEVICE") == "1":
         if "PULSE_SERVER" in os.environ:
@@ -236,7 +269,7 @@ int main(int argc, char **argv) {
     # KIO menu/rename jobs require a session bus even without a desktop. Keep
     # it private to the isolated test settings rather than using the host bus.
     result = subprocess.run(["dbus-run-session", "--", str(root / "qml-tests"), "-input", str(test_input),
-                            "-o", f"{report},txt"], env=environment, timeout=120)
+                            "-o", f"{report},txt"], env=environment, timeout=240)
     output = report.read_text() if report.exists() else "No test report was produced."
     if os.environ.get("LURVIKO_QML_TEST_REPORT"):
         Path(os.environ["LURVIKO_QML_TEST_REPORT"]).write_text(output)

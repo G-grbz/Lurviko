@@ -12,6 +12,7 @@ Rectangle {
     required property var player
     required property var lang
     property bool detached: false
+    property Item backdropSource: null
     property int sideTab: 0 // 0 lyrics, 1 queue, 2 playlists
     property bool showRemainingTime: false
     property int pendingPlaylistRemoval: -1
@@ -45,6 +46,15 @@ Rectangle {
     color: AppTheme.workspace
     radius: detached ? 0 : 14
     clip: true
+
+    GOverlaySurface {
+        objectName: "musicExpandedQtBackdrop"
+        anchors.fill: parent
+        radius: root.radius
+        visible: AppTheme.useQtTheme && !root.detached
+        sourceItem: root.backdropSource
+        border.width: 0
+    }
 
     // Low-resolution album wash, not a full-size blur recalculated per frame.
     Item {

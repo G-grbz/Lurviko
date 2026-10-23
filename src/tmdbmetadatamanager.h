@@ -61,6 +61,8 @@ public:
                                        int year,
                                        const QString &mediaType,
                                        const QString &language);
+    Q_INVOKABLE QVariantMap lookupEpisode(const QString &sourcePath, const QVariantMap &seriesMetadata,
+                                           const QString &language);
     Q_INVOKABLE QVariantMap cachedLookup(const QString &sourcePath,
                                          const QString &language) const;
     Q_INVOKABLE QVariantMap lookupSeasonArtwork(const QString &sourcePath,

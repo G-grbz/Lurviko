@@ -5,6 +5,8 @@
 #include <QPointer>
 #include <QUrl>
 #include <QStringList>
+#include <QVariantMap>
+#include <QMetaObject>
 #include <memory>
 #include <atomic>
 
@@ -18,6 +20,9 @@ class FilePropertiesManager : public QObject
     Q_PROPERTY(QString path READ path NOTIFY propertiesChanged)
     Q_PROPERTY(QString name READ name NOTIFY propertiesChanged)
     Q_PROPERTY(bool directory READ directory NOTIFY propertiesChanged)
+    Q_PROPERTY(FilePropertiesManager *statsSource READ statsSource WRITE setStatsSource)
+    Q_PROPERTY(bool statsReady READ statsReady NOTIFY propertiesChanged)
+    Q_PROPERTY(bool backgroundStats MEMBER m_backgroundStats)
     Q_PROPERTY(qint64 totalSize READ totalSize NOTIFY propertiesChanged)
     Q_PROPERTY(int fileCount READ fileCount NOTIFY propertiesChanged)
     Q_PROPERTY(int folderCount READ folderCount NOTIFY propertiesChanged)
@@ -55,6 +60,9 @@ public:
     explicit FilePropertiesManager(QObject *parent = nullptr);
     ~FilePropertiesManager() override;
 
+    FilePropertiesManager *statsSource() const { return m_statsSource; }
+    void setStatsSource(FilePropertiesManager *source) { m_statsSource = source == this ? nullptr : source; }
+    bool statsReady() const { return m_statsReady; }
     QString path() const { return m_path; }
     QString name() const { return m_name; }
     bool directory() const { return m_directory; }
@@ -127,6 +135,12 @@ private:
     void startAdministratorAccess(bool recursive);
     static QString readFolderIcon(const QString &path);
 
+    bool reuseStatsOrWait(const QStringList &paths, bool selection, int generation);
+    QPointer<FilePropertiesManager> m_statsSource;
+    QMetaObject::Connection m_statsConnection;
+    bool m_statsReady = false;
+    bool m_backgroundStats = false;
+    QVariantMap m_childStats;
     QString m_path;
     QStringList m_selection;
     QString m_commonLocation;
