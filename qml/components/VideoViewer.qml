@@ -531,10 +531,10 @@ Popup {
         property var tags: []
         property bool selected: false
         spacing: 6
-        Text {
+        GText {
             Layout.fillWidth: true; Layout.leftMargin: 10
-            text: parent.label; color: videoTheme.viewerText; font.pixelSize: 11
-            font.weight: parent.selected ? Font.DemiBold : Font.Normal
+            text: parent.label; baseColor: videoTheme.viewerText; basePixelSize: 11
+            baseFontWeight: parent.selected ? Font.DemiBold : Font.Normal
             elide: Text.ElideMiddle; verticalAlignment: Text.AlignVCenter
         }
         Repeater {
@@ -543,7 +543,7 @@ Popup {
                 required property string modelData
                 implicitWidth: badge.implicitWidth + 12; implicitHeight: 22; radius: 6
                 color: "#258B7CF6"; border.color: "#508B7CF6"; border.width: 1
-                Text { id: badge; anchors.centerIn: parent; text: modelData; color: "#CDC6FF"; font.pixelSize: 9; font.bold: true }
+                GText { id: badge; anchors.centerIn: parent; text: modelData; baseColor: "#CDC6FF"; basePixelSize: 9; baseBold: true }
             }
         }
     }
@@ -1230,11 +1230,12 @@ Popup {
             function onPressedChanged() { if (textControl.pressed) viewer.revealControls() }
             function onClicked() { viewer.revealControls() }
         }
-        contentItem: Text {
+        contentItem: GText {
+        typographyRole: "menu"
             text: textControl.label
-            color: textControl.enabled ? videoTheme.viewerText : videoTheme.viewerTextMuted
-            font.pixelSize: 10
-            font.weight: Font.DemiBold
+            baseColor: textControl.enabled ? videoTheme.viewerText : videoTheme.viewerTextMuted
+            basePixelSize: 10
+            baseFontWeight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -1643,16 +1644,16 @@ Popup {
                 readonly property string semanticKind: viewer.subtitleSemanticKind(displayText)
                 visible: displayText.length > 0 && (liveText.length > 0 || selectedFileText.length > 0)
 
-                Text {
+                GText {
                     id: subtitleNaturalText
                     visible: false
                     text: subtitleOverlay.displayText
                     textFormat: Text.StyledText
-                    font.family: subtitleOverlay.semanticKind === "forced" ? subtitleStyleManager.forcedFontFamily
+                    baseFontFamily: subtitleOverlay.semanticKind === "forced" ? subtitleStyleManager.forcedFontFamily
                                  : (subtitleOverlay.semanticKind === "sdh" ? subtitleStyleManager.sdhFontFamily : subtitleStyleManager.subtitleFontFamily)
-                    font.pixelSize: subtitleOverlay.semanticKind === "forced" ? subtitleStyleManager.forcedFontSize
+                    basePixelSize: subtitleOverlay.semanticKind === "forced" ? subtitleStyleManager.forcedFontSize
                                     : (subtitleOverlay.semanticKind === "sdh" ? subtitleStyleManager.sdhFontSize : subtitleStyleManager.subtitleFontSize)
-                    font.weight: Font.Medium
+                    baseFontWeight: Font.Medium
                     wrapMode: Text.NoWrap
                 }
 
@@ -1796,19 +1797,19 @@ Popup {
                 spacing: 10
                 z: 4
 
-                Text {
+                GText {
                     text: viewer.lang.language === "tr" ? "DURAKLATILDI" : "PAUSED"
-                    color: "#F7FAFF"
-                    font.pixelSize: 10
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 2.0
+                    baseColor: "#F7FAFF"
+                    basePixelSize: 10
+                    baseFontWeight: Font.DemiBold
+                    baseLetterSpacing: 2.0
                 }
                 Item { Layout.fillWidth: true }
-                Text {
+                GText {
                     text: viewer.formatTime(player.position) + " / " + viewer.formatTime(player.duration)
-                    color: "#C7FFFFFF"
-                    font.pixelSize: 10
-                    font.weight: Font.Medium
+                    baseColor: "#C7FFFFFF"
+                    basePixelSize: 10
+                    baseFontWeight: Font.Medium
                 }
             }
 
@@ -1838,12 +1839,12 @@ Popup {
             }
         }
 
-        Text {
+        GText {
             anchors.centerIn: parent
             visible: player.error !== MediaPlayer.NoError
             text: player.errorString
-            color: videoTheme.viewerText
-            font.pixelSize: 13
+            baseColor: videoTheme.viewerText
+            basePixelSize: 13
             wrapMode: Text.Wrap
             width: Math.min(parent.width * 0.7, 620)
             horizontalAlignment: Text.AlignHCenter
@@ -1863,10 +1864,10 @@ Popup {
                     width: 48; height: 48
                     running: viewer.videoLoading
                 }
-                Text {
+                GText {
                     text: viewer.lang.language === "tr" ? "Video hazırlanıyor…" : "Preparing video…"
-                    color: videoTheme.viewerTextMuted
-                    font.pixelSize: 13
+                    baseColor: videoTheme.viewerTextMuted
+                    basePixelSize: 13
                 }
             }
         }
@@ -1889,10 +1890,10 @@ Popup {
                     Layout.preferredWidth: 24; Layout.preferredHeight: 24
                     running: parent.parent.visible
                 }
-                Text {
+                GText {
                     text: viewer.lang.language === "tr" ? "Altyazı hazırlanıyor…" : "Preparing subtitles…"
-                    color: videoTheme.viewerText
-                    font.pixelSize: 12
+                    baseColor: videoTheme.viewerText
+                    basePixelSize: 12
                 }
             }
         }
@@ -1927,15 +1928,15 @@ Popup {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 0
-                        Text { id: titleText; Layout.fillWidth: true; text: viewer.currentItem ? viewer.currentItem.name : ""; color: videoTheme.viewerText; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideMiddle }
-                        Text {
+                        GText { id: titleText; Layout.fillWidth: true; text: viewer.currentItem ? viewer.currentItem.name : ""; baseColor: videoTheme.viewerText; basePixelSize: 12; baseFontWeight: Font.DemiBold; elide: Text.ElideMiddle }
+                        GText {
                             Layout.fillWidth: true
                             text: viewer.currentItem
                                   ? viewer.formatSize(viewer.currentItem.size)
                                     + (viewer.sourceVideoResolution.length ? "  ·  " + viewer.sourceVideoResolution : "")
                                   : ""
-                            color: videoTheme.viewerTextMuted
-                            font.pixelSize: 9
+                            baseColor: videoTheme.viewerTextMuted
+                            basePixelSize: 9
                             elide: Text.ElideRight
                         }
                     }
@@ -2035,7 +2036,7 @@ Popup {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
-                        Text { text: viewer.formatTime(player.position); color: videoTheme.viewerTextMuted; font.pixelSize: 9; Layout.preferredWidth: 48 }
+                        GText { text: viewer.formatTime(player.position); baseColor: videoTheme.viewerTextMuted; basePixelSize: 9; Layout.preferredWidth: 48 }
                         Item { Layout.fillWidth: true }
                         ViewerIconButton { iconName: "viewer-prev.svg"; toolTipText: viewer.lang.language === "tr" ? "Önceki video" : "Previous video"; onClicked: viewer.previousVideo() }
                         ViewerIconButton { iconName: "viewer-rewind.svg"; toolTipText: viewer.lang.language === "tr" ? "10 sn geri" : "Back 10 sec"; onClicked: viewer.seekBy(-10000) }
@@ -2112,7 +2113,7 @@ Popup {
                                 width: 10; height: 10; radius: 5; color: videoTheme.viewerText
                             }
                         }
-                        Text { text: viewer.formatTime(player.duration); color: videoTheme.viewerTextMuted; font.pixelSize: 9; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
+                        GText { text: viewer.formatTime(player.duration); baseColor: videoTheme.viewerTextMuted; basePixelSize: 9; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
                     }
                 }
             }
@@ -2202,12 +2203,12 @@ Popup {
         }
         contentItem: ColumnLayout {
             spacing: 6
-            Text {
+            GText {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
                 text: (viewer.lang.language === "tr" ? "Bölümler" : "Chapters") + " · " + viewer.chapters.length
-                color: videoTheme.viewerText
-                font.pixelSize: 13; font.weight: Font.DemiBold
+                baseColor: videoTheme.viewerText
+                basePixelSize: 13; baseFontWeight: Font.DemiBold
                 verticalAlignment: Text.AlignVCenter
                 leftPadding: 10
             }
@@ -2233,20 +2234,20 @@ Popup {
                     readonly property bool keyboardSelected: chapterList.activeFocus && chapterList.currentIndex === index
                     contentItem: Column {
                         spacing: 4
-                        Text {
+                        GText {
                             leftPadding: 10
                             width: parent.width - 20
                             text: modelData.title || ((viewer.lang.language === "tr" ? "Bölüm " : "Chapter ") + (index + 1))
                             textFormat: Text.PlainText
-                            color: videoTheme.viewerText; font.pixelSize: 11
-                            font.weight: viewer.activeChapterIndex === index ? Font.DemiBold : Font.Normal
+                            baseColor: videoTheme.viewerText; basePixelSize: 11
+                            baseFontWeight: viewer.activeChapterIndex === index ? Font.DemiBold : Font.Normal
                             elide: Text.ElideRight
                         }
-                        Text {
+                        GText {
                             leftPadding: 10
                             text: viewer.formatTime(Number(modelData.startMs))
-                            color: viewer.activeChapterIndex === index ? videoTheme.accent : videoTheme.viewerTextMuted
-                            font.pixelSize: 10
+                            baseColor: viewer.activeChapterIndex === index ? videoTheme.accent : videoTheme.viewerTextMuted
+                            basePixelSize: 10
                         }
                     }
                     background: Rectangle {
@@ -2318,13 +2319,13 @@ Popup {
                 id: audioTrackColumn
                 width: audioTrackScroll.availableWidth
                 spacing: 4
-                Text {
+                GText {
                     width: parent.width
                     height: 34
                     text: viewer.lang.language === "tr" ? "Ses Parçası" : "Audio Track"
-                    color: videoTheme.viewerText
-                    font.pixelSize: 13
-                    font.weight: Font.DemiBold
+                    baseColor: videoTheme.viewerText
+                    basePixelSize: 13
+                    baseFontWeight: Font.DemiBold
                     verticalAlignment: Text.AlignVCenter
                     leftPadding: 10
                 }
@@ -2339,11 +2340,12 @@ Popup {
                         text: viewer.audioTrackLabel(index)
                         objectName: "videoAudioTrack" + index
                         highlighted: viewer.selectedAudioTrack === index
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: parent.text
-                            color: videoTheme.viewerText
-                            font.pixelSize: 11
-                            font.weight: parent.highlighted ? Font.DemiBold : Font.Normal
+                            baseColor: videoTheme.viewerText
+                            basePixelSize: 11
+                            baseFontWeight: parent.highlighted ? Font.DemiBold : Font.Normal
                             elide: Text.ElideRight
                             verticalAlignment: Text.AlignVCenter
                             leftPadding: 10
@@ -2406,13 +2408,13 @@ Popup {
                 id: subtitleTrackColumn
                 width: subtitleTrackScroll.availableWidth
                 spacing: 4
-                Text {
+                GText {
                     width: parent.width
                     height: 34
                     text: viewer.lang.language === "tr" ? "Altyazı" : "Subtitles"
-                    color: videoTheme.viewerText
-                    font.pixelSize: 13
-                    font.weight: Font.DemiBold
+                    baseColor: videoTheme.viewerText
+                    basePixelSize: 13
+                    baseFontWeight: Font.DemiBold
                     verticalAlignment: Text.AlignVCenter
                     leftPadding: 10
                 }
@@ -2424,11 +2426,12 @@ Popup {
                     text: viewer.lang.language === "tr" ? "Kapalı" : "Off"
                     objectName: "videoSubtitleOff"
                     highlighted: !viewer.selectedSubtitleSource
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: parent.text
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
-                        font.weight: parent.highlighted ? Font.DemiBold : Font.Normal
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
+                        baseFontWeight: parent.highlighted ? Font.DemiBold : Font.Normal
                         verticalAlignment: Text.AlignVCenter
                         leftPadding: 10
                     }
@@ -2505,11 +2508,12 @@ Popup {
                     height: 44
                     hoverEnabled: true
                     text: viewer.lang.language === "tr" ? "Aa  Altyazı görünümünü özelleştir…" : "Aa  Customize subtitle appearance…"
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: parent.text
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
+                        baseFontWeight: Font.DemiBold
                         verticalAlignment: Text.AlignVCenter
                         leftPadding: 10
                         elide: Text.ElideRight
@@ -2535,11 +2539,12 @@ Popup {
                     enabled: visible
                     hoverEnabled: true
                     text: viewer.lang.language === "tr" ? "+  Altyazı oluştur…" : "+  Generate subtitles…"
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: parent.text
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
+                        baseFontWeight: Font.DemiBold
                         verticalAlignment: Text.AlignVCenter
                         leftPadding: 10
                     }
@@ -2558,11 +2563,12 @@ Popup {
                     enabled: visible
                     hoverEnabled: true
                     text: viewer.lang.language === "tr" ? "+  Mevcut altyazıyı AI ile çevir…" : "+  Translate existing subtitle with AI…"
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: parent.text
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
+                        baseFontWeight: Font.DemiBold
                         verticalAlignment: Text.AlignVCenter
                         leftPadding: 10
                         elide: Text.ElideRight
@@ -2612,16 +2618,17 @@ Popup {
                 Layout.fillWidth: true
                 Layout.leftMargin: 20; Layout.rightMargin: 14
                 Layout.topMargin: 16; Layout.bottomMargin: 12
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: viewer.lang.language === "tr" ? "Altyazı Fontu" : "Subtitle Font"
-                    color: videoTheme.viewerText; font.pixelSize: 17; font.weight: Font.Bold
+                    baseColor: videoTheme.viewerText; basePixelSize: 17; baseFontWeight: Font.Bold
                 }
                 GButton { colorTheme: videoTheme;
                     implicitWidth: 34; implicitHeight: 30; padding: 0; text: "×"; flat: true
-                    contentItem: Text {
-                        text: parent.text; color: parent.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted
-                        font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                    contentItem: GText {
+        typographyRole: "menu"
+                        text: parent.text; baseColor: parent.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted
+                        basePixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         radius: 8; color: parent.down ? videoTheme.viewerGlassBorderSoft : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft)
@@ -2663,13 +2670,13 @@ Popup {
                     color: videoTheme.viewerGlassSoft
                     border.width: 1
                     border.color: videoTheme.viewerGlassBorderSoft
-                    Text {
+                    GText {
                         anchors.centerIn: parent
                         width: parent.width - 24
                         text: viewer.lang.language === "tr" ? "Seçili font · Altyazı Önizleme 123" : "Selected font · Subtitle Preview 123"
-                        color: videoTheme.viewerText
-                        font.family: viewer.subtitleStyleFontCurrent
-                        font.pixelSize: viewer.subtitleStyleFontSizeFor(viewer.subtitleStyleFontTarget)
+                        baseColor: videoTheme.viewerText
+                        baseFontFamily: viewer.subtitleStyleFontCurrent
+                        basePixelSize: viewer.subtitleStyleFontSizeFor(viewer.subtitleStyleFontTarget)
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                     }
@@ -2677,10 +2684,10 @@ Popup {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
-                    Text {
+                    GText {
                         text: viewer.lang.language === "tr" ? "Boyut" : "Size"
-                        color: videoTheme.viewerTextMuted
-                        font.pixelSize: 11
+                        baseColor: videoTheme.viewerTextMuted
+                        basePixelSize: 11
                         Layout.preferredWidth: 48
                     }
                     GSlider { colorTheme: videoTheme;
@@ -2689,10 +2696,10 @@ Popup {
                         value: viewer.subtitleStyleFontSizeFor(viewer.subtitleStyleFontTarget)
                         onMoved: viewer.applySubtitleStyleFontSize(viewer.subtitleStyleFontTarget, value)
                     }
-                    Text {
+                    GText {
                         text: viewer.subtitleStyleFontSizeFor(viewer.subtitleStyleFontTarget) + " px"
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
                         Layout.preferredWidth: 46
                         horizontalAlignment: Text.AlignRight
                     }
@@ -2721,11 +2728,12 @@ Popup {
                     height: 42
                     hoverEnabled: true
                     highlighted: String(modelData) === viewer.subtitleStyleFontCurrent
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: String(parent.modelData)
-                        color: videoTheme.viewerText
-                        font.family: String(parent.modelData)
-                        font.pixelSize: 13
+                        baseColor: videoTheme.viewerText
+                        baseFontFamily: String(parent.modelData)
+                        basePixelSize: 13
                         verticalAlignment: Text.AlignVCenter
                         leftPadding: 10
                         elide: Text.ElideRight
@@ -2774,14 +2782,14 @@ Popup {
             RowLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 24; Layout.rightMargin: 16; Layout.topMargin: 16; Layout.bottomMargin: 14
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: viewer.lang.language === "tr" ? "Altyazı Görünümü" : "Subtitle Appearance"
-                    color: videoTheme.viewerText; font.pixelSize: 18; font.weight: Font.Bold
+                    baseColor: videoTheme.viewerText; basePixelSize: 18; baseFontWeight: Font.Bold
                 }
                 GButton { colorTheme: videoTheme;
                     implicitWidth: 34; implicitHeight: 30; padding: 0; text: "×"; flat: true
-                    contentItem: Text { text: parent.text; color: parent.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    contentItem: GText { text: parent.text; baseColor: parent.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted; basePixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { radius: 8; color: parent.down ? videoTheme.viewerGlassBorderSoft : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.viewerGlassBorder : videoTheme.viewerGlassBorderSoft }
                     onClicked: subtitleStylePopup.close()
                 }
@@ -2852,7 +2860,7 @@ Popup {
                         }
                     }
 
-                    Text { text: viewer.lang.language === "tr" ? "GENEL ALTYAZI" : "GENERAL SUBTITLE"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
+                    GText { text: viewer.lang.language === "tr" ? "GENEL ALTYAZI" : "GENERAL SUBTITLE"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.Bold }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
                         GButton { colorTheme: videoTheme;
@@ -2861,7 +2869,7 @@ Popup {
                             contentItem: RowLayout {
                                 spacing: 9
                                 Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.subtitleColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
-                                Text { Layout.fillWidth: true; text: parent.parent.text; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                                GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                             }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleColor("subtitle", subtitleStyleManager.subtitleColor)
@@ -2869,55 +2877,55 @@ Popup {
                         GButton { colorTheme: videoTheme;
                             Layout.fillWidth: true; implicitHeight: 42
                             text: subtitleStyleManager.subtitleFontFamily + " · " + subtitleStyleManager.subtitleFontSize + " px"
-                            contentItem: Text { text: parent.text; color: videoTheme.viewerText; font.family: subtitleStyleManager.subtitleFontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                            contentItem: GText { text: parent.text; baseColor: videoTheme.viewerText; baseFontFamily: subtitleStyleManager.subtitleFontFamily; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("subtitle", subtitleStyleManager.subtitleFontFamily)
                         }
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; color: videoTheme.viewerTextMuted; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                        GText { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 11; Layout.preferredWidth: 78 }
                         SubtitleShadowPicker { objectName: "normalSubtitleShadowPicker"; kind: "normal"; Layout.fillWidth: true }
                     }
 
-                    Text { text: viewer.lang.language === "tr" ? "ARKA PLAN" : "BACKGROUND"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
+                    GText { text: viewer.lang.language === "tr" ? "ARKA PLAN" : "BACKGROUND"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.Bold }
                     GButton { colorTheme: videoTheme;
                         Layout.fillWidth: true; implicitHeight: 42
                         text: viewer.lang.language === "tr" ? "Arka plan rengi" : "Background color"
                         contentItem: RowLayout {
                             spacing: 9
                             Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.backgroundColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
-                            Text { Layout.fillWidth: true; text: parent.parent.text; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                            GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         }
                         background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                         onClicked: viewer.openSubtitleStyleColor("background", subtitleStyleManager.backgroundColor)
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: viewer.lang.language === "tr" ? "Radius" : "Radius"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; Layout.preferredWidth: 78 }
+                        GText { text: viewer.lang.language === "tr" ? "Radius" : "Radius"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; Layout.preferredWidth: 78 }
                         GSlider { colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 32; stepSize: 1; value: subtitleStyleManager.backgroundRadius; onMoved: subtitleStyleManager.backgroundRadius = Math.round(value) }
-                        Text { text: subtitleStyleManager.backgroundRadius + " px"; color: videoTheme.viewerText; font.pixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
+                        GText { text: subtitleStyleManager.backgroundRadius + " px"; baseColor: videoTheme.viewerText; basePixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: viewer.lang.language === "tr" ? "Saydamlık" : "Transparency"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; Layout.preferredWidth: 78 }
+                        GText { text: viewer.lang.language === "tr" ? "Saydamlık" : "Transparency"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; Layout.preferredWidth: 78 }
                         GSlider { objectName: "subtitleTransparencySlider"; colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 1; stepSize: 0.01; value: 1.0 - subtitleStyleManager.backgroundOpacity; onMoved: subtitleStyleManager.backgroundOpacity = 1.0 - value }
-                        Text { text: Math.round((1.0 - subtitleStyleManager.backgroundOpacity) * 100) + "%"; color: videoTheme.viewerText; font.pixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
+                        GText { text: Math.round((1.0 - subtitleStyleManager.backgroundOpacity) * 100) + "%"; baseColor: videoTheme.viewerText; basePixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: "Blur"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; Layout.preferredWidth: 78 }
+                        GText { text: "Blur"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; Layout.preferredWidth: 78 }
                         GSlider { objectName: "subtitleBlurSlider"; colorTheme: videoTheme; Layout.fillWidth: true; from: 0; to: 48; stepSize: 1; value: subtitleStyleManager.backgroundBlur; onMoved: subtitleStyleManager.backgroundBlur = Math.round(value) }
-                        Text { text: subtitleStyleManager.backgroundBlur + " px"; color: videoTheme.viewerText; font.pixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
+                        GText { text: subtitleStyleManager.backgroundBlur + " px"; baseColor: videoTheme.viewerText; basePixelSize: 10; Layout.preferredWidth: 48; horizontalAlignment: Text.AlignRight }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true; wrapMode: Text.WordWrap
                         text: viewer.lang.language === "tr" ? "0% opak, 100% tamamen saydamdır. Blur, saydam arka planda görünür; 100% saydamlıkta arka plan efekti kapanır."
                               : "0% is opaque; 100% is fully transparent. Blur is visible with a translucent background and is disabled at 100% transparency."
-                        color: videoTheme.viewerTextMuted; font.pixelSize: 10
+                        baseColor: videoTheme.viewerTextMuted; basePixelSize: 10
                     }
 
-                    Text { text: "SDH"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
+                    GText { text: "SDH"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.Bold }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
                         GButton { colorTheme: videoTheme;
@@ -2925,25 +2933,25 @@ Popup {
                             contentItem: RowLayout {
                                 spacing: 9
                                 Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.sdhColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
-                                Text { Layout.fillWidth: true; text: parent.parent.text; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                                GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                             }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleColor("sdh", subtitleStyleManager.sdhColor)
                         }
                         GButton { colorTheme: videoTheme;
                             Layout.fillWidth: true; implicitHeight: 42; text: subtitleStyleManager.sdhFontFamily + " · " + subtitleStyleManager.sdhFontSize + " px"
-                            contentItem: Text { text: parent.text; color: videoTheme.viewerText; font.family: subtitleStyleManager.sdhFontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                            contentItem: GText { text: parent.text; baseColor: videoTheme.viewerText; baseFontFamily: subtitleStyleManager.sdhFontFamily; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("sdh", subtitleStyleManager.sdhFontFamily)
                         }
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; color: videoTheme.viewerTextMuted; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                        GText { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 11; Layout.preferredWidth: 78 }
                         SubtitleShadowPicker { objectName: "sdhSubtitleShadowPicker"; kind: "sdh"; Layout.fillWidth: true }
                     }
 
-                    Text { text: viewer.lang.language === "tr" ? "ZORUNLU / FORCED" : "FORCED"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.Bold }
+                    GText { text: viewer.lang.language === "tr" ? "ZORUNLU / FORCED" : "FORCED"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.Bold }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
                         GButton { colorTheme: videoTheme;
@@ -2951,29 +2959,29 @@ Popup {
                             contentItem: RowLayout {
                                 spacing: 9
                                 Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.forcedColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
-                                Text { Layout.fillWidth: true; text: parent.parent.text; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                                GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                             }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleColor("forced", subtitleStyleManager.forcedColor)
                         }
                         GButton { colorTheme: videoTheme;
                             Layout.fillWidth: true; implicitHeight: 42; text: subtitleStyleManager.forcedFontFamily + " · " + subtitleStyleManager.forcedFontSize + " px"
-                            contentItem: Text { text: parent.text; color: videoTheme.viewerText; font.family: subtitleStyleManager.forcedFontFamily; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                            contentItem: GText { text: parent.text; baseColor: videoTheme.viewerText; baseFontFamily: subtitleStyleManager.forcedFontFamily; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("forced", subtitleStyleManager.forcedFontFamily)
                         }
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 10
-                        Text { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; color: videoTheme.viewerTextMuted; font.pixelSize: 11; Layout.preferredWidth: 78 }
+                        GText { text: viewer.lang.language === "tr" ? "Gölge" : "Shadow"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 11; Layout.preferredWidth: 78 }
                         SubtitleShadowPicker { objectName: "forcedSubtitleShadowPicker"; kind: "forced"; Layout.fillWidth: true }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: viewer.lang.language === "tr"
                               ? "Forced: track zorunlu işaretliyse tamamı; değilse yalnız harf içeren ve tüm harfleri BÜYÜK cue'lar. 123 hariç, TEST 123 dahil, test 123 hariç."
                               : "Forced: the whole track when marked forced; otherwise only cues containing letters whose letters are ALL CAPS. 123 is excluded, TEST 123 included, test 123 excluded."
-                        color: videoTheme.viewerTextMuted; font.pixelSize: 9; wrapMode: Text.Wrap
+                        baseColor: videoTheme.viewerTextMuted; basePixelSize: 9; wrapMode: Text.Wrap
                     }
 
                     RowLayout {
@@ -2981,7 +2989,7 @@ Popup {
                         Item { Layout.fillWidth: true }
                         GButton { colorTheme: videoTheme;
                             text: viewer.lang.language === "tr" ? "Varsayılana dön" : "Reset defaults"
-                            contentItem: Text { text: parent.text; color: videoTheme.viewerTextMuted; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                            contentItem: GText { text: parent.text; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                             background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: videoTheme.viewerGlassBorderSoft }
                             onClicked: subtitleStyleManager.resetDefaults()
                         }
@@ -3027,14 +3035,14 @@ Popup {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: viewer.subtitleAiMode === "subtitle"
                               ? (viewer.lang.language === "tr" ? "Lurviko AI · Altyazı Çevir" : "Lurviko AI · Translate Subtitle")
                               : (viewer.lang.language === "tr" ? "Lurviko AI · Altyazı Oluştur" : "Lurviko AI · Generate Subtitles")
-                        color: videoTheme.viewerText
-                        font.pixelSize: 18
-                        font.weight: Font.Bold
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 18
+                        baseFontWeight: Font.Bold
                     }
                     GButton { colorTheme: videoTheme;
                         id: subtitleAiMinimizeButton
@@ -3043,12 +3051,13 @@ Popup {
                         implicitHeight: 30
                         padding: 0
                         text: "—"
-                        font.pixelSize: 16
+                        basePixelSize: 16
                         flat: true
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: subtitleAiMinimizeButton.text
-                            color: subtitleAiMinimizeButton.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted
-                            font.pixelSize: subtitleAiMinimizeButton.font.pixelSize
+                            baseColor: subtitleAiMinimizeButton.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted
+                            basePixelSize: subtitleAiMinimizeButton.font.pixelSize
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -3063,11 +3072,11 @@ Popup {
                         ToolTip.text: viewer.lang.language === "tr" ? "Kontrol paneline küçült" : "Minimize to controls"
                     }
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: viewer.currentItem ? String(viewer.currentItem.name || "") : ""
-                    color: videoTheme.viewerTextMuted
-                    font.pixelSize: 10
+                    baseColor: videoTheme.viewerTextMuted
+                    basePixelSize: 10
                     elide: Text.ElideMiddle
                 }
             }
@@ -3087,7 +3096,7 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 5
                     visible: viewer.subtitleAiMode === "subtitle" && !subtitleAiManager.busy && !subtitleAiManager.outputPath.length && !subtitleAiManager.error.length
-                    Text { text: viewer.lang.language === "tr" ? "Kaynak altyazı" : "Source subtitle"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    GText { text: viewer.lang.language === "tr" ? "Kaynak altyazı" : "Source subtitle"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.DemiBold }
                     GComboBox { colorTheme: videoTheme;
                         id: subtitleAiExistingCombo
                         Layout.fillWidth: true
@@ -3099,8 +3108,8 @@ Popup {
                             if (source) viewer.ensureSubtitleAiTargetValid(String(source.language || "und"))
                             viewer.refreshSubtitleAiCacheState()
                         }
-                        indicator: Text { x: subtitleAiExistingCombo.width - width - 12; y: Math.round((subtitleAiExistingCombo.height - height) / 2) - 1; text: "⌄"; color: videoTheme.viewerTextMuted; font.pixelSize: 15 }
-                        contentItem: Text { leftPadding: 12; rightPadding: 32; text: subtitleAiExistingCombo.displayText; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                        indicator: GText { x: subtitleAiExistingCombo.width - width - 12; y: Math.round((subtitleAiExistingCombo.height - height) / 2) - 1; text: "⌄"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 15 }
+                        contentItem: GText { leftPadding: 12; rightPadding: 32; text: subtitleAiExistingCombo.displayText; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
                         background: Rectangle { radius: 9; color: subtitleAiExistingCombo.down ? videoTheme.viewerGlassPressed : videoTheme.viewerGlassSoft; border.width: 1; border.color: subtitleAiExistingCombo.activeFocus ? videoTheme.accent : videoTheme.viewerGlassBorder }
                         popup: Popup {
                             palette: viewer.palette
@@ -3113,11 +3122,11 @@ Popup {
                             required property var modelData
                             required property int index
                             width: subtitleAiExistingCombo.width - 10; height: 40; hoverEnabled: true
-                            contentItem: Text { text: modelData; color: videoTheme.viewerText; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                            contentItem: GText { text: modelData; baseColor: videoTheme.viewerText; basePixelSize: 10; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
                             background: Rectangle { radius: 7; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : (subtitleAiExistingCombo.currentIndex === index ? videoTheme.viewerGlassBorderSoft : "transparent")); border.width: subtitleAiExistingCombo.currentIndex === index ? 1 : 0; border.color: videoTheme.accent }
                         }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: {
                             const source = viewer.selectedExistingSubtitle()
@@ -3127,8 +3136,8 @@ Popup {
                             if (Number(cached.translationProgress || 0) > 0) return viewer.lang.language === "tr" ? "Önceki çeviri kaldığı yerden devam edebilir." : "Previous translation can be resumed."
                             return viewer.lang.language === "tr" ? "Whisper kullanılmaz; seçili altyazı doğrudan yerel AI modeline verilir." : "Whisper is skipped; the selected subtitle is sent directly to the local AI model."
                         }
-                        color: viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.translationReady ? "#CFFFD8" : "#AFFFFFFF"
-                        font.pixelSize: 9
+                        baseColor: viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.translationReady ? "#CFFFD8" : "#AFFFFFFF"
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
                 }
@@ -3137,7 +3146,7 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 5
                     visible: viewer.subtitleAiMode === "transcribe" && !subtitleAiManager.busy && !subtitleAiManager.outputPath.length && !subtitleAiManager.error.length
-                    Text { text: viewer.lang.language === "tr" ? "Konuşma dili / ses parçası" : "Spoken language / audio track"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    GText { text: viewer.lang.language === "tr" ? "Konuşma dili / ses parçası" : "Spoken language / audio track"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.DemiBold }
                     GComboBox { colorTheme: videoTheme;
                         id: subtitleAiLanguageCombo
                         Layout.fillWidth: true
@@ -3149,8 +3158,8 @@ Popup {
                             if (source) viewer.ensureSubtitleAiTargetValid(source.code)
                             viewer.refreshSubtitleAiCacheState()
                         }
-                        indicator: Text { x: subtitleAiLanguageCombo.width - width - 12; y: Math.round((subtitleAiLanguageCombo.height - height) / 2) - 1; text: "⌄"; color: videoTheme.viewerTextMuted; font.pixelSize: 15 }
-                        contentItem: Text { leftPadding: 12; rightPadding: 32; text: subtitleAiLanguageCombo.displayText; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                        indicator: GText { x: subtitleAiLanguageCombo.width - width - 12; y: Math.round((subtitleAiLanguageCombo.height - height) / 2) - 1; text: "⌄"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 15 }
+                        contentItem: GText { leftPadding: 12; rightPadding: 32; text: subtitleAiLanguageCombo.displayText; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
                         background: Rectangle { radius: 9; color: subtitleAiLanguageCombo.down ? videoTheme.viewerGlassPressed : videoTheme.viewerGlassSoft; border.width: 1; border.color: subtitleAiLanguageCombo.activeFocus ? videoTheme.accent : videoTheme.viewerGlassBorder }
                         popup: Popup {
                             palette: viewer.palette
@@ -3163,11 +3172,11 @@ Popup {
                             required property var modelData
                             required property int index
                             width: subtitleAiLanguageCombo.width - 10; height: 38; hoverEnabled: true
-                            contentItem: Text { text: modelData; color: videoTheme.viewerText; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                            contentItem: GText { text: modelData; baseColor: videoTheme.viewerText; basePixelSize: 10; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
                             background: Rectangle { radius: 7; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : (subtitleAiLanguageCombo.currentIndex === index ? videoTheme.viewerGlassBorderSoft : "transparent")); border.width: subtitleAiLanguageCombo.currentIndex === index ? 1 : 0; border.color: videoTheme.accent }
                         }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: !subtitleAiManager.busy
                         text: {
@@ -3179,8 +3188,8 @@ Popup {
                                 return viewer.lang.language === "tr" ? "✓ " + actual + " kaynak altyazı hazır · Whisper tekrar çalışmayacak" : "✓ " + actual + " source subtitles cached · Whisper will be skipped"
                             return viewer.lang.language === "tr" ? "Kaynak altyazı henüz hazır değil" : "Source subtitles are not cached yet"
                         }
-                        color: viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.sourceReady ? "#CFFFD8" : "#8FFFFFFF"
-                        font.pixelSize: 9
+                        baseColor: viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.sourceReady ? "#CFFFD8" : "#8FFFFFFF"
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
                 }
@@ -3189,15 +3198,15 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 5
                     visible: viewer.subtitleAiMode === "transcribe" && !subtitleAiManager.busy && !subtitleAiManager.outputPath.length && !subtitleAiManager.error.length
-                    Text { text: viewer.lang.language === "tr" ? "Whisper modeli" : "Whisper model"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    GText { text: viewer.lang.language === "tr" ? "Whisper modeli" : "Whisper model"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.DemiBold }
                     GComboBox { colorTheme: videoTheme;
                         id: subtitleAiProfileCombo
                         Layout.fillWidth: true
                         model: viewer.subtitleAiProfiles.map(function(item) { return item.label })
                         currentIndex: viewer.subtitleAiProfileIndex
                         onActivated: { viewer.subtitleAiProfileIndex = currentIndex; viewer.refreshSubtitleAiCacheState() }
-                        indicator: Text { x: subtitleAiProfileCombo.width - width - 12; y: Math.round((subtitleAiProfileCombo.height - height) / 2) - 1; text: "⌄"; color: videoTheme.viewerTextMuted; font.pixelSize: 15 }
-                        contentItem: Text { leftPadding: 12; rightPadding: 32; text: subtitleAiProfileCombo.displayText; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                        indicator: GText { x: subtitleAiProfileCombo.width - width - 12; y: Math.round((subtitleAiProfileCombo.height - height) / 2) - 1; text: "⌄"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 15 }
+                        contentItem: GText { leftPadding: 12; rightPadding: 32; text: subtitleAiProfileCombo.displayText; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { radius: 9; color: subtitleAiProfileCombo.down ? videoTheme.viewerGlassPressed : videoTheme.viewerGlassSoft; border.width: 1; border.color: subtitleAiProfileCombo.activeFocus ? videoTheme.accent : videoTheme.viewerGlassBorder }
                         popup: Popup {
                             palette: viewer.palette
@@ -3210,7 +3219,7 @@ Popup {
                             required property var modelData
                             required property int index
                             width: subtitleAiProfileCombo.width - 10; height: 38; hoverEnabled: true
-                            contentItem: Text { text: modelData; color: videoTheme.viewerText; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+                            contentItem: GText { text: modelData; baseColor: videoTheme.viewerText; basePixelSize: 10; verticalAlignment: Text.AlignVCenter }
                             background: Rectangle { radius: 7; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : (subtitleAiProfileCombo.currentIndex === index ? videoTheme.viewerGlassBorderSoft : "transparent")); border.width: subtitleAiProfileCombo.currentIndex === index ? 1 : 0; border.color: videoTheme.accent }
                         }
                     }
@@ -3220,15 +3229,15 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 5
                     visible: !subtitleAiManager.busy && !subtitleAiManager.outputPath.length && !subtitleAiManager.error.length
-                    Text { text: viewer.lang.language === "tr" ? "AI çeviri dili" : "AI translation language"; color: videoTheme.viewerTextMuted; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    GText { text: viewer.lang.language === "tr" ? "AI çeviri dili" : "AI translation language"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; baseFontWeight: Font.DemiBold }
                     GComboBox { colorTheme: videoTheme;
                         id: subtitleAiTargetCombo
                         Layout.fillWidth: true
                         model: viewer.subtitleAiTargetOptions().map(function(item) { return item.code.length ? item.label + "  (" + item.code + ")" : item.label })
                         currentIndex: viewer.subtitleAiTargetIndex()
                         onActivated: { const options = viewer.subtitleAiTargetOptions(); viewer.subtitleAiTargetCode = options[currentIndex].code; viewer.refreshSubtitleAiCacheState() }
-                        indicator: Text { x: subtitleAiTargetCombo.width - width - 12; y: Math.round((subtitleAiTargetCombo.height - height) / 2) - 1; text: "⌄"; color: videoTheme.viewerTextMuted; font.pixelSize: 15 }
-                        contentItem: Text { leftPadding: 12; rightPadding: 32; text: subtitleAiTargetCombo.displayText; color: videoTheme.viewerText; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                        indicator: GText { x: subtitleAiTargetCombo.width - width - 12; y: Math.round((subtitleAiTargetCombo.height - height) / 2) - 1; text: "⌄"; baseColor: videoTheme.viewerTextMuted; basePixelSize: 15 }
+                        contentItem: GText { leftPadding: 12; rightPadding: 32; text: subtitleAiTargetCombo.displayText; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { radius: 9; color: subtitleAiTargetCombo.down ? videoTheme.viewerGlassPressed : videoTheme.viewerGlassSoft; border.width: 1; border.color: subtitleAiTargetCombo.activeFocus ? videoTheme.accent : videoTheme.viewerGlassBorder }
                         popup: Popup {
                             palette: viewer.palette
@@ -3241,11 +3250,11 @@ Popup {
                             required property var modelData
                             required property int index
                             width: subtitleAiTargetCombo.width - 10; height: 38; hoverEnabled: true
-                            contentItem: Text { text: modelData; color: videoTheme.viewerText; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+                            contentItem: GText { text: modelData; baseColor: videoTheme.viewerText; basePixelSize: 10; verticalAlignment: Text.AlignVCenter }
                             background: Rectangle { radius: 7; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : (subtitleAiTargetCombo.currentIndex === index ? videoTheme.viewerGlassBorderSoft : "transparent")); border.width: subtitleAiTargetCombo.currentIndex === index ? 1 : 0; border.color: videoTheme.accent }
                         }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: viewer.subtitleAiTargetCode.length > 0 && viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.sourceReady
                         text: {
@@ -3262,12 +3271,12 @@ Popup {
                             }
                             return viewer.lang.language === "tr" ? label + " çevirisi henüz başlamadı" : label + " translation has not started yet"
                         }
-                        color: viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.translationReady ? "#CFFFD8" : (Number(viewer.subtitleAiCacheState ? viewer.subtitleAiCacheState.translationProgress : 0) > 0 ? "#FFE7A8" : "#8FFFFFFF")
-                        font.pixelSize: 9
-                        font.weight: Number(viewer.subtitleAiCacheState ? viewer.subtitleAiCacheState.translationProgress : 0) > 0 ? Font.DemiBold : Font.Normal
+                        baseColor: viewer.subtitleAiCacheState && viewer.subtitleAiCacheState.translationReady ? "#CFFFD8" : (Number(viewer.subtitleAiCacheState ? viewer.subtitleAiCacheState.translationProgress : 0) > 0 ? "#FFE7A8" : "#8FFFFFFF")
+                        basePixelSize: 9
+                        baseFontWeight: Number(viewer.subtitleAiCacheState ? viewer.subtitleAiCacheState.translationProgress : 0) > 0 ? Font.DemiBold : Font.Normal
                         wrapMode: Text.Wrap
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: viewer.subtitleAiMode === "subtitle"
                               ? (viewer.lang.language === "tr"
@@ -3276,7 +3285,7 @@ Popup {
                               : (viewer.lang.language === "tr"
                                  ? "Whisper konuşmayı çözer; hedef dil seçiliyse çıkan altyazı yerel AI modeliyle çevrilir. und seslerde dil otomatik algılanır."
                                  : "Whisper transcribes speech; when a target is selected, the local AI model translates it. und audio uses automatic language detection.")
-                        color: videoTheme.viewerTextMuted; font.pixelSize: 9; wrapMode: Text.Wrap
+                        baseColor: videoTheme.viewerTextMuted; basePixelSize: 9; wrapMode: Text.Wrap
                     }
                 }
 
@@ -3284,12 +3293,12 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 8
                     visible: subtitleAiManager.busy
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: subtitleAiManager.status.length ? subtitleAiManager.status : (viewer.lang.language === "tr" ? "Altyazı işleniyor…" : "Processing subtitles…")
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
-                        font.weight: Font.DemiBold
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
+                        baseFontWeight: Font.DemiBold
                         wrapMode: Text.Wrap
                     }
                     GProgressBar { colorTheme: videoTheme;
@@ -3298,11 +3307,11 @@ Popup {
                         to: 100
                         value: subtitleAiManager.progress
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: "%" + subtitleAiManager.progress
-                        color: videoTheme.viewerTextMuted
-                        font.pixelSize: 10
+                        baseColor: videoTheme.viewerTextMuted
+                        basePixelSize: 10
                         horizontalAlignment: Text.AlignRight
                     }
                 }
@@ -3311,27 +3320,27 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 8
                     visible: !subtitleAiManager.busy && subtitleAiManager.outputPath.length > 0
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: viewer.lang.language === "tr" ? "✓ Altyazı hazır" : "✓ Subtitle ready"
-                        color: "#D7FFE3"
-                        font.pixelSize: 13
-                        font.weight: Font.Bold
+                        baseColor: "#D7FFE3"
+                        basePixelSize: 13
+                        baseFontWeight: Font.Bold
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: subtitleAiManager.outputPath
-                        color: videoTheme.viewerTextMuted
-                        font.pixelSize: 9
+                        baseColor: videoTheme.viewerTextMuted
+                        basePixelSize: 9
                         wrapMode: Text.WrapAnywhere
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: viewer.lang.language === "tr"
                               ? "Dosya videonun yanına yazıldı. Lurviko klasör görünümünde otomatik olarak görünecek."
                               : "The file was written next to the video and will appear in the Lurviko folder view."
-                        color: videoTheme.viewerTextMuted
-                        font.pixelSize: 9
+                        baseColor: videoTheme.viewerTextMuted
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
                 }
@@ -3340,18 +3349,18 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 8
                     visible: !subtitleAiManager.busy && subtitleAiManager.error.length > 0
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: viewer.lang.language === "tr" ? "Altyazı işlemi başarısız" : "Subtitle operation failed"
-                        color: "#FFD3D3"
-                        font.pixelSize: 13
-                        font.weight: Font.Bold
+                        baseColor: "#FFD3D3"
+                        basePixelSize: 13
+                        baseFontWeight: Font.Bold
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: subtitleAiManager.error
-                        color: videoTheme.viewerTextMuted
-                        font.pixelSize: 9
+                        baseColor: videoTheme.viewerTextMuted
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
                 }
@@ -3371,25 +3380,26 @@ Popup {
                         width: 18; height: 18; radius: 4
                         color: aiDownloadPermission.checked ? videoTheme.accent : "transparent"
                         border.color: aiDownloadPermission.checked ? videoTheme.accent : videoTheme.viewerTextMuted
-                        Text { anchors.centerIn: parent; text: "✓"; visible: aiDownloadPermission.checked; color: "white" }
+                        GText { anchors.centerIn: parent; text: "✓"; visible: aiDownloadPermission.checked; baseColor: "white" }
                     }
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: aiDownloadPermission.text
                         leftPadding: 26
-                        color: videoTheme.viewerText
-                        font.pixelSize: 11
+                        baseColor: videoTheme.viewerText
+                        basePixelSize: 11
                         wrapMode: Text.Wrap
                     }
                     background: Item {}
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     visible: aiDownloadPermission.visible
                     text: viewer.lang.language === "tr"
                         ? "PyPI / NVIDIA paketleri ve Hugging Face modelleri birkaç GB indirebilir. Seçimin kaydedilir; altyazı işlemi yerelde yapılır."
                         : "PyPI / NVIDIA packages and Hugging Face models can download several GB. Your choice is saved; subtitles are processed locally."
-                    color: videoTheme.viewerTextMuted
-                    font.pixelSize: 10
+                    baseColor: videoTheme.viewerTextMuted
+                    basePixelSize: 10
                     wrapMode: Text.Wrap
                 }
                 Item { Layout.fillHeight: true }

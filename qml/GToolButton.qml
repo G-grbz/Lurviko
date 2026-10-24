@@ -4,6 +4,19 @@ import Lurviko.App
 
 ToolButton {
     id: control
+    font: AppTheme.menuTypography.fontFor(basePixelSize, baseBold ? Font.Bold : baseFontWeight,
+        baseItalic, baseUnderline, baseOverline, baseStrikeout, false,
+        baseFontFamily, baseLetterSpacing, baseCapitalization)
+    property string baseFontFamily: ""
+    property real baseLetterSpacing: 0
+    property int baseCapitalization: Font.MixedCase
+    property bool baseBold: false
+    property int baseFontWeight: Font.DemiBold
+    property bool baseItalic: false
+    property bool baseUnderline: false
+    property bool baseOverline: false
+    property bool baseStrikeout: false
+    property real basePixelSize: AppTheme.fontSizeBody
     // Media players can supply a fixed palette; ordinary controls follow AppTheme.
     property var colorTheme: AppTheme
     property bool primary: false
@@ -28,8 +41,6 @@ ToolButton {
     spacing: 8
     icon.width: 16
     icon.height: 16
-    font.pixelSize: AppTheme.fontSizeBody
-    font.weight: Font.DemiBold
     hoverEnabled: true
     scale: down ? 0.97 : 1.0
     Behavior on scale { NumberAnimation { duration: AppTheme.motionFast; easing.type: Easing.OutCubic } }
@@ -38,7 +49,7 @@ ToolButton {
         if (!enabled) return control.colorTheme.textFaint
         if (primary) return control.colorTheme.highlightedText !== undefined ? control.colorTheme.highlightedText : "white"
         if (danger && !flat) return control.colorTheme.danger
-        return control.colorTheme.text
+        return control.colorTheme === AppTheme ? AppTheme.typographyColor("menu", AppTheme.text) : control.colorTheme.text
     }
 
     HoverHandler { cursorShape: control.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }

@@ -92,13 +92,13 @@ Item {
                         height: 2; width: parent.width
                         color: view.navigation.activeColumn === column.index ? AppTheme.accent : "transparent"
                     }
-                    Text {
+                    GText {
                         id: heading
                         x: 14; y: 10; width: parent.width - 34; height: 30
                         text: decodeURIComponent(column.columnLocation.replace(/\/$/, "").split("/").pop() || "/")
-                        color: AppTheme.text
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 13
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideMiddle
                     }
                     MouseArea {
@@ -166,11 +166,13 @@ Item {
                                 retainWhileLoading: false
                                 source: browser.iconForItem(entry.isDir, entry.suffix, entry.systemIconName, entry.name, entry.itemUrl, entry.mimeType)
                             }
-                            Text {
+                            GText {
+                                objectName: "columnFileName"
+                                typographyRole: "body"
                                 anchors { left: artwork.right; leftMargin: 9; right: parent.right; rightMargin: 22; verticalCenter: parent.verticalCenter }
                                 visible: !editor.visible
-                                text: entry.name; color: AppTheme.text
-                                font.pixelSize: 13; elide: Text.ElideMiddle
+                                text: entry.name; baseColor: AppTheme.text
+                                basePixelSize: 13; elide: Text.ElideMiddle
                             }
                             GitStatusBadge {
                                 anchors { right: artwork.right; bottom: artwork.bottom }
@@ -182,9 +184,9 @@ Item {
                                 width: 18; height: 18; radius: 6
                                 visible: entry.isDir && browser.dropTargetUrl === entry.itemUrl
                             }
-                            Text {
+                            GText {
                                 anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
-                                text: entry.isDir ? "›" : ""; color: AppTheme.textMuted; font.pixelSize: 20
+                                text: entry.isDir ? "›" : ""; baseColor: AppTheme.textMuted; basePixelSize: 20
                             }
                             GTextField {
                                 id: editor
@@ -268,13 +270,13 @@ Item {
                         }
                     }
                     GBusyIndicator { anchors.centerIn: entries; running: column.columnDirectory.loading && column.columnDirectory.count === 0; visible: running }
-                    Text {
+                    GText {
                         anchors.centerIn: entries; width: entries.width - 20
                         visible: !column.columnDirectory.loading && column.columnDirectory.count === 0
                         text: column.columnDirectory.errorString.length ? browser.lang.localizeMessage(column.columnDirectory.errorString)
                               : (browser.lang.language === "tr" ? "Klasör boş" : "Folder is empty")
-                        color: column.columnDirectory.errorString.length ? AppTheme.danger : AppTheme.textMuted
-                        wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter; font.pixelSize: 12
+                        baseColor: column.columnDirectory.errorString.length ? AppTheme.danger : AppTheme.textMuted
+                        wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter; basePixelSize: 12
                     }
                     MouseArea {
                         anchors { top: parent.top; bottom: parent.bottom; right: parent.right }
@@ -325,15 +327,15 @@ Item {
                             visible: displayReady
                         }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
-                        text: browser.selectedName; color: AppTheme.text; font.pixelSize: 16; font.weight: Font.DemiBold
+                        text: browser.selectedName; baseColor: AppTheme.text; basePixelSize: 16; baseFontWeight: Font.DemiBold
                         wrapMode: Text.Wrap; maximumLineCount: 4; elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: browser.directory.formatBytes(browser.selectedSize) + "\n" + browser.selectedMimeType
-                        color: AppTheme.textMuted; font.pixelSize: 12; wrapMode: Text.Wrap
+                        baseColor: AppTheme.textMuted; basePixelSize: 12; wrapMode: Text.Wrap
                     }
                     GButton { text: browser.lang.language === "tr" ? "Aç" : "Open"; onClicked: browser.openSelected() }
                     Item { Layout.fillHeight: true }

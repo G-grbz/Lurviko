@@ -112,22 +112,22 @@ Item {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
                 spacing: 1
-                Text {
+                GText {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignLeft
                     elide: Text.ElideRight
                     text: page.categoryTitle
-                    color: AppTheme.text
-                    font.pixelSize: 19
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.text
+                    basePixelSize: 19
+                    baseFontWeight: Font.DemiBold
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignLeft
                     elide: Text.ElideRight
                     text: files.length + " " + (lang.language === "tr" ? "öğe · Ev dizini indeksi" : "items · Home index")
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                 }
             }
 
@@ -145,18 +145,18 @@ Item {
                     spacing: 5
                     Row {
                         width: parent.width
-                        Text {
+                        GText {
                             width: parent.width * 0.62
                             text: lang.language === "tr" ? "Kullanılan alan" : "Storage used"
-                            color: AppTheme.textMuted
-                            font.pixelSize: 9
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 9
                         }
-                        Text {
+                        GText {
                             width: parent.width * 0.38
                             text: page.formatSize(page.categoryBytes)
-                            color: AppTheme.text
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 10
+                            baseFontWeight: Font.DemiBold
                             horizontalAlignment: Text.AlignRight
                         }
                     }
@@ -173,25 +173,25 @@ Item {
                             color: AppTheme.accent
                         }
                     }
-                    Text {
+                    GText {
                         width: parent.width
                         text: page.homeStorageBytes > 0
                               ? (lang.language === "tr"
                                  ? "Ev diskinin %" + (page.storageShare * 100).toFixed(page.storageShare < 0.01 ? 2 : 1)
                                  : (page.storageShare * 100).toFixed(page.storageShare < 0.01 ? 2 : 1) + "% of home volume")
                               : ""
-                        color: AppTheme.textFaint
-                        font.pixelSize: 8
+                        baseColor: AppTheme.textFaint
+                        basePixelSize: 8
                         horizontalAlignment: Text.AlignRight
                     }
                 }
             }
 
-            Text {
+            GText {
                 visible: contentIndexModel.indexing
                 text: lang.language === "tr" ? "İndeks güncelleniyor…" : "Updating index…"
-                color: AppTheme.accent
-                font.pixelSize: 10
+                baseColor: AppTheme.accent
+                basePixelSize: 10
             }
 
             GButton {
@@ -203,10 +203,11 @@ Item {
                     color: refreshButton.hovered ? AppTheme.surfaceHover : AppTheme.surface
                     border.color: AppTheme.border
                 }
-                contentItem: Text {
+                contentItem: GText {
+        typographyRole: "menu"
                     text: refreshButton.text
-                    color: AppTheme.text
-                    font.pixelSize: 10
+                    baseColor: AppTheme.text
+                    basePixelSize: 10
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -280,20 +281,20 @@ Item {
                                     visible: !preview.visible
                                 }
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: delegateRoot.modelData.name
-                                color: AppTheme.text
-                                font.pixelSize: 11
-                                font.weight: Font.Medium
+                                baseColor: AppTheme.text
+                                basePixelSize: 11
+                                baseFontWeight: Font.Medium
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideMiddle
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: page.formatSize(delegateRoot.modelData.size)
-                                color: AppTheme.textMuted
-                                font.pixelSize: 9
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 9
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideRight
                             }
@@ -337,21 +338,21 @@ Item {
                     }
                 }
 
-                Text {
+                GText {
                     anchors.centerIn: parent
                     visible: page.files.length === 0 && !contentIndexModel.indexing
                     text: lang.language === "tr" ? "Bu kategoride dosya bulunamadı" : "No files in this category"
-                    color: AppTheme.textMuted
-                    font.pixelSize: 12
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 12
                 }
             }
 
-            Text {
+            GText {
                 anchors.centerIn: parent
                 visible: page.mediaGallery && page.files.length === 0 && !contentIndexModel.indexing
                 text: lang.language === "tr" ? "Bu galeride medya bulunamadı" : "No media in this gallery"
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+                baseColor: AppTheme.textMuted
+                basePixelSize: 12
             }
         }
     }

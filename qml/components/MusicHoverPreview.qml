@@ -126,40 +126,40 @@ GOverlaySurface {
         anchors.margins: 16
         spacing: 6
         Item { Layout.fillHeight: true }
-        Text {
+        GText {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             text: String(root.track.title || root.track.name || "")
             textFormat: Text.PlainText
-            font.pixelSize: 15
-            font.weight: Font.DemiBold
-            color: "white"
+            basePixelSize: 15
+            baseFontWeight: Font.DemiBold
+            baseColor: "white"
             maximumLineCount: 2
             wrapMode: Text.Wrap
             elide: Text.ElideRight
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             text: String(root.track.artist || "")
             textFormat: Text.PlainText
-            font.pixelSize: 11
-            color: "#e3e7f0"
+            basePixelSize: 11
+            baseColor: "#e3e7f0"
             elide: Text.ElideRight
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             text: [root.track.album, root.track.year, root.track.genre].filter(Boolean).join(" · ")
             textFormat: Text.PlainText
-            font.pixelSize: 10
-            color: "#bec6d8"
+            basePixelSize: 10
+            baseColor: "#bec6d8"
             elide: Text.ElideRight
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             text: root.label(!root.audioAllowed ? "music_preview_paused"
                             : root.sampleFinished ? "music_preview_finished" : "music_preview_sample")
-            font.pixelSize: 10
-            color: "#e3e7f0"
+            basePixelSize: 10
+            baseColor: "#e3e7f0"
             wrapMode: Text.Wrap
         }
         Rectangle {

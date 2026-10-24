@@ -96,11 +96,11 @@ GModalPopup {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 5
-                Text { text: dialog.turkish ? "Klavye kısayolları" : "Keyboard shortcuts"; color: AppTheme.text; font.pixelSize: 22; font.weight: Font.DemiBold }
-                Text {
+                GText { text: dialog.turkish ? "Klavye kısayolları" : "Keyboard shortcuts"; baseColor: AppTheme.text; basePixelSize: 22; baseFontWeight: Font.DemiBold }
+                GText {
                     Layout.fillWidth: true
                     text: dialog.turkish ? "Eylemleri bul, tuşlarını kaydet ve kendine göre düzenle." : "Find actions, record key combinations and make them your own."
-                    color: AppTheme.textMuted; font.pixelSize: 12; wrapMode: Text.WordWrap
+                    baseColor: AppTheme.textMuted; basePixelSize: 12; wrapMode: Text.WordWrap
                 }
             }
             GButton {
@@ -132,9 +132,9 @@ GModalPopup {
                 Layout.fillWidth: true; Layout.fillHeight: true
                 Layout.minimumWidth: 360
                 spacing: 9
-                Text {
+                GText {
                     text: dialog.filteredActions.length + (dialog.turkish ? " eylem" : " actions")
-                    color: AppTheme.textMuted; font.pixelSize: 11
+                    baseColor: AppTheme.textMuted; basePixelSize: 11
                 }
                 Item {
                     Layout.fillWidth: true; Layout.fillHeight: true
@@ -162,22 +162,22 @@ GModalPopup {
                                 anchors.fill: parent; anchors.margins: 13; spacing: 6
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: dialog.title(actionRow.modelData); color: AppTheme.text; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                                    Text {
+                                    GText { Layout.fillWidth: true; text: dialog.title(actionRow.modelData); baseColor: AppTheme.text; basePixelSize: 13; baseFontWeight: Font.DemiBold; elide: Text.ElideRight }
+                                    GText {
                                         visible: JSON.stringify(actionRow.keys) !== JSON.stringify(actionRow.modelData.defaults)
                                         text: dialog.turkish ? "Özel" : "Custom"
-                                        color: AppTheme.accent; font.pixelSize: 10
+                                        baseColor: AppTheme.accent; basePixelSize: 10
                                     }
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { text: dialog.groupTitle(actionRow.modelData.group); color: AppTheme.textFaint; font.pixelSize: 10 }
+                                    GText { text: dialog.groupTitle(actionRow.modelData.group); baseColor: AppTheme.textFaint; basePixelSize: 10 }
                                     Item { Layout.fillWidth: true }
-                                    Text {
+                                    GText {
                                         Layout.maximumWidth: actionRow.width * 0.65
                                         text: actionRow.keys.length ? dialog.describe(actionRow.keys) : (dialog.turkish ? "Atanmamış" : "Unassigned")
-                                        color: actionRow.keys.length ? AppTheme.textMuted : AppTheme.textFaint
-                                        font.pixelSize: 11; font.weight: Font.Medium; elide: Text.ElideRight
+                                        baseColor: actionRow.keys.length ? AppTheme.textMuted : AppTheme.textFaint
+                                        basePixelSize: 11; baseFontWeight: Font.Medium; elide: Text.ElideRight
                                     }
                                 }
                             }
@@ -194,10 +194,10 @@ GModalPopup {
                         onPositionChanged: if (pressed) actionList.contentY = actionList.originY + position * actionList.contentHeight
                         contentItem: Rectangle { radius: 3; color: AppTheme.textMuted; opacity: parent.active ? 0.75 : 0.35 }
                     }
-                    Text {
+                    GText {
                         anchors.centerIn: parent; visible: dialog.filteredActions.length === 0
                         text: dialog.turkish ? "Eşleşen eylem bulunamadı." : "No matching actions."
-                        color: AppTheme.textMuted; font.pixelSize: 13
+                        baseColor: AppTheme.textMuted; basePixelSize: 13
                     }
                 }
             }
@@ -224,15 +224,15 @@ GModalPopup {
                             id: editorColumn
                             width: editorScroll.width
                             spacing: 12
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: dialog.title(dialog.selectedAction)
-                                color: AppTheme.text; font.pixelSize: 17; font.weight: Font.DemiBold; wrapMode: Text.WordWrap
+                                baseColor: AppTheme.text; basePixelSize: 17; baseFontWeight: Font.DemiBold; wrapMode: Text.WordWrap
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: dialog.turkish ? "Bir eyleme birden fazla kombinasyon atayabilirsin. Değişiklikler Kaydet ile uygulanır." : "Assign multiple combinations to an action. Changes take effect when you save."
-                                color: AppTheme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap
+                                baseColor: AppTheme.textMuted; basePixelSize: 11; wrapMode: Text.WordWrap
                             }
                             Flow {
                                 Layout.fillWidth: true
@@ -244,7 +244,7 @@ GModalPopup {
                                         required property string modelData
                                         required property int index
                                         width: Math.min(implicitWidth, parent.width)
-                                        implicitHeight: 32; font.pixelSize: 11
+                                        implicitHeight: 32; basePixelSize: 11
                                         text: KeyboardShortcuts.displaySequence(modelData) + "   ×"
                                         enabled: !KeyboardShortcuts.recording
                                         onClicked: { const keys = dialog.draft.slice(); keys.splice(index, 1); dialog.updateDraft(keys) }
@@ -277,14 +277,14 @@ GModalPopup {
                                     onClicked: dialog.updateDraft(dialog.selectedAction.defaults)
                                 }
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: dialog.selectedAction && dialog.selectedAction.defaults.length
                                     ? (dialog.turkish ? "Varsayılan: " : "Default: ") + dialog.describe(dialog.selectedAction.defaults)
                                     : (dialog.turkish ? "Varsayılan bir kısayolu yok." : "No default shortcut.")
-                                color: AppTheme.textFaint; font.pixelSize: 11; wrapMode: Text.WordWrap
+                                baseColor: AppTheme.textFaint; basePixelSize: 11; wrapMode: Text.WordWrap
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: !dialog.selectedAction ? "" : dialog.selectedAction.scope === "global"
                                     ? (dialog.turkish ? "Uygulama genelinde çalışır." : "Works throughout the application.")
@@ -293,14 +293,14 @@ GModalPopup {
                                     : dialog.selectedAction.scope === "photo"
                                     ? (dialog.turkish ? "Görsel görüntüleyici açıkken çalışır." : "Works while the photo viewer is open.")
                                     : (dialog.turkish ? "Dosya listesinde çalışır. Metin girişlerine müdahale etmez." : "Works in the file browser without interrupting text entry.")
-                                color: AppTheme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap
+                                baseColor: AppTheme.textMuted; basePixelSize: 11; wrapMode: Text.WordWrap
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 visible: dialog.validation.error === "conflict"
                                 text: (dialog.turkish ? "Bu tuşlar şu eylemlerde kullanılıyor:\n" : "These keys are already used by:\n")
                                     + (dialog.validation.conflicts || []).map(function(action) { return dialog.title(action) }).join("\n")
-                                color: AppTheme.warning; font.pixelSize: 11; wrapMode: Text.WordWrap
+                                baseColor: AppTheme.warning; basePixelSize: 11; wrapMode: Text.WordWrap
                             }
                             GButton {
                                 Layout.fillWidth: true
@@ -308,11 +308,11 @@ GModalPopup {
                                 text: dialog.turkish ? "Çakışmaları kaldır ve ata" : "Reassign conflicting shortcuts"
                                 onClicked: dialog.save(true)
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 visible: dialog.validation.error === "invalid"
                                 text: dialog.turkish ? "Geçerli bir tuş kombinasyonu kaydet." : "Record a valid key combination."
-                                color: AppTheme.danger; font.pixelSize: 11; wrapMode: Text.WordWrap
+                                baseColor: AppTheme.danger; basePixelSize: 11; wrapMode: Text.WordWrap
                             }
                         }
                     }
@@ -327,7 +327,7 @@ GModalPopup {
                         contentItem: Rectangle { radius: 3; color: AppTheme.textMuted; opacity: parent.active ? 0.75 : 0.35 }
                     }
                 }
-                Text { text: dialog.feedback; color: AppTheme.success; font.pixelSize: 11; visible: text.length > 0 }
+                GText { text: dialog.feedback; baseColor: AppTheme.success; basePixelSize: 11; visible: text.length > 0 }
                 GButton {
                     objectName: "saveShortcutButton"
                     Layout.fillWidth: true; primary: true
@@ -340,13 +340,13 @@ GModalPopup {
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
         RowLayout {
             Layout.fillWidth: true; spacing: 10
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: dialog.confirmReset
                     ? (dialog.turkish ? "Tüm özel atamalar varsayılana döndürülsün mü?" : "Restore all custom bindings to their defaults?")
                     : (dialog.turkish ? "Atamalar otomatik yüklenir ve uygulama yeniden açıldığında korunur." : "Saved bindings are restored automatically when Lurviko starts.")
-                color: dialog.confirmReset ? AppTheme.warning : AppTheme.textMuted
-                font.pixelSize: 11; wrapMode: Text.WordWrap
+                baseColor: dialog.confirmReset ? AppTheme.warning : AppTheme.textMuted
+                basePixelSize: 11; wrapMode: Text.WordWrap
             }
             GButton {
                 visible: dialog.confirmReset

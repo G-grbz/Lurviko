@@ -31,7 +31,7 @@ FocusScope {
     signal edited(string value)
 
     implicitWidth: 160
-    implicitHeight: 34
+    implicitHeight: Math.max(34, AppTheme.typographySize("menu", 12) + 18)
     onValueChanged: if (input.text !== value) input.text = value
     onMatchesChanged: {
         highlightedIndex = -1
@@ -67,7 +67,7 @@ FocusScope {
         objectName: "accountEditor"
         anchors.fill: parent
         rightPadding: 32
-        font.pixelSize: 12
+        basePixelSize: 12
         focus: true
         text: control.value
         placeholderText: control.keepText
@@ -121,13 +121,13 @@ FocusScope {
         anchors.rightMargin: input.rightPadding
         clip: true
         enabled: false
-        Text {
+        GText {
             objectName: "accountCompletionHint"
             x: measure.advanceWidth
             anchors.verticalCenter: parent.verticalCenter
             text: control.ghostSuffix
             font: input.font
-            color: AppTheme.textFaint
+            baseColor: AppTheme.textFaint
         }
     }
     GToolButton {
@@ -167,15 +167,16 @@ FocusScope {
                 required property int index
                 objectName: "accountSuggestion_" + index
                 width: entries.width - entries.rightMargin
-                height: 32
+                height: Math.max(32, AppTheme.typographySize("menu", 12) + 14)
                 focusPolicy: Qt.NoFocus
                 highlighted: index === control.highlightedIndex
                 hoverEnabled: true
                 onClicked: control.commit(index)
-                contentItem: Text {
+                contentItem: GText {
+                    typographyRole: "menu"
                     text: modelData.label
-                    color: parent.highlighted ? AppTheme.accent : AppTheme.text
-                    font.pixelSize: 12
+                    baseColor: parent.highlighted ? AppTheme.accent : AppTheme.text
+                    basePixelSize: 12
                     elide: Text.ElideRight
                     verticalAlignment: Text.AlignVCenter
                 }

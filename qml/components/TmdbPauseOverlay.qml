@@ -210,15 +210,15 @@ Item {
                         autoPaddingEnabled: true
                     }
 
-                    Text {
+                    GText {
                         id: yearBadgeText
                         anchors.centerIn: parent
                         text: String(panel.releaseYear)
-                        color: "#CFF4FF"
-                        font.family: panel.premiumFont
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 0.8
+                        baseColor: "#CFF4FF"
+
+                        basePixelSize: 11
+                        baseFontWeight: Font.Bold
+                        baseLetterSpacing: 0.8
                     }
                 }
 
@@ -239,7 +239,7 @@ Item {
                         autoPaddingEnabled: true
                     }
 
-                    Text {
+                    GText {
                         id: genreBadgeText
                         anchors.fill: parent
                         anchors.leftMargin: 11
@@ -247,11 +247,11 @@ Item {
                         verticalAlignment: Text.AlignVCenter
                         horizontalAlignment: Text.AlignHCenter
                         text: panel.displayGenres.join(" · ").toUpperCase()
-                        color: "#F4DFFF"
-                        font.family: panel.premiumFont
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
-                        font.letterSpacing: 0.65
+                        baseColor: "#F4DFFF"
+
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
+                        baseLetterSpacing: 0.65
                         elide: Text.ElideRight
                     }
                 }
@@ -273,15 +273,15 @@ Item {
                         autoPaddingEnabled: true
                     }
 
-                    Text {
+                    GText {
                         id: runtimeBadgeText
                         anchors.centerIn: parent
                         text: panel.localizedRuntime
-                        color: "#FFF0B5"
-                        font.family: panel.premiumFont
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        font.letterSpacing: 0.6
+                        baseColor: "#FFF0B5"
+
+                        basePixelSize: 11
+                        baseFontWeight: Font.Bold
+                        baseLetterSpacing: 0.6
                     }
                 }
             }
@@ -320,58 +320,58 @@ Item {
                         visible: status === Image.Ready
                     }
 
-                    Text {
+                    GText {
                         anchors.fill: parent
                         visible: logo.status !== Image.Ready
                         text: panel.titleText.toUpperCase()
-                        color: panel.cardText
+                        baseColor: panel.cardText
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
-                        font.family: panel.premiumDisplayFont
-                        font.pixelSize: Math.max(24, Math.min(36, card.width * 0.043))
-                        font.weight: Font.Light
-                        font.letterSpacing: 3.2
+
+                        basePixelSize: Math.max(24, Math.min(36, card.width * 0.043))
+                        baseFontWeight: Font.Light
+                        baseLetterSpacing: 3.2
                         elide: Text.ElideRight
                     }
                 }
 
-                Text {
+                GText {
                     objectName: "pauseEpisodeHeading"
                     Layout.fillWidth: true
                     visible: panel.ready && panel.episodeHeading.length > 0
                     text: panel.episodeHeading
                     horizontalAlignment: Text.AlignRight
-                    color: panel.cardText
-                    font.family: panel.premiumFont
-                    font.pixelSize: Math.max(12, Math.min(19, card.height * 0.034))
-                    font.weight: Font.DemiBold
+                    baseColor: panel.cardText
+
+                    basePixelSize: Math.max(12, Math.min(19, card.height * 0.034))
+                    baseFontWeight: Font.DemiBold
                     wrapMode: Text.Wrap
                     maximumLineCount: 2
                     elide: Text.ElideRight
                 }
 
-                Text {
+                GText {
                     Layout.fillWidth: true
                     visible: String(panel.metadata.tagline || "").length > 0
                     text: "“" + String(panel.metadata.tagline || "") + "”"
-                    color: panel.cardTextMuted
+                    baseColor: panel.cardTextMuted
                     horizontalAlignment: Text.AlignRight
-                    font.family: panel.premiumFont
-                    font.pixelSize: 11
-                    font.italic: true
+
+                    basePixelSize: 11
+                    baseItalic: true
                     elide: Text.ElideRight
                     maximumLineCount: 1
                 }
 
-                Text {
+                GText {
                     Layout.fillWidth: true
                     Layout.maximumHeight: 82
                     text: panel.overviewText || (panel.lang.language === "tr" ? "Konu bilgisi bulunamadı." : "No overview available.")
-                    color: panel.cardText
+                    baseColor: panel.cardText
                     horizontalAlignment: Text.AlignRight
-                    font.family: panel.premiumFont
-                    font.pixelSize: 12
-                    font.weight: Font.Normal
+
+                    basePixelSize: 12
+                    baseFontWeight: Font.Normal
                     lineHeight: 1.18
                     wrapMode: Text.Wrap
                     elide: Text.ElideRight
@@ -383,51 +383,51 @@ Item {
                     Layout.fillWidth: true
                     spacing: 4
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: panel.tvSeries && (panel.metadata.creators || []).length > 0
                         text: (panel.lang.language === "tr" ? "Yaratıcı  " : "Creator  ")
                               + (panel.metadata.creators || []).join(", ")
-                        color: panel.cardTextMuted
+                        baseColor: panel.cardTextMuted
                         horizontalAlignment: Text.AlignRight
-                        font.family: panel.premiumFont
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: (panel.metadata.directors || []).length > 0
                         text: (panel.lang.language === "tr" ? "Yönetmen  " : "Director  ")
                               + (panel.metadata.directors || []).join(", ")
-                        color: panel.cardTextMuted
+                        baseColor: panel.cardTextMuted
                         horizontalAlignment: Text.AlignRight
-                        font.family: panel.premiumFont
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: (panel.metadata.producers || []).length > 0
                         text: (panel.lang.language === "tr" ? "Yapımcı  " : "Producer  ")
                               + (panel.metadata.producers || []).join(", ")
-                        color: panel.cardTextMuted
+                        baseColor: panel.cardTextMuted
                         horizontalAlignment: Text.AlignRight
-                        font.family: panel.premiumFont
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: (panel.metadata.cast || []).length > 0
                         text: (panel.lang.language === "tr" ? "Oyuncular  " : "Cast  ")
                               + (panel.metadata.cast || []).join(", ")
-                        color: panel.cardText
+                        baseColor: panel.cardText
                         horizontalAlignment: Text.AlignRight
-                        font.family: panel.premiumFont
-                        font.pixelSize: 10
+
+                        basePixelSize: 10
                         elide: Text.ElideRight
                     }
                 }
@@ -441,20 +441,20 @@ Item {
                 anchors.bottom: parent.bottom
                 spacing: 8
 
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: panel.itemData ? String(panel.itemData.name || "") : ""
-                    color: panel.cardTextFaint
-                    font.family: panel.premiumFont
-                    font.pixelSize: 9
+                    baseColor: panel.cardTextFaint
+
+                    basePixelSize: 9
                     elide: Text.ElideMiddle
                 }
-                Text {
+                GText {
                     text: "TMDB"
-                    color: panel.cardTextMuted
-                    font.family: panel.premiumFont
-                    font.pixelSize: 9
-                    font.weight: Font.DemiBold
+                    baseColor: panel.cardTextMuted
+
+                    basePixelSize: 9
+                    baseFontWeight: Font.DemiBold
                     transform: Translate { y: 7 }
                 }
             }
@@ -526,14 +526,14 @@ Item {
                         Component.onCompleted: requestPaint()
                     }
 
-                    Text {
+                    GText {
                         anchors.centerIn: parent
                         text: String(panel.metadata.certification || "")
-                        color: panel.cardText
-                        font.family: panel.premiumFont
-                        font.pixelSize: text.length > 4 ? 10 : 13
-                        font.weight: Font.DemiBold
-                        font.capitalization: Font.AllUppercase
+                        baseColor: panel.cardText
+
+                        basePixelSize: text.length > 4 ? 10 : 13
+                        baseFontWeight: Font.DemiBold
+                        baseCapitalization: Font.AllUppercase
                     }
                 }
 
@@ -583,13 +583,13 @@ Item {
                         Component.onCompleted: requestPaint()
                     }
 
-                    Text {
+                    GText {
                         anchors.centerIn: parent
                         text: Number(panel.metadata.rating || 0).toFixed(1)
-                        color: panel.cardText
-                        font.family: panel.premiumFont
-                        font.pixelSize: 16
-                        font.weight: Font.DemiBold
+                        baseColor: panel.cardText
+
+                        basePixelSize: 16
+                        baseFontWeight: Font.DemiBold
                     }
                 }
             }
@@ -619,17 +619,17 @@ Item {
                 visible: panel.state === "loading"
                 running: visible
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: panel.titleText
-                color: panel.cardText
-                font.family: panel.premiumFont
-                font.pixelSize: 21
-                font.weight: Font.Bold
+                baseColor: panel.cardText
+
+                basePixelSize: 21
+                baseFontWeight: Font.Bold
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: {
                     if (panel.state === "needs_token")
@@ -646,9 +646,9 @@ Item {
                         return String(panel.metadata.message || "TMDB error")
                     return panel.lang.language === "tr" ? "TMDB bilgileri hazırlanıyor…" : "Loading TMDB metadata…"
                 }
-                color: panel.cardTextMuted
-                font.family: panel.premiumFont
-                font.pixelSize: 11
+                baseColor: panel.cardTextMuted
+
+                basePixelSize: 11
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
             }

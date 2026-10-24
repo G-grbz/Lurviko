@@ -4,18 +4,30 @@ import Lurviko.App
 
 SpinBox {
     id: control
+    font: AppTheme.menuTypography.fontFor(basePixelSize, baseBold ? Font.Bold : baseFontWeight,
+        baseItalic, baseUnderline, baseOverline, baseStrikeout, false,
+        baseFontFamily, baseLetterSpacing, baseCapitalization)
+    property string baseFontFamily: ""
+    property real baseLetterSpacing: 0
+    property int baseCapitalization: Font.MixedCase
+    property bool baseBold: false
+    property int baseFontWeight: Font.Normal
+    property bool baseItalic: false
+    property bool baseUnderline: false
+    property bool baseOverline: false
+    property bool baseStrikeout: false
+    property real basePixelSize: AppTheme.fontSizeControl
 
     implicitWidth: 116
-    implicitHeight: AppTheme.controlHeight
+    implicitHeight: Math.max(AppTheme.controlHeight, font.pixelSize + 18)
     leftPadding: 36
     rightPadding: 36
-    font.pixelSize: AppTheme.fontSizeControl
 
     contentItem: TextInput {
         z: 2
         text: control.displayText
         font: control.font
-        color: control.enabled ? AppTheme.text : AppTheme.textFaint
+        color: control.enabled ? AppTheme.typographyColor("menu", AppTheme.text) : AppTheme.textFaint
         selectionColor: AppTheme.selection
         selectedTextColor: AppTheme.highlightedText
         horizontalAlignment: Qt.AlignHCenter
@@ -34,12 +46,12 @@ SpinBox {
         color: control.up.pressed ? AppTheme.surfacePressed
                                   : (control.up.hovered ? AppTheme.surfaceHover : "transparent")
 
-        Text {
+        GText {
             anchors.centerIn: parent
             text: "+"
-            color: control.enabled ? AppTheme.text : AppTheme.textFaint
-            font.pixelSize: 16
-            font.weight: Font.Medium
+            baseColor: control.enabled ? AppTheme.typographyColor("menu", AppTheme.text) : AppTheme.textFaint
+            basePixelSize: 16
+            baseFontWeight: Font.Medium
         }
     }
 
@@ -52,12 +64,12 @@ SpinBox {
         color: control.down.pressed ? AppTheme.surfacePressed
                                     : (control.down.hovered ? AppTheme.surfaceHover : "transparent")
 
-        Text {
+        GText {
             anchors.centerIn: parent
             text: "−"
-            color: control.enabled ? AppTheme.text : AppTheme.textFaint
-            font.pixelSize: 16
-            font.weight: Font.Medium
+            baseColor: control.enabled ? AppTheme.typographyColor("menu", AppTheme.text) : AppTheme.textFaint
+            basePixelSize: 16
+            baseFontWeight: Font.Medium
         }
     }
 

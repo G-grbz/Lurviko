@@ -94,6 +94,85 @@ Item {
                 verify(inputTestHelper.settleQmlCreations(page))
                 wait(40) // Deferred control polish without requiring an exposed headless window.
             }
+            function test_file_names_use_body_font_independent_of_sidebar_and_zoom() {
+                const saved = AppTheme.typographySettings.rolesJson
+                const pane = page.activePane
+                const iconSize = pane.activeIconSize
+                try {
+                    AppTheme.resetTypography()
+                    for (const mode of ["grid", "list", "columns"]) {
+                        pane.viewMode = mode
+                        wait(80)
+                        const objectName = mode === "grid" ? "gridFileName" : mode === "list" ? "listFileName" : "columnFileName"
+                        for (const size of mode === "grid" ? [118, 260] : [118]) {
+                            pane.setActiveIconSize(size)
+                            if (mode !== "columns") pane.directoryView().forceLayout()
+                            verify(inputTestHelper.settleQmlCreations(page))
+                            let label = null
+                            tryVerify(function() { label = findChild(pane, objectName); return label !== null })
+                            compare(label.typographyRole, "body")
+                            compare(label.font.weight, Font.Normal)
+                            AppTheme.setTypography("sidebar", "bold", true)
+                            compare(label.font.weight, Font.Normal)
+                            AppTheme.setTypography("body", "bold", true)
+                            compare(label.font.weight, Font.Bold)
+                            AppTheme.setTypography("body", "bold", false)
+                            compare(label.font.weight, Font.Normal)
+                            AppTheme.setTypography("sidebar", "bold", false)
+                        }
+                    }
+                } finally {
+                    AppTheme.typographySettings.rolesJson = saved
+                    pane.viewMode = "grid"
+                    pane.setActiveIconSize(iconSize)
+                    pane.directoryView().forceLayout()
+                    verify(inputTestHelper.settleQmlCreations(page))
+                }
+            }
+            function test_view_menu_controls_sidebar_mode_and_persists_it() {
+                const saved = AppTheme.sidebarAutoHide
+                const savedMode = AppTheme.sidebarRailMode
+                const savedWidth = window.width
+                const menu = findChild(page, "toolbarViewMenu")
+                const toggle = inputTestHelper.objectChild(page, "sidebarAutoHideSwitch")
+                const picker = inputTestHelper.objectChild(page, "sidebarRailModePicker")
+                const row = inputTestHelper.objectChild(page, "sidebarRailModeSetting")
+                try {
+                    AppTheme.setSidebarAutoHide(false)
+                    menu.open()
+                    tryCompare(menu, "opened", true)
+                    verify(!row.visible)
+                    mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+                    compare(AppTheme.sidebarAutoHide, true)
+                    verify(row.visible)
+                    window.width += 80
+                    tryVerify(function() { return Math.abs(page.width - menu.x - menu.width - 8) < 3 })
+                    picker.activated(2)
+                    compare(AppTheme.sidebarRailMode, "icon")
+                    tryVerify(function() { return inputTestHelper.savedAppearanceSetting("sidebarRailMode") === "icon" })
+                    mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+                    compare(AppTheme.sidebarAutoHide, false)
+                    verify(!row.visible)
+                } finally {
+                    menu.close()
+                    AppTheme.setSidebarAutoHide(saved)
+                    AppTheme.setSidebarRailMode(savedMode)
+                    window.width = savedWidth
+                }
+            }
+            function test_typography_dialog_is_loaded_only_when_opened() {
+                const loader = inputTestHelper.objectChild(page, "typographyDialogLoader")
+                const action = inputTestHelper.objectChild(page, "typographyMenuItem")
+                verify(loader)
+                verify(action)
+                compare(loader.active, false)
+                action.triggered()
+                tryVerify(function() { return loader.item && loader.item.opened })
+                loader.item.close()
+                tryCompare(loader, "active", false)
+                compare(loader.item, null)
+                verify(inputTestHelper.settleQmlCreations(page))
+            }
             function test_multilingual_keywords_data() {
                 return [
                     {tag: "Turkish-color", name: "Mor", icon: "purple-folder.svg"},

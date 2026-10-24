@@ -2,7 +2,7 @@ import QtQuick
 import Lurviko.App
 import "MusicArtists.js" as Artists
 
-Text {
+GText {
     id: control
     property string artistText: ""
     property string suffixText: ""

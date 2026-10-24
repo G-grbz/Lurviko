@@ -943,13 +943,14 @@ Item {
                                 border.width: root.activeSection === modelData ? 1 : 0
                                 border.color: AppTheme.accentBorder
                             }
-                            contentItem: Text {
+                            contentItem: GText {
+        typographyRole: "menu"
                                 text: root.sectionLabel(modelData)
-                                color: parent.enabled
+                                baseColor: parent.enabled
                                        ? (root.activeSection === modelData ? AppTheme.accent : AppTheme.text)
                                        : AppTheme.textFaint
-                                font.pixelSize: 10
-                                font.weight: root.activeSection === modelData ? Font.DemiBold : Font.Medium
+                                basePixelSize: 10
+                                baseFontWeight: root.activeSection === modelData ? Font.DemiBold : Font.Medium
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
@@ -1003,21 +1004,22 @@ Item {
                                     radius: 9
                                     color: parent.hovered ? AppTheme.surfaceHover : "transparent"
                                 }
-                                contentItem: Text {
+                                contentItem: GText {
+        typographyRole: "menu"
                                     text: parent.text
-                                    color: index === root.navigationStack.length - 1 ? AppTheme.text : AppTheme.textMuted
-                                    font.pixelSize: 10
-                                    font.weight: index === root.navigationStack.length - 1 ? Font.DemiBold : Font.Normal
+                                    baseColor: index === root.navigationStack.length - 1 ? AppTheme.text : AppTheme.textMuted
+                                    basePixelSize: 10
+                                    baseFontWeight: index === root.navigationStack.length - 1 ? Font.DemiBold : Font.Normal
                                     elide: Text.ElideRight
                                     verticalAlignment: Text.AlignVCenter
                                 }
                             }
-                            Text {
+                            GText {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: index < root.navigationStack.length - 1
                                 text: "›"
-                                color: AppTheme.textFaint
-                                font.pixelSize: 15
+                                baseColor: AppTheme.textFaint
+                                basePixelSize: 15
                             }
                         }
                     }
@@ -1031,13 +1033,13 @@ Item {
                 radius: 15
                 color: AppTheme.accentSoft
                 border.color: AppTheme.accentBorder
-                Text {
+                GText {
                     id: providerText
                     anchors.centerIn: parent
                     text: manager.selectedProvider || "DLNA"
-                    color: AppTheme.accent
-                    font.pixelSize: 9
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.accent
+                    basePixelSize: 9
+                    baseFontWeight: Font.DemiBold
                 }
             }
 
@@ -1051,11 +1053,12 @@ Item {
                     color: serverButton.hovered ? AppTheme.surfaceHover : AppTheme.surface
                     border.color: AppTheme.border
                 }
-                contentItem: Text {
+                contentItem: GText {
+        typographyRole: "menu"
                     text: lang.language === "tr" ? "Sunucu seç" : "Choose server"
-                    color: AppTheme.text
-                    font.pixelSize: 10
-                    font.weight: Font.Medium
+                    baseColor: AppTheme.text
+                    basePixelSize: 10
+                    baseFontWeight: Font.Medium
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -1072,15 +1075,15 @@ Item {
                 visible: manager.loading && root.currentEntries.length === 0
             }
 
-            Text {
+            GText {
                 anchors.centerIn: parent
                 visible: !manager.loading && String(manager.errorString || "").length > 0
                 width: Math.min(parent.width - 80, 560)
                 text: manager.errorString
-                color: AppTheme.textMuted
+                baseColor: AppTheme.textMuted
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: 11
+                basePixelSize: 11
             }
 
             GridView {
@@ -1199,15 +1202,15 @@ Item {
                             anchors.bottom: parent.bottom
                             anchors.margins: 10
                             spacing: 3
-                            Text {
+                            GText {
                                 width: parent.width
                                 text: String(cardRoot.modelData.title || "")
-                                color: artwork.status === Image.Ready ? "#F7FAFF" : AppTheme.text
-                                font.pixelSize: Math.max(9, Math.min(14, 11 * root.cardScale))
-                                font.weight: Font.DemiBold
+                                baseColor: artwork.status === Image.Ready ? "#F7FAFF" : AppTheme.text
+                                basePixelSize: Math.max(9, Math.min(14, 11 * root.cardScale))
+                                baseFontWeight: Font.DemiBold
                                 elide: Text.ElideRight
                             }
-                            Text {
+                            GText {
                                 width: parent.width
                                 text: {
                                     const bits = []
@@ -1226,8 +1229,8 @@ Item {
                                         bits.push(Number(cardRoot.modelData.childCount) + " " + (lang.language === "tr" ? "öğe" : "items"))
                                     return bits.join(" · ")
                                 }
-                                color: artwork.status === Image.Ready ? "#C8D2E2" : AppTheme.textMuted
-                                font.pixelSize: Math.max(7, Math.min(11, 8 * root.cardScale))
+                                baseColor: artwork.status === Image.Ready ? "#C8D2E2" : AppTheme.textMuted
+                                basePixelSize: Math.max(7, Math.min(11, 8 * root.cardScale))
                                 elide: Text.ElideRight
                             }
                         }
@@ -1241,12 +1244,12 @@ Item {
                             color: "#85060B12"
                             border.width: 1
                             border.color: "#A5FFFFFF"
-                            Text {
+                            GText {
                                 anchors.centerIn: parent
                                 anchors.horizontalCenterOffset: 1
                                 text: "▶"
-                                color: "white"
-                                font.pixelSize: Math.max(13, Math.min(21, 17 * root.cardScale))
+                                baseColor: "white"
+                                basePixelSize: Math.max(13, Math.min(21, 17 * root.cardScale))
                             }
                         }
 
@@ -1259,11 +1262,11 @@ Item {
                             radius: width / 2
                             visible: String(cardRoot.modelData.kind || "") === "container"
                             color: artwork.status === Image.Ready ? "#7D060B12" : AppTheme.accentSoft
-                            Text {
+                            GText {
                                 anchors.centerIn: parent
                                 text: "›"
-                                color: artwork.status === Image.Ready ? "white" : AppTheme.accent
-                                font.pixelSize: 19
+                                baseColor: artwork.status === Image.Ready ? "white" : AppTheme.accent
+                                basePixelSize: 19
                             }
                         }
 
@@ -1337,21 +1340,21 @@ Item {
         spacing: 14
         visible: !manager.selectedServerId
 
-        Text {
+        GText {
             Layout.fillWidth: true
             text: lang.language === "tr" ? "DLNA medya sunucusu seç" : "Choose a DLNA media server"
-            color: AppTheme.text
-            font.pixelSize: 22
-            font.weight: Font.DemiBold
+            baseColor: AppTheme.text
+            basePixelSize: 22
+            baseFontWeight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             text: lang.language === "tr"
                   ? "GiG, Jellyfin, Emby veya başka bir UPnP/DLNA MediaServer aynı ağda otomatik bulunur."
                   : "GiG, Jellyfin, Emby, or another UPnP/DLNA MediaServer on the same LAN is discovered automatically."
-            color: AppTheme.textMuted
-            font.pixelSize: 11
+            baseColor: AppTheme.textMuted
+            basePixelSize: 11
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
         }
@@ -1380,19 +1383,19 @@ Item {
                         Layout.preferredHeight: 40
                         radius: 12
                         color: AppTheme.accentSoft
-                        Text {
+                        GText {
                             anchors.centerIn: parent
                             text: String(discoveredServerDelegate.modelData.provider || "DLNA").substring(0, 1)
-                            color: AppTheme.accent
-                            font.pixelSize: 16
-                            font.weight: Font.Bold
+                            baseColor: AppTheme.accent
+                            basePixelSize: 16
+                            baseFontWeight: Font.Bold
                         }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 2
-                        Text { text: String(discoveredServerDelegate.modelData.name || "DLNA"); color: AppTheme.text; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Text { text: String(discoveredServerDelegate.modelData.provider || "DLNA") + " · " + String(discoveredServerDelegate.modelData.location || ""); color: AppTheme.textMuted; font.pixelSize: 9; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                        GText { text: String(discoveredServerDelegate.modelData.name || "DLNA"); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                        GText { text: String(discoveredServerDelegate.modelData.provider || "DLNA") + " · " + String(discoveredServerDelegate.modelData.location || ""); baseColor: AppTheme.textMuted; basePixelSize: 9; Layout.fillWidth: true; elide: Text.ElideMiddle }
                     }
                 }
             }
@@ -1429,12 +1432,12 @@ Item {
             spacing: 10
             RowLayout {
                 Layout.fillWidth: true
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: lang.language === "tr" ? "DLNA medya sunucuları" : "DLNA media servers"
-                    color: AppTheme.text
-                    font.pixelSize: 15
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.text
+                    basePixelSize: 15
+                    baseFontWeight: Font.DemiBold
                 }
                 GButton {
                     text: lang.language === "tr" ? "Tara" : "Scan"
@@ -1476,8 +1479,8 @@ Item {
                     }
                     contentItem: ColumnLayout {
                         spacing: 3
-                        Text { Layout.fillWidth: true; text: String(serverDelegate.modelData.name || "DLNA"); color: AppTheme.text; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                        Text { Layout.fillWidth: true; text: String(serverDelegate.modelData.provider || "DLNA") + " · " + String(serverDelegate.modelData.location || ""); color: AppTheme.textMuted; font.pixelSize: 8; elide: Text.ElideMiddle }
+                        GText { Layout.fillWidth: true; text: String(serverDelegate.modelData.name || "DLNA"); baseColor: AppTheme.text; basePixelSize: 11; baseFontWeight: Font.DemiBold; elide: Text.ElideRight }
+                        GText { Layout.fillWidth: true; text: String(serverDelegate.modelData.provider || "DLNA") + " · " + String(serverDelegate.modelData.location || ""); baseColor: AppTheme.textMuted; basePixelSize: 8; elide: Text.ElideMiddle }
                     }
                 }
             }

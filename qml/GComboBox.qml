@@ -4,18 +4,30 @@ import Lurviko.App
 
 ComboBox {
     id: control
+    font: AppTheme.menuTypography.fontFor(basePixelSize, baseBold ? Font.Bold : baseFontWeight,
+        baseItalic, baseUnderline, baseOverline, baseStrikeout, false,
+        baseFontFamily, baseLetterSpacing, baseCapitalization)
+    property string baseFontFamily: ""
+    property real baseLetterSpacing: 0
+    property int baseCapitalization: Font.MixedCase
+    property bool baseBold: false
+    property int baseFontWeight: Font.Normal
+    property bool baseItalic: false
+    property bool baseUnderline: false
+    property bool baseOverline: false
+    property bool baseStrikeout: false
+    property real basePixelSize: AppTheme.fontSizeControl
     // Media players can supply a fixed palette; ordinary controls follow AppTheme.
     property var colorTheme: AppTheme
 
     implicitWidth: 160
-    implicitHeight: AppTheme.controlHeight
+    implicitHeight: Math.max(AppTheme.controlHeight, font.pixelSize + 18)
     leftPadding: 12
     rightPadding: 38
     topPadding: 0
     bottomPadding: 0
     spacing: 8
     hoverEnabled: true
-    font.pixelSize: AppTheme.fontSizeControl
 
     // Keep Qt ComboBox's editable semantics intact: its template wires an
     // editable TextField content item to editText, completion and validators.
@@ -32,7 +44,7 @@ ComboBox {
         validator: control.validator
         selectByMouse: control.selectTextByMouse
         font: control.font
-        color: control.enabled ? control.colorTheme.text : control.colorTheme.textFaint
+        color: control.enabled ? (control.colorTheme === AppTheme ? AppTheme.typographyColor("menu", AppTheme.text) : control.colorTheme.text) : control.colorTheme.textFaint
         selectionColor: control.colorTheme.selection
         selectedTextColor: control.colorTheme.highlightedText !== undefined ? control.colorTheme.highlightedText : "white"
         verticalAlignment: Text.AlignVCenter
@@ -45,11 +57,11 @@ ComboBox {
         anchors.right: parent.right
         anchors.rightMargin: 5
 
-        Text {
+        GText {
             anchors.centerIn: parent
             text: "⌄"
-            color: control.enabled ? control.colorTheme.textMuted : control.colorTheme.textFaint
-            font.pixelSize: 17
+            baseColor: control.enabled ? control.colorTheme.textMuted : control.colorTheme.textFaint
+            basePixelSize: 17
             rotation: control.popup.visible ? 180 : 0
 
             Behavior on rotation {
@@ -77,17 +89,18 @@ ComboBox {
     delegate: ItemDelegate {
         required property int index
         width: control.popup ? control.popup.width - 12 : control.width
-        height: 36
+        height: Math.max(36, AppTheme.typographySize("menu", 12) + 14)
         hoverEnabled: true
         leftPadding: 10
         rightPadding: 10
         text: control.textAt(index)
         highlighted: control.highlightedIndex === index
 
-        contentItem: Text {
+        contentItem: GText {
+            typographyRole: "menu"
             text: parent.text
-            color: parent.enabled ? control.colorTheme.text : control.colorTheme.textFaint
-            font.pixelSize: AppTheme.fontSizeBody
+            baseColor: parent.enabled ? control.colorTheme.text : control.colorTheme.textFaint
+            basePixelSize: AppTheme.fontSizeBody
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }

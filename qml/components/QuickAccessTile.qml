@@ -108,19 +108,21 @@ Rectangle {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             spacing: 3
-            Text {
+            GText {
+                objectName: "quickAccessTitle"
+                typographyRole: "body"
                 Layout.fillWidth: true
                 text: tile.title
-                color: AppTheme.text
-                font.pixelSize: 12
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 12
+                baseFontWeight: Font.Normal
                 elide: Text.ElideRight
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: tile.path
-                color: AppTheme.textFaint
-                font.pixelSize: 10
+                baseColor: AppTheme.textFaint
+                basePixelSize: 10
                 elide: Text.ElideMiddle
             }
         }
@@ -134,12 +136,12 @@ Rectangle {
             color: recentBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.accentSoft
             Behavior on color { ColorAnimation { duration: 90 } }
 
-            Text {
+            GText {
                 anchors.centerIn: parent
                 text: tile.language === "tr" ? "son" : "recent"
-                color: recentBadgeMouse.containsMouse ? "white" : AppTheme.accent
-                font.pixelSize: 9
-                font.bold: true
+                baseColor: recentBadgeMouse.containsMouse ? "white" : AppTheme.accent
+                basePixelSize: 9
+                baseBold: true
             }
 
             MouseArea {

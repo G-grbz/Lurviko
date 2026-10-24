@@ -96,12 +96,12 @@ ColumnLayout {
         root.draftIgnoreRules = Array.from(root.contentIndexModel.defaultIgnoreRules(root.categoryKey) || [])
     }
 
-    Text {
+    GText {
         Layout.fillWidth: true
         text: root.lang.language === "tr" ? "İndeksleme" : "Indexing"
-        color: AppTheme.text
-        font.pixelSize: 12
-        font.weight: Font.DemiBold
+        baseColor: AppTheme.text
+        basePixelSize: 12
+        baseFontWeight: Font.DemiBold
     }
 
     GCheckBox {
@@ -127,21 +127,21 @@ ColumnLayout {
                          : "Open items in this category with one click instead of double-click.")
     }
 
-    Text {
+    GText {
         Layout.fillWidth: true
         text: root.lang.language === "tr" ? "İzlenen dizinler" : "Indexed folders"
-        color: AppTheme.text
-        font.pixelSize: 12
-        font.weight: Font.DemiBold
+        baseColor: AppTheme.text
+        basePixelSize: 12
+        baseFontWeight: Font.DemiBold
     }
 
-    Text {
+    GText {
         Layout.fillWidth: true
         text: root.lang.language === "tr"
               ? "Yalnızca aşağıdaki dizinlerin içindeki bu kategori dosyaları indekslenir. USB, CIFS/NFS ve diğer bağlı diskleri ekleyebilirsin."
               : "Only files for this category inside the folders below are indexed. USB, CIFS/NFS and other mounted storage can be added."
-        color: AppTheme.textMuted
-        font.pixelSize: 9
+        baseColor: AppTheme.textMuted
+        basePixelSize: 9
         wrapMode: Text.Wrap
     }
 
@@ -176,11 +176,11 @@ ColumnLayout {
                         anchors.leftMargin: 10
                         anchors.rightMargin: 5
                         spacing: 8
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: modelData
-                            color: AppTheme.text
-                            font.pixelSize: 9
+                            baseColor: AppTheme.text
+                            basePixelSize: 9
                             elide: Text.ElideMiddle
                         }
                         GToolButton {
@@ -202,14 +202,14 @@ ColumnLayout {
                 }
             }
 
-            Text {
+            GText {
                 width: parent.width
                 visible: root.draftRoots.length === 0
                 text: root.lang.language === "tr"
                       ? "Hiç dizin seçilmedi. Bu kategori boş kalacak."
                       : "No folders selected. This category will remain empty."
-                color: AppTheme.textFaint
-                font.pixelSize: 9
+                baseColor: AppTheme.textFaint
+                basePixelSize: 9
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 topPadding: 10
@@ -233,10 +233,10 @@ ColumnLayout {
             }
         }
         Item { Layout.fillWidth: true }
-        Text {
+        GText {
             text: root.draftRoots.length + (root.lang.language === "tr" ? " dizin" : " folders")
-            color: AppTheme.textFaint
-            font.pixelSize: 9
+            baseColor: AppTheme.textFaint
+            basePixelSize: 9
         }
     }
 
@@ -244,12 +244,12 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        Text {
+        GText {
             Layout.fillWidth: true
             text: root.lang.language === "tr" ? "İndekslenmeyecek kelime / uzantılar" : "Ignored words / extensions"
-            color: AppTheme.text
-            font.pixelSize: 12
-            font.weight: Font.DemiBold
+            baseColor: AppTheme.text
+            basePixelSize: 12
+            baseFontWeight: Font.DemiBold
         }
         GModalButton {
             text: root.lang.language === "tr" ? "Varsayılanlar" : "Defaults"
@@ -257,13 +257,13 @@ ColumnLayout {
         }
     }
 
-    Text {
+    GText {
         Layout.fillWidth: true
         text: root.lang.language === "tr"
               ? "Örn. pdf → PDF dosyaları; index → adında index geçen dosyalar; trailer → trailer içeren tüm video adları. path:cache gibi bir kural yolun tamamında eşleşir."
               : "Example: pdf excludes PDF files; index excludes names containing index; trailer excludes video names containing trailer. A rule such as path:cache matches the full path."
-        color: AppTheme.textMuted
-        font.pixelSize: 9
+        baseColor: AppTheme.textMuted
+        basePixelSize: 9
         wrapMode: Text.Wrap
     }
 
@@ -298,13 +298,13 @@ ColumnLayout {
                         anchors.leftMargin: 9
                         anchors.rightMargin: 3
                         spacing: 4
-                        Text {
+                        GText {
                             id: ruleLabel
                             Layout.fillWidth: true
                             text: modelData
-                            color: AppTheme.text
-                            font.family: "monospace"
-                            font.pixelSize: 9
+                            baseColor: AppTheme.text
+                            baseFontFamily: "monospace"
+                            basePixelSize: 9
                             elide: Text.ElideRight
                         }
                         GToolButton {
@@ -326,12 +326,12 @@ ColumnLayout {
                 }
             }
 
-            Text {
+            GText {
                 width: ignoreFlow.width
                 visible: root.draftIgnoreRules.length === 0
                 text: root.lang.language === "tr" ? "Hariç tutma kuralı yok." : "No ignore rules."
-                color: AppTheme.textFaint
-                font.pixelSize: 9
+                baseColor: AppTheme.textFaint
+                basePixelSize: 9
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: 8
                 bottomPadding: 8
@@ -370,10 +370,10 @@ ColumnLayout {
             onClicked: root.reindex()
         }
         Item { Layout.fillWidth: true }
-        Text {
+        GText {
             text: root.lang.language === "tr" ? "Diğer kategoriler etkilenmez" : "Other categories are not affected"
-            color: AppTheme.textFaint
-            font.pixelSize: 9
+            baseColor: AppTheme.textFaint
+            basePixelSize: 9
         }
     }
 

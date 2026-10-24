@@ -1,4 +1,5 @@
 import QtQuick
+import Lurviko.App
 
 Item {
     id: root
@@ -95,23 +96,23 @@ Item {
             width: parent.width - 142
             spacing: 3
 
-            Text {
+            GText {
                 width: parent.width
                 text: root.primaryName
-                color: AppTheme.text
-                font.pixelSize: 12
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 12
+                baseFontWeight: Font.DemiBold
                 elide: Text.ElideMiddle
                 maximumLineCount: 1
             }
 
-            Text {
+            GText {
                 width: parent.width
                 text: root.itemCount > 1
                       ? (root.itemCount + (root.turkish ? " öğe seçili" : " items selected"))
                       : (root.turkish ? "Sürükleniyor" : "Dragging")
-                color: AppTheme.textMuted
-                font.pixelSize: 10
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
                 elide: Text.ElideRight
             }
         }
@@ -127,13 +128,13 @@ Item {
             radius: 14
             color: AppTheme.accent
 
-            Text {
+            GText {
                 id: countText
                 anchors.centerIn: parent
                 text: root.itemCount
-                color: "white"
-                font.pixelSize: 11
-                font.bold: true
+                baseColor: "white"
+                basePixelSize: 11
+                baseBold: true
             }
         }
     }

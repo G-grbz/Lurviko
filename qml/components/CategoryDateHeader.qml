@@ -39,11 +39,11 @@ Item {
                 color: AppTheme.accent
             }
 
-            Text {
+            GText {
                 text: root.title
-                color: AppTheme.text
-                font.pixelSize: Math.round(14 * root.textScale)
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: Math.round(14 * root.textScale)
+                baseFontWeight: Font.DemiBold
                 verticalAlignment: Text.AlignVCenter
             }
 
@@ -55,13 +55,13 @@ Item {
                 border.width: 1
                 border.color: AppTheme.accentBorder
 
-                Text {
+                GText {
                     id: countLabel
                     anchors.centerIn: parent
                     text: root.count + " " + (root.lang && root.lang.language === "tr" ? "öğe" : "items")
-                    color: AppTheme.accent
-                    font.pixelSize: Math.round(10 * root.textScale)
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.accent
+                    basePixelSize: Math.round(10 * root.textScale)
+                    baseFontWeight: Font.DemiBold
                 }
             }
 

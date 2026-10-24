@@ -21,8 +21,8 @@ MenuItem {
     }).join(" / ")
     readonly property bool shortcutHighlighted: enabled && KeyboardShortcuts.heldModifiers !== 0
                                               && KeyboardShortcuts.usesHeldModifiers(shortcutSequences)
-    TextMetrics { id: labelMetrics; text: control.text; font.pixelSize: 12; font.weight: Font.DemiBold }
-    TextMetrics { id: shortcutMetrics; text: control.shortcutText; font.pixelSize: 11; font.weight: Font.DemiBold }
+    TextMetrics { id: labelMetrics; text: control.text; font.family: AppTheme.typographyFamily("menu"); font.pixelSize: AppTheme.typographySize("menu", 12); font.weight: AppTheme.typographyWeight("menu", Font.DemiBold); font.italic: AppTheme.typographyFlag("menu", "italic", false) }
+    TextMetrics { id: shortcutMetrics; text: control.shortcutText; font.family: AppTheme.typographyFamily("menu"); font.pixelSize: AppTheme.typographySize("menu", 11); font.weight: AppTheme.typographyWeight("menu", Font.DemiBold); font.italic: AppTheme.typographyFlag("menu", "italic", false) }
 
     // MenuItem normally closes its owning native popup after activation, but
     // GMenu uses a custom content ListView and Popup.Item. Explicit items can
@@ -77,27 +77,29 @@ MenuItem {
                 border.color: control.checked ? AppTheme.accent : AppTheme.borderStrong
                 border.width: 1.25
 
-                Text {
+                GText {
+                    typographyRole: "menu"
                     anchors.centerIn: parent
                     text: "✓"
-                    color: AppTheme.highlightedText
+                    baseColor: AppTheme.highlightedText
                     visible: control.checked
-                    font.pixelSize: 10
-                    font.bold: true
+                    basePixelSize: 10
+                    baseBold: true
                 }
             }
         }
 
-        Text {
+        GText {
+            typographyRole: "menu"
             id: menuLabel
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             text: control.text
-            color: AppTheme.useQtTheme
-                ? (control.enabled ? AppTheme.qtColors.menuText : AppTheme.qtColors.menuDisabledText)
+            baseColor: AppTheme.useQtTheme
+                ? (control.enabled ? AppTheme.typographyColor("menu", AppTheme.qtColors.menuText) : AppTheme.qtColors.menuDisabledText)
                 : (control.enabled ? AppTheme.text : AppTheme.textFaint)
-            font.pixelSize: 12
-            font.weight: control.highlighted ? Font.DemiBold : Font.Normal
+            basePixelSize: 12
+            baseFontWeight: control.highlighted ? Font.DemiBold : Font.Normal
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
         }
@@ -114,17 +116,18 @@ MenuItem {
             color: control.shortcutHighlighted ? AppTheme.accentSoft : "transparent"
             border.width: control.shortcutHighlighted ? 1 : 0
             border.color: AppTheme.accentBorder
-            Text {
+            GText {
+                typographyRole: "menu"
                 id: shortcutLabel
                 objectName: "menuShortcutText"
                 anchors.left: parent.left; anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.margins: 8
                 text: control.shortcutText
-                color: !control.enabled ? AppTheme.textFaint
+                baseColor: !control.enabled ? AppTheme.textFaint
                      : control.shortcutHighlighted ? AppTheme.accent : AppTheme.textMuted
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
+                basePixelSize: 11
+                baseFontWeight: Font.DemiBold
                 horizontalAlignment: Text.AlignRight
                 wrapMode: Text.Wrap
                 elide: Text.ElideNone
@@ -142,11 +145,12 @@ MenuItem {
                 color: favoriteMouse.containsMouse ? AppTheme.accentSoft : "transparent"
             }
 
-            Text {
+            GText {
+                typographyRole: "menu"
                 anchors.centerIn: parent
                 text: control.favoriteActionChecked ? "★" : "☆"
-                color: control.favoriteActionChecked ? AppTheme.warning : AppTheme.textMuted
-                font.pixelSize: 16
+                baseColor: control.favoriteActionChecked ? AppTheme.warning : AppTheme.textMuted
+                basePixelSize: 16
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -166,14 +170,15 @@ MenuItem {
             }
         }
 
-        Text {
+        GText {
+            typographyRole: "menu"
             Layout.preferredWidth: 18
             Layout.alignment: Qt.AlignVCenter
             visible: control.subMenu !== null
             text: "›"
-            color: control.highlighted ? AppTheme.accent : AppTheme.textMuted
-            font.pixelSize: 19
-            font.bold: true
+            baseColor: control.highlighted ? AppTheme.accent : AppTheme.textMuted
+            basePixelSize: 19
+            baseBold: true
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }

@@ -113,21 +113,22 @@ Rectangle {
             anchors.top: parent.top
             anchors.topMargin: Math.max(5, Math.round(7 * card.textScale))
             spacing: 2
-            Text {
+            GText {
                 width: parent.width
+                typographyRole: "body"
                 text: card.itemData ? card.itemData.name : ""
-                color: AppTheme.text
-                font.pixelSize: Math.round(11 * card.textScale)
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: Math.round(11 * card.textScale)
+                baseFontWeight: Font.DemiBold
                 wrapMode: Text.Wrap
                 elide: Text.ElideRight
                 maximumLineCount: AppTheme.fileTitleLines
             }
-            Text {
+            GText {
                 width: parent.width
                 text: card.itemData ? card.formatSize(card.itemData.size) : ""
-                color: AppTheme.textMuted
-                font.pixelSize: Math.round(8 * card.textScale)
+                baseColor: AppTheme.textMuted
+                basePixelSize: Math.round(8 * card.textScale)
                 elide: Text.ElideRight
                 wrapMode: Text.Wrap
                 maximumLineCount: AppTheme.fileSubtitleLines

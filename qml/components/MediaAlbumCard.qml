@@ -86,25 +86,25 @@ Rectangle {
         anchors.top: covers.bottom
         anchors.margins: 10
         spacing: 4
-        Text {
+        GText {
             width: parent.width
             text: card.album.title
             wrapMode: Text.Wrap
             maximumLineCount: AppTheme.fileTitleLines
             elide: Text.ElideRight
-            font.pixelSize: 12
-            font.weight: Font.DemiBold
-            color: AppTheme.text
+            basePixelSize: 12
+            baseFontWeight: Font.DemiBold
+            baseColor: AppTheme.text
         }
-        Text {
+        GText {
             width: parent.width
             text: card.album.count + (card.lang.language === "tr" ? " görsel · " : " images · ")
                   + Qt.formatDate(new Date(card.album.latestMs), "dd MMM yyyy")
             wrapMode: Text.Wrap
             maximumLineCount: AppTheme.fileSubtitleLines
             elide: Text.ElideRight
-            font.pixelSize: 10
-            color: AppTheme.textMuted
+            basePixelSize: 10
+            baseColor: AppTheme.textMuted
         }
     }
     MouseArea {

@@ -7,18 +7,18 @@ RowLayout {
     property string actionText: ""
     signal actionTriggered()
 
-    Text {
+    GText {
         text: parent.title
-        color: AppTheme.text
-        font.pixelSize: 19
-        font.weight: Font.Bold
+        baseColor: AppTheme.text
+        basePixelSize: 19
+        baseFontWeight: Font.Bold
         Layout.fillWidth: true
     }
-    Text {
+    GText {
         visible: parent.actionText.length > 0
         text: parent.actionText
-        color: AppTheme.accent
-        font.pixelSize: 11
+        baseColor: AppTheme.accent
+        basePixelSize: 11
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: parent.parent.actionTriggered() }
     }
 }

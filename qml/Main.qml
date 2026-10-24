@@ -1,4 +1,5 @@
 import QtQuick
+import Lurviko.App
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
@@ -469,13 +470,14 @@ ApplicationWindow {
         id: shellLayout
         anchors.fill: parent
         anchors.margins: AppTheme.shellMargin
+        anchors.leftMargin: AppTheme.sidebarAutoHide ? 0 : AppTheme.shellMargin
         spacing: 4
 
-        AppSidebar {
+        SidebarShell {
             id: appSidebar
-            Layout.preferredWidth: 248
-            Layout.minimumWidth: 248
-            Layout.maximumWidth: 248
+            Layout.preferredWidth: implicitWidth
+            Layout.minimumWidth: implicitWidth
+            Layout.maximumWidth: implicitWidth
             Layout.fillHeight: true
             lang: lang
             favoritesModel: favoritesModel
@@ -719,10 +721,11 @@ ApplicationWindow {
         z: 11000
         closePolicy: Popup.NoAutoClose
         background: GPopupSurface { popup: globalToast; radius: 18; border.color: AppTheme.accentBorder }
-        contentItem: Text {
+        contentItem: GText {
+        typographyRole: "menu"
             id: globalToastLabel
-            color: AppTheme.text
-            font.pixelSize: 12
+            baseColor: AppTheme.text
+            basePixelSize: 12
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.WordWrap
@@ -765,10 +768,10 @@ ApplicationWindow {
             spacing: 7
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: root.transferManager.transferLabel; color: AppTheme.text; font.pixelSize: 12; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
-                Text { text: root.transferManager.transferTotal > 0 ? root.transferManager.transferPercent + "%" : "…"; color: AppTheme.accent; font.pixelSize: 11; font.bold: true }
+                GText { text: root.transferManager.transferLabel; baseColor: AppTheme.text; basePixelSize: 12; baseBold: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                GText { text: root.transferManager.transferTotal > 0 ? root.transferManager.transferPercent + "%" : "…"; baseColor: AppTheme.accent; basePixelSize: 11; baseBold: true }
             }
-            Text { text: root.transferManager.transferDetail; color: AppTheme.textMuted; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideMiddle }
+            GText { text: root.transferManager.transferDetail; baseColor: AppTheme.textMuted; basePixelSize: 10; Layout.fillWidth: true; elide: Text.ElideMiddle }
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 7
@@ -842,14 +845,14 @@ ApplicationWindow {
                     width: 42
                     height: 42
                 }
-                Text {
+                GText {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: root.appLang.language === "tr"
                           ? "Dizin isteği bekleniyor…"
                           : "Waiting for folder request…"
-                    color: AppTheme.text
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.text
+                    basePixelSize: 14
+                    baseFontWeight: Font.DemiBold
                 }
             }
         }

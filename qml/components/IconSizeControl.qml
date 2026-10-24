@@ -46,12 +46,12 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: control.title
-                color: AppTheme.text
-                font.pixelSize: 11
-                font.weight: Font.Medium
+                baseColor: AppTheme.text
+                basePixelSize: 11
+                baseFontWeight: Font.Medium
             }
             Rectangle {
                 implicitWidth: valueText.implicitWidth + 14
@@ -60,13 +60,13 @@ Rectangle {
                 color: AppTheme.accentSoft
                 border.width: 1
                 border.color: AppTheme.accentBorder
-                Text {
+                GText {
                     id: valueText
                     anchors.centerIn: parent
                     text: control.value + " px"
-                    color: AppTheme.accent
-                    font.pixelSize: 10
-                    font.bold: true
+                    baseColor: AppTheme.accent
+                    basePixelSize: 10
+                    baseBold: true
                 }
             }
         }

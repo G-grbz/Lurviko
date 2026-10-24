@@ -121,16 +121,16 @@ Rectangle {
             ColumnLayout {
                 spacing: 1
                 Layout.fillWidth: true
-                Text {
+                GText {
                     text: root.localize("Şimdi Çalıyor", "Now Playing")
-                    color: AppTheme.text
-                    font.pixelSize: 17
-                    font.weight: Font.Bold
+                    baseColor: AppTheme.text
+                    basePixelSize: 17
+                    baseFontWeight: Font.Bold
                 }
-                Text {
+                GText {
                     text: root.localize("Lurviko Müzik", "Lurviko Music")
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                 }
             }
             GToolButton {
@@ -220,12 +220,12 @@ Rectangle {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 10
-                            Text {
+                            GText {
                                 text: root.localize("SANATÇI", "ARTIST")
-                                color: AppTheme.accent
-                                font.pixelSize: 10
-                                font.weight: Font.Bold
-                                font.letterSpacing: 2
+                                baseColor: AppTheme.accent
+                                basePixelSize: 10
+                                baseFontWeight: Font.Bold
+                                baseLetterSpacing: 2
                             }
                             MusicArtistLinks {
                                 objectName: "expandedMusicArtistLinks"
@@ -233,18 +233,18 @@ Rectangle {
                                 artistText: root.artistName
                                 fallbackText: root.localize("Bilinmeyen sanatçı", "Unknown artist")
                                 onArtistRequested: function(artist) { playlistNamePopup.openForArtist(artist) }
-                                color: AppTheme.text
-                                font.pixelSize: root.width > 950 ? 30 : 23
-                                font.weight: Font.Bold
+                                baseColor: AppTheme.text
+                                basePixelSize: root.width > 950 ? 30 : 23
+                                baseFontWeight: Font.Bold
                                 elide: Text.ElideRight
                                 maximumLineCount: 2
                                 wrapMode: Text.Wrap
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: root.albumName || root.trackTitle
-                                color: AppTheme.textMuted
-                                font.pixelSize: 12
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 12
                                 elide: Text.ElideRight
                             }
                             RowLayout {
@@ -280,17 +280,17 @@ Rectangle {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.localize("Çalma Kuyruğu", "Up Next")
-                            font.pixelSize: 20
-                            font.weight: Font.Bold
-                            color: AppTheme.text
+                            basePixelSize: 20
+                            baseFontWeight: Font.Bold
+                            baseColor: AppTheme.text
                         }
-                        Text {
+                        GText {
                             text: player.queue.length + " " + root.localize("parça", "tracks")
-                            font.pixelSize: 11
-                            color: AppTheme.textMuted
+                            basePixelSize: 11
+                            baseColor: AppTheme.textMuted
                         }
                     }
                     Rectangle {
@@ -332,12 +332,12 @@ Rectangle {
                                     anchors.leftMargin: 8
                                     anchors.rightMargin: 8
                                     spacing: 11
-                                    Text {
+                                    GText {
                                         Layout.preferredWidth: 22
                                         horizontalAlignment: Text.AlignHCenter
                                         text: selected && player.playing ? "♫" : String(index + 1)
-                                        color: selected ? AppTheme.accent : AppTheme.textMuted
-                                        font.pixelSize: 12
+                                        baseColor: selected ? AppTheme.accent : AppTheme.textMuted
+                                        basePixelSize: 12
                                     }
                                     Rectangle {
                                         Layout.preferredWidth: 42
@@ -353,18 +353,18 @@ Rectangle {
                                             asynchronous: true
                                         }
                                     }
-                                    Text {
+                                    GText {
                                         Layout.fillWidth: true
                                         text: String(modelData.name || "")
-                                        color: selected ? AppTheme.accent : AppTheme.text
-                                        font.pixelSize: 12
-                                        font.weight: selected ? Font.DemiBold : Font.Normal
+                                        baseColor: selected ? AppTheme.accent : AppTheme.text
+                                        basePixelSize: 12
+                                        baseFontWeight: selected ? Font.DemiBold : Font.Normal
                                         elide: Text.ElideRight
                                     }
-                                    Text {
+                                    GText {
                                         text: selected ? player.formatTime(player.duration) : ""
-                                        color: AppTheme.textMuted
-                                        font.pixelSize: 10
+                                        baseColor: AppTheme.textMuted
+                                        basePixelSize: 10
                                         Layout.preferredWidth: 45
                                         horizontalAlignment: Text.AlignRight
                                     }
@@ -377,12 +377,12 @@ Rectangle {
                                     onClicked: player.selectQueueIndex(index, true)
                                 }
                             }
-                            Text {
+                            GText {
                                 anchors.centerIn: parent
                                 visible: trackList.count === 0
                                 text: root.localize("Kuyruk boş", "Queue is empty")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 12
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 12
                             }
                         }
                     }
@@ -423,11 +423,12 @@ Rectangle {
                                     border.width: 1
                                     border.color: lyricsTabButton.checked ? AppTheme.accentBorder : AppTheme.border
                                 }
-                                contentItem: Text {
+                                contentItem: GText {
+        typographyRole: "menu"
                                     text: lyricsTabButton.text
-                                    color: lyricsTabButton.checked ? AppTheme.accent : AppTheme.text
-                                    font.pixelSize: 11
-                                    font.weight: lyricsTabButton.checked ? Font.DemiBold : Font.Medium
+                                    baseColor: lyricsTabButton.checked ? AppTheme.accent : AppTheme.text
+                                    basePixelSize: 11
+                                    baseFontWeight: lyricsTabButton.checked ? Font.DemiBold : Font.Medium
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
@@ -451,11 +452,12 @@ Rectangle {
                                     border.width: 1
                                     border.color: queueTabButton.checked ? AppTheme.accentBorder : AppTheme.border
                                 }
-                                contentItem: Text {
+                                contentItem: GText {
+        typographyRole: "menu"
                                     text: queueTabButton.text
-                                    color: queueTabButton.checked ? AppTheme.accent : AppTheme.text
-                                    font.pixelSize: 11
-                                    font.weight: queueTabButton.checked ? Font.DemiBold : Font.Medium
+                                    baseColor: queueTabButton.checked ? AppTheme.accent : AppTheme.text
+                                    basePixelSize: 11
+                                    baseFontWeight: queueTabButton.checked ? Font.DemiBold : Font.Medium
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
@@ -479,11 +481,12 @@ Rectangle {
                                     border.width: 1
                                     border.color: playlistsTabButton.checked ? AppTheme.accentBorder : AppTheme.border
                                 }
-                                contentItem: Text {
+                                contentItem: GText {
+        typographyRole: "menu"
                                     text: playlistsTabButton.text
-                                    color: playlistsTabButton.checked ? AppTheme.accent : AppTheme.text
-                                    font.pixelSize: 11
-                                    font.weight: playlistsTabButton.checked ? Font.DemiBold : Font.Medium
+                                    baseColor: playlistsTabButton.checked ? AppTheme.accent : AppTheme.text
+                                    basePixelSize: 11
+                                    baseFontWeight: playlistsTabButton.checked ? Font.DemiBold : Font.Medium
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
@@ -520,17 +523,17 @@ Rectangle {
                                     required property int index
                                     width: syncedLyrics.width - 4
                                     height: Math.max(42, lyricLine.implicitHeight + 14)
-                                    Text {
+                                    GText {
                                         id: lyricLine
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: String(modelData.text || "")
                                         textFormat: Text.PlainText
-                                        color: index === player.activeLyricIndex ? AppTheme.text : AppTheme.textMuted
+                                        baseColor: index === player.activeLyricIndex ? AppTheme.text : AppTheme.textMuted
                                         opacity: index === player.activeLyricIndex ? 1 : 0.50
-                                        font.pixelSize: index === player.activeLyricIndex ? 21 : 17
-                                        font.weight: index === player.activeLyricIndex ? Font.Bold : Font.Medium
+                                        basePixelSize: index === player.activeLyricIndex ? 21 : 17
+                                        baseFontWeight: index === player.activeLyricIndex ? Font.Bold : Font.Medium
                                         wrapMode: Text.Wrap
                                         Behavior on opacity { NumberAnimation { duration: 160 } }
                                         Behavior on color { ColorAnimation { duration: 160 } }
@@ -597,16 +600,16 @@ Rectangle {
                                     RowLayout {
                                         anchors.fill: parent
                                         anchors.margins: 10
-                                        Text {
+                                        GText {
                                             text: String(index + 1)
-                                            color: AppTheme.textMuted
-                                            font.pixelSize: 10
+                                            baseColor: AppTheme.textMuted
+                                            basePixelSize: 10
                                         }
-                                        Text {
+                                        GText {
                                             Layout.fillWidth: true
                                             text: String(modelData.name || "")
-                                            color: index === player.currentIndex ? AppTheme.accent : AppTheme.text
-                                            font.pixelSize: 12
+                                            baseColor: index === player.currentIndex ? AppTheme.accent : AppTheme.text
+                                            basePixelSize: 12
                                             elide: Text.ElideRight
                                         }
                                     }
@@ -627,11 +630,11 @@ Rectangle {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: 8
-                                    Text {
+                                    GText {
                                         Layout.fillWidth: true
                                         text: (player.playlists || []).length + " " + root.localize("çalma listesi", "playlists")
-                                        color: AppTheme.textMuted
-                                        font.pixelSize: 11
+                                        baseColor: AppTheme.textMuted
+                                        basePixelSize: 11
                                     }
                                     GButton {
                                         id: savePlaylistButton
@@ -683,14 +686,14 @@ Rectangle {
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 3
-                                                Text {
+                                                GText {
                                                     objectName: "expandedPlaylistName"
                                                     Layout.fillWidth: true
                                                     text: String(modelData.name || "")
                                                     textFormat: Text.PlainText
-                                                    color: AppTheme.text
-                                                    font.pixelSize: 12
-                                                    font.weight: Font.DemiBold
+                                                    baseColor: AppTheme.text
+                                                    basePixelSize: 12
+                                                    baseFontWeight: Font.DemiBold
                                                     elide: Text.ElideRight
                                                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                                                     TapHandler {
@@ -699,10 +702,10 @@ Rectangle {
                                                         onTapped: player.playPlaylist(index)
                                                     }
                                                 }
-                                                Text {
+                                                GText {
                                                     text: String((modelData.items || []).length) + " " + root.localize("parça", "tracks")
-                                                    color: AppTheme.textMuted
-                                                    font.pixelSize: 10
+                                                    baseColor: AppTheme.textMuted
+                                                    basePixelSize: 10
                                                 }
                                             }
                                             GToolButton {
@@ -724,14 +727,14 @@ Rectangle {
                                         HoverHandler { id: playlistHover }
                                     }
                                 }
-                                Text {
+                                GText {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     visible: savedPlaylists.count === 0
                                     text: root.localize("Henüz kayıtlı çalma listesi yok.\nMevcut kuyruğu kaydetmek için + Çalma listesi'ne bas.",
                                                         "No saved playlists yet.\nUse + Playlist to save the current queue.")
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 12
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 12
                                     wrapMode: Text.Wrap
                                     verticalAlignment: Text.AlignVCenter
                                     horizontalAlignment: Text.AlignHCenter
@@ -774,12 +777,12 @@ Rectangle {
                     Layout.preferredWidth: Math.max(112, Math.min(235, root.width * 0.19))
                     Layout.maximumWidth: 235
                     spacing: 4
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: root.trackTitle || root.localize("Parça seçilmedi", "No track selected")
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideRight
                     }
                     MusicArtistLinks {
@@ -788,8 +791,8 @@ Rectangle {
                         artistText: root.artistName
                         fallbackText: root.albumName
                         onArtistRequested: function(artist) { playlistNamePopup.openForArtist(artist) }
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                         elide: Text.ElideRight
                     }
                 }
@@ -855,11 +858,11 @@ Rectangle {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 7
-                        Text {
+                        GText {
                             Layout.preferredWidth: 34
                             text: player.formatTime(player.position)
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             horizontalAlignment: Text.AlignRight
                         }
                         Item {
@@ -893,13 +896,13 @@ Rectangle {
                                 onPositionChanged: function(mouse) { if (pressed) root.jumpTo(mouse.x, width) }
                             }
                         }
-                        Text {
+                        GText {
                             Layout.preferredWidth: 34
                             text: root.showRemainingTime
                                 ? "-" + player.formatTime(Math.max(0, player.duration - player.position))
                                 : player.formatTime(player.duration)
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
@@ -960,19 +963,19 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: 20
             spacing: 14
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: root.localize("Çalma listesini silmek istiyor musun?", "Delete this playlist?")
-                color: AppTheme.text
-                font.pixelSize: 15
-                font.weight: Font.Bold
+                baseColor: AppTheme.text
+                basePixelSize: 15
+                baseFontWeight: Font.Bold
                 wrapMode: Text.Wrap
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: root.localize("Yalnızca liste silinir; müzik dosyaların korunur.", "Only the playlist is removed. Your music files stay untouched.")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
                 wrapMode: Text.Wrap
             }
             Item { Layout.fillHeight: true }

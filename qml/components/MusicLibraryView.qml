@@ -647,18 +647,18 @@ Item {
             onClicked: root.closeGroup()
             Accessible.name: root.tr("Kütüphaneye dön", "Back to library")
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             text: root.groupSelection ? root.groupSelection.title : ""
-            color: AppTheme.text
-            font.pixelSize: 13
-            font.weight: Font.DemiBold
+            baseColor: AppTheme.text
+            basePixelSize: 13
+            baseFontWeight: Font.DemiBold
             elide: Text.ElideRight
         }
-        Text {
+        GText {
             text: root.viewItems.length + root.tr(" parça", " tracks")
-            font.pixelSize: 10
-            color: AppTheme.textMuted
+            basePixelSize: 10
+            baseColor: AppTheme.textMuted
         }
         GButton {
             text: root.tr("Tümünü çal", "Play all")
@@ -838,34 +838,35 @@ Item {
                     anchors.rightMargin: 5
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 4
-                    Text {
+                    GText {
                         width: parent.width
                         text: String(trackCell.entry.title || "")
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileTitleLines
-                        font.pixelSize: Math.round(12 * root.textScale)
-                        font.weight: Font.DemiBold
-                        color: trackCell.nowPlaying ? AppTheme.accent : AppTheme.text
+                        typographyRole: "body"
+                        basePixelSize: Math.round(12 * root.textScale)
+                        baseFontWeight: Font.DemiBold
+                        baseColor: trackCell.nowPlaying ? AppTheme.accent : AppTheme.text
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         width: parent.width
                         text: String(trackCell.entry.subtitle || "")
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileSubtitleLines
-                        font.pixelSize: 10
-                        color: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseColor: AppTheme.textMuted
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         width: parent.width
                         visible: root.artworkSize >= 60 && root.tabIndex !== 5 && root.tabIndex !== 6
                         text: String(trackCell.track.album || "")
                               + (trackCell.track.year ? " · " + trackCell.track.year : "")
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileSubtitleLines
-                        font.pixelSize: 9
-                        color: AppTheme.textFaint
+                        basePixelSize: 9
+                        baseColor: AppTheme.textFaint
                         elide: Text.ElideRight
                     }
                 }
@@ -979,36 +980,37 @@ Item {
                     anchors.right: parent.right
                     anchors.margins: 10
                     spacing: 4
-                    Text {
+                    GText {
                         width: parent.width
                         text: String(collectionCell.entry.title || "")
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileTitleLines
                         horizontalAlignment: collectionCell.entry.kind === "artist" ? Text.AlignHCenter : Text.AlignLeft
-                        font.pixelSize: Math.round(12 * root.textScale)
-                        font.weight: Font.DemiBold
-                        color: AppTheme.text
+                        typographyRole: "body"
+                        basePixelSize: Math.round(12 * root.textScale)
+                        baseFontWeight: Font.DemiBold
+                        baseColor: AppTheme.text
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         width: parent.width
                         text: String(collectionCell.entry.subtitle || "")
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileSubtitleLines
                         horizontalAlignment: collectionCell.entry.kind === "artist" ? Text.AlignHCenter : Text.AlignLeft
-                        font.pixelSize: 10
-                        color: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseColor: AppTheme.textMuted
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         width: parent.width
                         visible: collectionCell.entry.kind === "album"
                         text: (collectionCell.entry.tracks || []).length + root.tr(" parça", " tracks")
                               + (collectionCell.entry.year ? " · " + collectionCell.entry.year : "")
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileSubtitleLines
-                        font.pixelSize: 9
-                        color: AppTheme.textFaint
+                        basePixelSize: 9
+                        baseColor: AppTheme.textFaint
                         elide: Text.ElideRight
                     }
                 }
@@ -1068,13 +1070,13 @@ Item {
             width: statsFlick.width
             spacing: 14
 
-            Text {
+            GText {
                 Layout.leftMargin: 8
                 Layout.topMargin: 8
                 text: root.tr("Müzik kütüphanesi özeti", "Music library overview")
-                color: AppTheme.text
-                font.pixelSize: 16
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 16
+                baseFontWeight: Font.DemiBold
             }
 
             GridLayout {
@@ -1107,30 +1109,30 @@ Item {
                             anchors.fill: parent
                             anchors.margins: 14
                             spacing: 4
-                            Text {
+                            GText {
                                 text: String(modelData.value)
-                                color: AppTheme.accent
-                                font.pixelSize: 24
-                                font.weight: Font.Bold
+                                baseColor: AppTheme.accent
+                                basePixelSize: 24
+                                baseFontWeight: Font.Bold
                             }
-                            Text {
+                            GText {
                                 text: String(modelData.label)
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                             }
                         }
                     }
                 }
             }
 
-            Text {
+            GText {
                 Layout.leftMargin: 8
                 Layout.rightMargin: 16
                 Layout.fillWidth: true
                 text: root.tr("İstatistikler dinleme geçmişi ve favorilerle birlikte cihazda saklanır.",
                               "Statistics are stored on this device together with play history and favorites.")
-                color: AppTheme.textFaint
-                font.pixelSize: 9
+                baseColor: AppTheme.textFaint
+                basePixelSize: 9
                 wrapMode: Text.WordWrap
             }
         }
@@ -1140,21 +1142,21 @@ Item {
         anchors.centerIn: parent
         spacing: 7
         visible: root.tabIndex !== 7 && root.viewItems.length === 0
-        Text {
+        GText {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "♪"
-            color: AppTheme.textFaint
-            font.pixelSize: 30
+            baseColor: AppTheme.textFaint
+            basePixelSize: 30
         }
-        Text {
+        GText {
             anchors.horizontalCenter: parent.horizontalCenter
             text: root.tabIndex === 3 ? root.tr("Henüz favori parça yok", "No favorite tracks yet")
                   : root.tabIndex === 4 ? root.tr("Henüz çalma listesi yok", "No playlists yet")
                   : root.tabIndex === 5 ? root.tr("Henüz dinleme geçmişi yok", "No listening history yet")
                   : root.tabIndex === 6 ? root.tr("Henüz dinleme sayısı oluşmadı", "No play counts yet")
                   : root.tr("Bu filtreyle eşleşen müzik yok", "No music matches these filters")
-            color: AppTheme.textMuted
-            font.pixelSize: 11
+            baseColor: AppTheme.textMuted
+            basePixelSize: 11
         }
     }
 

@@ -39,7 +39,7 @@ Item {
                 Layout.preferredHeight: 30
                 radius: 15
                 color: search.activeFocus ? AppTheme.accentSoft : "transparent"
-                Text { anchors.centerIn: parent; text: "⌕"; font.pixelSize: 19; color: search.activeFocus ? AppTheme.accent : AppTheme.textMuted }
+                GText { anchors.centerIn: parent; text: "⌕"; basePixelSize: 19; baseColor: search.activeFocus ? AppTheme.accent : AppTheme.textMuted }
             }
             GTextField {
                 id: search
@@ -48,7 +48,7 @@ Item {
                 background: null
                 color: AppTheme.text
                 placeholderTextColor: AppTheme.textFaint
-                font.pixelSize: 13
+                basePixelSize: 13
                 selectByMouse: true
                 onTextChanged: {
                     if (text.trim().length)

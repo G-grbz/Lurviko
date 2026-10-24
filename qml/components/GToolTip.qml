@@ -1,4 +1,5 @@
 import QtQuick
+import Lurviko.App
 import QtQuick.Controls
 
 ToolTip {
@@ -25,11 +26,12 @@ ToolTip {
                             Math.max(42, contentItem.implicitWidth + leftPadding + rightPadding))
     implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
 
-    contentItem: Text {
+    contentItem: GText {
+        typographyRole: "menu"
         text: control.text
-        color: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.qtColors.toolTipText : "#F7F8FC"
-        font.pixelSize: 11
-        font.weight: Font.Medium
+        baseColor: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.qtColors.toolTipText : "#F7F8FC"
+        basePixelSize: 11
+        baseFontWeight: Font.Medium
         lineHeight: 1.08
         wrapMode: Text.Wrap
         horizontalAlignment: Text.AlignLeft

@@ -127,11 +127,11 @@ Rectangle {
         }
         ColumnLayout {
             Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 2
-            Text { text: card.provider; color: AppTheme.text; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-            Text { text: card.statusText; color: AppTheme.textMuted; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+            GText { objectName: "cloudCardTitle"; typographyRole: "body"; text: card.provider; baseColor: AppTheme.text; basePixelSize: 13; baseFontWeight: Font.Normal; elide: Text.ElideRight; Layout.fillWidth: true }
+            GText { text: card.statusText; baseColor: AppTheme.textMuted; basePixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
         }
         CloudSettingsButton { }
-        Text { text: "›"; color: card.accentColor; font.pixelSize: 22; Layout.alignment: Qt.AlignVCenter }
+        GText { text: "›"; baseColor: card.accentColor; basePixelSize: 22; Layout.alignment: Qt.AlignVCenter }
     }
 
     ColumnLayout {
@@ -159,11 +159,11 @@ Rectangle {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 1
-                Text { text: card.provider; color: AppTheme.text; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                Text { text: card.statusText; color: AppTheme.textMuted; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                GText { objectName: "cloudCardTitle"; typographyRole: "body"; text: card.provider; baseColor: AppTheme.text; basePixelSize: 13; baseFontWeight: Font.Normal; elide: Text.ElideRight; Layout.fillWidth: true }
+                GText { text: card.statusText; baseColor: AppTheme.textMuted; basePixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
             }
             CloudSettingsButton { }
-            Text { text: "›"; color: card.accentColor; font.pixelSize: 22; Layout.alignment: Qt.AlignVCenter }
+            GText { text: "›"; baseColor: card.accentColor; basePixelSize: 22; Layout.alignment: Qt.AlignVCenter }
         }
     }
 
@@ -179,10 +179,11 @@ Rectangle {
             radius: 9
             color: cloudSettingsControl.hovered ? AppTheme.surfaceActive : "transparent"
         }
-        contentItem: Text {
+        contentItem: GText {
+        typographyRole: "menu"
             text: cloudSettingsControl.text
-            color: AppTheme.textMuted
-            font.pixelSize: 15
+            baseColor: AppTheme.textMuted
+            basePixelSize: 15
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }

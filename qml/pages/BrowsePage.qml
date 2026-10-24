@@ -571,14 +571,29 @@ Item {
                 && typeof page.activePane.closeDirectoryMenu === "function")
             page.activePane.closeDirectoryMenu()
 
+        page.positionToolbarMenu(menu, button)
+        if (typeof menu.requestOpen === "function") menu.requestOpen()
+        else menu.open()
+    }
+
+    function positionToolbarMenu(menu, button) {
         const p = button.parent.mapToItem(page, button.x, button.y + button.height + 6)
         const target = page.mapToItem(menu.parent,
             Math.max(8, Math.min(page.width - menu.implicitWidth - 8, p.x)),
             Math.max(8, Math.min(page.height - menu.implicitHeight - 8, p.y)))
         menu.x = target.x
         menu.y = target.y
-        if (typeof menu.requestOpen === "function") menu.requestOpen()
-        else menu.open()
+    }
+    // Collapsing the sidebar moves/resizes this page while the View settings
+    // stay open. Follow the opener after layout instead of retaining old x/y.
+    onWidthChanged: Qt.callLater(function() {
+        if (toolbarViewMenu.visible) page.positionToolbarMenu(toolbarViewMenu, viewButton)
+    })
+    Connections {
+        target: viewButton
+        function onXChanged() {
+            if (toolbarViewMenu.visible) Qt.callLater(function() { page.positionToolbarMenu(toolbarViewMenu, viewButton) })
+        }
     }
 
     function applyWheelSpeedText() {
@@ -747,6 +762,17 @@ Item {
         }
     }
 
+    Loader {
+        id: typographyDialogLoader
+        objectName: "typographyDialogLoader"
+        active: false
+        sourceComponent: TypographyDialog {
+            lang: page.lang
+            onClosed: Qt.callLater(function() { typographyDialogLoader.active = false })
+        }
+        onLoaded: item.open()
+    }
+
     GMenu {
         id: toolbarViewMenu
         positioningBounds: page
@@ -754,6 +780,51 @@ Item {
         parent: page
         maximumPopupHeight: Math.max(180, Math.min(620, page.height - 24))
         closePolicy: Popup.CloseOnEscape
+        Item {
+            objectName: "sidebarAutoHideSetting"
+            implicitWidth: 300
+            implicitHeight: 44
+            width: parent ? parent.width : implicitWidth
+            height: implicitHeight
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                GText {
+                    Layout.fillWidth: true
+                    typographyRole: "menu"
+                    text: lang.language === "tr" ? "Sol menüyü gizle" : "Auto-hide sidebar"
+                    basePixelSize: 12
+                }
+                GSwitch {
+                    objectName: "sidebarAutoHideSwitch"
+                    checked: AppTheme.sidebarAutoHide
+                    onClicked: AppTheme.setSidebarAutoHide(checked)
+                }
+            }
+        }
+        Item {
+            objectName: "sidebarRailModeSetting"
+            visible: AppTheme.sidebarAutoHide
+            implicitWidth: 300
+            implicitHeight: visible ? 50 : 0
+            width: parent ? parent.width : implicitWidth
+            height: implicitHeight
+            GComboBox {
+                objectName: "sidebarRailModePicker"
+                anchors.fill: parent
+                anchors.margins: 8
+                model: lang.language === "tr" ? ["Başlık ve ikon", "Yalnız başlık", "Yalnız ikon"]
+                                             : ["Title and icon", "Title only", "Icon only"]
+                currentIndex: ["both", "title", "icon"].indexOf(AppTheme.sidebarRailMode)
+                onActivated: function(index) { AppTheme.setSidebarRailMode(["both", "title", "icon"][index]) }
+            }
+        }
+        GMenuSeparator {}
+        GMenuItem {
+            objectName: "typographyMenuItem"
+            text: lang.language === "tr" ? "Yazı tipleri ve renkler…" : "Fonts and colors…"
+            onTriggered: typographyDialogLoader.active = true
+        }
         GMenuItem {
             objectName: "qtThemeMenuItem"
             text: lang.language === "tr" ? "Qt temasını kullan" : "Use Qt theme"
@@ -792,17 +863,17 @@ Item {
                 spacing: 2
                 RowLayout {
                     Layout.fillWidth: true
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: lang.language === "tr" ? "Başlık satırları" : "Title lines"
-                        color: AppTheme.text
-                        font.pixelSize: 12
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
                     }
-                    Text {
+                    GText {
                         text: AppTheme.fileTitleLines
-                        color: AppTheme.accent
-                        font.pixelSize: 12
-                        font.bold: true
+                        baseColor: AppTheme.accent
+                        basePixelSize: 12
+                        baseBold: true
                     }
                 }
                 GSlider {
@@ -827,17 +898,17 @@ Item {
                 spacing: 2
                 RowLayout {
                     Layout.fillWidth: true
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: lang.language === "tr" ? "Alt başlık satırları" : "Subtitle lines"
-                        color: AppTheme.text
-                        font.pixelSize: 12
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
                     }
-                    Text {
+                    GText {
                         text: AppTheme.fileSubtitleLines
-                        color: AppTheme.accent
-                        font.pixelSize: 12
-                        font.bold: true
+                        baseColor: AppTheme.accent
+                        basePixelSize: 12
+                        baseBold: true
                     }
                 }
                 GSlider {
@@ -927,11 +998,11 @@ Item {
                 }
                 RowLayout {
                     visible: AppTheme.operationAutoHide
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: lang.t("operation_hide_seconds")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 11
                     }
                     GTextField {
                         id: operationHideDelay
@@ -993,12 +1064,12 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: lang.t("wheel_speed")
-                    color: AppTheme.text
-                    font.pixelSize: 12
-                    font.bold: true
+                    baseColor: AppTheme.text
+                    basePixelSize: 12
+                    baseBold: true
                 }
                 GTextField {
                     id: wheelSpeedField
@@ -1006,7 +1077,7 @@ Item {
                     Layout.preferredHeight: 30
                     horizontalAlignment: TextInput.AlignHCenter
                     color: AppTheme.text
-                    font.pixelSize: 12
+                    basePixelSize: 12
                     selectByMouse: true
                     inputMethodHints: Qt.ImhDigitsOnly
                     validator: IntValidator { bottom: 10; top: 1000 }
@@ -1059,9 +1130,9 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: "10"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                GText { text: "10"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                 Item { Layout.fillWidth: true }
-                Text { text: "1000"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                GText { text: "1000"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
             }
         }
     }
@@ -1231,21 +1302,21 @@ Item {
                                         Layout.preferredHeight: 18
                                         radius: 6
                                         color: AppTheme.warning
-                                        Text {
+                                        GText {
                                             anchors.centerIn: parent
                                             text: "ADM"
-                                            color: AppTheme.dark ? "#21180A" : "#FFFFFF"
-                                            font.pixelSize: 8
-                                            font.bold: true
+                                            baseColor: AppTheme.dark ? "#21180A" : "#FFFFFF"
+                                            basePixelSize: 8
+                                            baseBold: true
                                         }
                                     }
-                                    Text {
+                                    GText {
                                         Layout.fillWidth: true
                                         text: page.titleFor(modelData.location)
-                                        color: AppTheme.text
+                                        baseColor: AppTheme.text
                                         elide: Text.ElideRight
-                                        font.pixelSize: 11
-                                        font.bold: index === page.currentTab
+                                        basePixelSize: 11
+                                        baseBold: index === page.currentTab
                                     }
                                     GToolButton {
                                         HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -1294,7 +1365,7 @@ Item {
                     text: "↕ " + AppTheme.wheelScrollStep
                     implicitWidth: 72; implicitHeight: 34
                     topPadding: 4; bottomPadding: 4
-                    font.pixelSize: 12
+                    basePixelSize: 12
                     GToolTip { text: lang.t("wheel_speed") }
                     onPressed: page.prepareToolbarMenu(wheelSpeedPopup)
                     onClicked: page.openToolbarMenu(wheelSpeedPopup, wheelSpeedButton)
@@ -1418,7 +1489,7 @@ Item {
                     text: "⋯"
                     implicitWidth: 34; implicitHeight: 34
                     topPadding: 4; bottomPadding: 4
-                    font.pixelSize: 14
+                    basePixelSize: 14
                     GToolTip {
                         text: lang.t("directory_menu")
                     }
@@ -1562,20 +1633,20 @@ Item {
                 Layout.preferredHeight: 28
                 radius: 9
                 color: AppTheme.accentSoft
-                Text {
+                GText {
                     anchors.centerIn: parent
                     text: "i"
-                    color: AppTheme.accent
-                    font.pixelSize: 15
-                    font.bold: true
+                    baseColor: AppTheme.accent
+                    basePixelSize: 15
+                    baseBold: true
                 }
             }
-            Text {
+            GText {
                 id: toastLabel
                 Layout.fillWidth: true
                 Layout.rightMargin: 16
-                color: AppTheme.text
-                font.pixelSize: 12
+                baseColor: AppTheme.text
+                basePixelSize: 12
                 verticalAlignment: Text.AlignVCenter
                 wrapMode: Text.WordWrap
             }

@@ -51,11 +51,11 @@ Item {
             anchors.fill: parent
             anchors.margins: 22
             spacing: 12
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Sana Özel kilidini aç" : "Unlock Private"
-                color: AppTheme.text
-                font.pixelSize: 18
-                font.bold: true
+                baseColor: AppTheme.text
+                basePixelSize: 18
+                baseBold: true
             }
             GTextField {
                 id: privateUnlockPassword
@@ -66,13 +66,13 @@ Item {
                 onAccepted: privateUnlockConfirm.clicked()
             }
             VaultAttemptStatus { Layout.fillWidth: true; vault: page.privateVault; lang: page.lang }
-            Text {
+            GText {
                 visible: page.privateVault.lastError.length > 0
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 text: page.privateVault.lastError
-                color: AppTheme.danger
-                font.pixelSize: 10
+                baseColor: AppTheme.danger
+                basePixelSize: 10
             }
             Item { Layout.fillHeight: true }
             RowLayout {
@@ -577,18 +577,18 @@ Item {
                     ColumnLayout {
                         Layout.preferredWidth: 260
                         spacing: 0
-                        Text {
+                        GText {
                             text: Qt.formatTime(page.now, "HH:mm")
-                            color: AppTheme.text
-                            font.pixelSize: 30
-                            font.weight: Font.Bold
+                            baseColor: AppTheme.text
+                            basePixelSize: 30
+                            baseFontWeight: Font.Bold
                         }
-                        Text {
+                        GText {
                             text: page.now.toLocaleDateString(
                                       Qt.locale(lang.language === "tr" ? "tr_TR" : "en_US"),
                                       lang.language === "tr" ? "dddd, d MMMM yyyy" : "dddd, MMMM d, yyyy")
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                         }
                     }
 
@@ -657,18 +657,18 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "Kategoriler" : "Categories"
-                        color: AppTheme.text
-                        font.pixelSize: 17
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 17
+                        baseFontWeight: Font.DemiBold
                     }
-                    Text {
+                    GText {
                         text: lang.language === "tr"
                               ? "Her kategori kendi kaynaklarını ve indeks ayarlarını yönetir"
                               : "Each category manages its own sources and indexing settings"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                     }
                     Item { Layout.fillWidth: true }
                 }
@@ -692,7 +692,7 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: lang.language === "tr"
                                       ? (page.formatIndexNumber(contentIndexModel.scanVisitedEntries)
@@ -703,17 +703,17 @@ Item {
                                          + " entries scanned · "
                                          + page.formatIndexNumber(contentIndexModel.scanMatchedFiles)
                                          + " matches found")
-                                color: AppTheme.text
-                                font.pixelSize: 9
+                                baseColor: AppTheme.text
+                                basePixelSize: 9
                                 elide: Text.ElideRight
                             }
-                            Text {
+                            GText {
                                 text: lang.language === "tr"
                                       ? (page.formatIndexNumber(contentIndexModel.scanPendingDirectories) + " klasör kaldı")
                                       : (page.formatIndexNumber(contentIndexModel.scanPendingDirectories) + " folders remaining")
-                                color: AppTheme.accent
-                                font.pixelSize: 9
-                                font.weight: Font.DemiBold
+                                baseColor: AppTheme.accent
+                                basePixelSize: 9
+                                baseFontWeight: Font.DemiBold
                             }
                         }
                         GProgressBar {
@@ -805,11 +805,11 @@ Item {
                     Layout.fillWidth: true
                     spacing: 10
 
-                    Text {
+                    GText {
                         text: lang.t("cloud_integrations")
-                        color: AppTheme.text
-                        font.pixelSize: 18
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 18
+                        baseFontWeight: Font.DemiBold
                         Layout.fillWidth: true
                     }
 
@@ -823,11 +823,12 @@ Item {
                             color: manageCloudIntegrationsButton.hovered ? AppTheme.surfaceActive : AppTheme.surfaceRaised
                             border.color: manageCloudIntegrationsButton.hovered ? AppTheme.accentBorder : AppTheme.border
                         }
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: manageCloudIntegrationsButton.text
-                            color: AppTheme.text
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 10
+                            baseFontWeight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1041,16 +1042,16 @@ Item {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
-                                Text {
+                                GText {
                                     text: lang.language === "tr" ? "Ana ekranda gösterilen bulut yok" : "No cloud integrations are shown"
-                                    color: AppTheme.text
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 12
+                                    baseFontWeight: Font.DemiBold
                                 }
-                                Text {
+                                GText {
                                     text: lang.language === "tr" ? "Sağ üstteki Bulutları yönet düğmesinden istediğini açabilirsin." : "Use Manage clouds above to enable the integrations you want."
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 10
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 10
                                 }
                             }
                         }
@@ -1059,16 +1060,16 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Text {
+                    GText {
                         text: lang.t("quick_access")
-                        color: AppTheme.text
-                        font.pixelSize: 17
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 17
+                        baseFontWeight: Font.DemiBold
                     }
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "Sol menüden buraya sürükle" : "Drag here from the sidebar"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                     }
                     Item { Layout.fillWidth: true }
                     GButton {
@@ -1080,11 +1081,12 @@ Item {
                             radius: 10
                             color: addShortcutButton.hovered ? AppTheme.accentHover : AppTheme.accent
                         }
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: addShortcutButton.text
-                            color: "white"
-                            font.pixelSize: 11
-                            font.weight: Font.DemiBold
+                            baseColor: "white"
+                            basePixelSize: 11
+                            baseFontWeight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1167,13 +1169,13 @@ Item {
                             color: "transparent"
                             border.color: AppTheme.borderStrong
                             border.width: 1
-                            Text {
+                            GText {
                                 anchors.centerIn: parent
                                 text: lang.language === "tr"
                                       ? "İlk kısayolunu sol menüden sürükle veya Yeni kısayol'a bas."
                                       : "Drag your first shortcut from the sidebar or choose New shortcut."
-                                color: AppTheme.textMuted
-                                font.pixelSize: 11
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 11
                             }
                         }
                     }
@@ -1272,19 +1274,19 @@ Item {
                                     height: 18
                                 }
                             }
-                            Text {
+                            GText {
                                 text: lang.language === "tr" ? "İkon boyutları" : "Icon sizes"
-                                color: AppTheme.text
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
+                                baseColor: AppTheme.text
+                                basePixelSize: 13
+                                baseFontWeight: Font.DemiBold
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: lang.language === "tr"
                                       ? "Değişiklikler anında uygulanır ve kaydedilir"
                                       : "Changes are applied and saved immediately"
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                                 elide: Text.ElideRight
                             }
                         }
@@ -1354,18 +1356,18 @@ Item {
                         Layout.preferredHeight: 40
                     }
                     ColumnLayout {
-                        Text { text: "Lurviko"; color: AppTheme.text; font.pixelSize: 16; font.bold: true }
-                        Text { text: "v" + (page.updateChecker ? page.updateChecker.currentVersion : Qt.application.version); color: AppTheme.textMuted; font.pixelSize: 10 }
+                        GText { text: "Lurviko"; baseColor: AppTheme.text; basePixelSize: 16; baseBold: true }
+                        GText { text: "v" + (page.updateChecker ? page.updateChecker.currentVersion : Qt.application.version); baseColor: AppTheme.textMuted; basePixelSize: 10 }
                     }
                 }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: AppTheme.border }
 
-                Text { text: lang.t("storage_overview"); color: AppTheme.text; font.pixelSize: 12; font.bold: true }
+                GText { text: lang.t("storage_overview"); baseColor: AppTheme.text; basePixelSize: 12; baseBold: true }
                 RowLayout {
-                    Text { text: storageModel.formatBytes(storageModel.usedBytes); color: AppTheme.text; font.bold: true; font.pixelSize: 11 }
+                    GText { text: storageModel.formatBytes(storageModel.usedBytes); baseColor: AppTheme.text; baseBold: true; basePixelSize: 11 }
                     Item { Layout.fillWidth: true }
-                    Text { text: storageModel.formatBytes(storageModel.totalBytes); color: AppTheme.textMuted; font.pixelSize: 10 }
+                    GText { text: storageModel.formatBytes(storageModel.totalBytes); baseColor: AppTheme.textMuted; basePixelSize: 10 }
                 }
                 Rectangle {
                     Layout.fillWidth: true
@@ -1385,15 +1387,15 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 9
-                    Text { text: (lang.language === "tr" ? "Diskler" : "Disks") + ": " + storageModel.count; color: AppTheme.textMuted; font.pixelSize: 11 }
-                    Text { text: (lang.language === "tr" ? "Favoriler" : "Favorites") + ": " + favoritesModel.count; color: AppTheme.textMuted; font.pixelSize: 11 }
-                    Text { text: "SMB · SFTP · admin://"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                    Text { text: "Google Drive · OneDrive · Dropbox · Nextcloud · ownCloud · MEGA · pCloud · WebDAV"; color: AppTheme.textMuted; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                    GText { text: (lang.language === "tr" ? "Diskler" : "Disks") + ": " + storageModel.count; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                    GText { text: (lang.language === "tr" ? "Favoriler" : "Favorites") + ": " + favoritesModel.count; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                    GText { text: "SMB · SFTP · admin://"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                    GText { text: "Google Drive · OneDrive · Dropbox · Nextcloud · ownCloud · MEGA · pCloud · WebDAV"; baseColor: AppTheme.textMuted; basePixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: AppTheme.border }
 
-                Text { text: lang.language === "tr" ? "Özellikler" : "Features"; color: AppTheme.text; font.pixelSize: 12; font.bold: true }
+                GText { text: lang.language === "tr" ? "Özellikler" : "Features"; baseColor: AppTheme.text; basePixelSize: 12; baseBold: true }
 
                 Flow {
                     Layout.fillWidth: true
@@ -1407,7 +1409,7 @@ Item {
                             radius: 9
                             color: AppTheme.surfaceRaised
                             border.color: AppTheme.border
-                            Text { id: tagText; anchors.centerIn: parent; text: modelData; color: AppTheme.textMuted; font.pixelSize: 9 }
+                            GText { id: tagText; anchors.centerIn: parent; text: modelData; baseColor: AppTheme.textMuted; basePixelSize: 9 }
                         }
                     }
                 }
@@ -1425,15 +1427,15 @@ Item {
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.top: parent.top; anchors.margins: 14
                         spacing: 6
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: "Lurviko v" + (page.updateChecker ? page.updateChecker.latestVersion : "")
-                            color: AppTheme.accent; font.bold: true; font.pixelSize: 12
+                            baseColor: AppTheme.accent; baseBold: true; basePixelSize: 12
                         }
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: lang.language === "tr" ? "Yeni sürüm hazır. Yenilikleri ve kaynak kodunu GitHub’da görüntüle →" : "A new release is available. View the changes and source code on GitHub →"
-                            color: AppTheme.text; font.pixelSize: 11; wrapMode: Text.WordWrap
+                            baseColor: AppTheme.text; basePixelSize: 11; wrapMode: Text.WordWrap
                         }
                     }
                     MouseArea {
@@ -1442,10 +1444,10 @@ Item {
                         onClicked: page.updateChecker.openReleasePage()
                     }
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: lang.language === "tr" ? "Yeni sürümler otomatik kontrol edilir." : "New releases are checked automatically."
-                    color: AppTheme.textMuted; font.pixelSize: 10; wrapMode: Text.WordWrap
+                    baseColor: AppTheme.textMuted; basePixelSize: 10; wrapMode: Text.WordWrap
                 }
 
                 Item { Layout.fillHeight: true }
@@ -1459,8 +1461,8 @@ Item {
                     ColumnLayout {
                         anchors.centerIn: parent
                         spacing: 5
-                        Text { Layout.alignment: Qt.AlignHCenter; text: lang.language === "tr" ? "Yerel + Ağ + Bulut" : "Local + Network + Cloud"; color: AppTheme.text; font.pixelSize: 11; font.bold: true }
-                        Text { Layout.alignment: Qt.AlignHCenter; text: lang.language === "tr" ? "Tek dosya yöneticisinde" : "in one file manager"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                        GText { Layout.alignment: Qt.AlignHCenter; text: lang.language === "tr" ? "Yerel + Ağ + Bulut" : "Local + Network + Cloud"; baseColor: AppTheme.text; basePixelSize: 11; baseBold: true }
+                        GText { Layout.alignment: Qt.AlignHCenter; text: lang.language === "tr" ? "Tek dosya yöneticisinde" : "in one file manager"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                     }
                 }
             }
@@ -1515,17 +1517,17 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Text {
+                    GText {
                         text: cloudManageRow.providerName
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
+                        baseFontWeight: Font.DemiBold
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: cloudManageRow.providerDetail
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                         elide: Text.ElideRight
                     }
                 }
@@ -1541,10 +1543,11 @@ Item {
                         color: cloudRowActionButton.hovered ? AppTheme.surfaceActive : AppTheme.surface
                         border.color: AppTheme.border
                     }
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: cloudRowActionButton.text
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -1572,7 +1575,7 @@ Item {
                 placeholderTextColor: AppTheme.textFaint
                 color: AppTheme.text
                 selectByMouse: true
-                font.pixelSize: 10
+                basePixelSize: 10
                 onTextEdited: cloudManageRow.locationEdited(text)
                 background: Rectangle {
                     radius: 9
@@ -1620,19 +1623,19 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "Bulut entegrasyonlarını yönet" : "Manage cloud integrations"
-                        color: AppTheme.text
-                        font.pixelSize: 17
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 17
+                        baseFontWeight: Font.DemiBold
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: lang.language === "tr"
                               ? "Yalnızca kullandıklarını aç. Pasif servisler Keşfet ana ekranında yer kaplamaz."
                               : "Enable only what you use. Disabled services do not take space on the Discover home page."
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -1645,10 +1648,11 @@ Item {
                     icon.width: 16
                     icon.height: 16
                     onClicked: cloudManagerPopup.close()
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: closeCloudManagerXButton.text
-                        color: AppTheme.textMuted
-                        font.pixelSize: 22
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 22
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -1805,13 +1809,13 @@ Item {
                             anchors.margins: 12
                             spacing: 9
                             CrispIcon { source: AppTheme.icon("info.svg"); Layout.preferredWidth: 20; Layout.preferredHeight: 20 }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: lang.language === "tr"
                                       ? "Nextcloud, ownCloud ve WebDAV adreslerinde https:// kullanabilirsin; Lurviko bunu KIO için webdavs:// biçimine dönüştürür. Kullanıcı adı/parolayı URL'ye yazma; KIO gerektiğinde kimlik bilgilerini ister ve KDE Wallet ile saklayabilir."
                                       : "You may enter https:// URLs for Nextcloud, ownCloud and WebDAV; Lurviko converts them to webdavs:// for KIO. Do not put credentials in the URL; KIO can request them when needed and store them with KDE Wallet."
-                                color: AppTheme.textMuted
-                                font.pixelSize: 9
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 9
                                 wrapMode: Text.WordWrap
                             }
                         }
@@ -1831,11 +1835,12 @@ Item {
                         radius: 10
                         color: closeCloudManagerButton.hovered ? AppTheme.accentHover : AppTheme.accent
                     }
-                    contentItem: Text {
+                    contentItem: GText {
+        typographyRole: "menu"
                         text: closeCloudManagerButton.text
-                        color: "white"
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+                        baseColor: "white"
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -1891,23 +1896,23 @@ Item {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 3
-                        Text {
+                        GText {
                             text: page.editingShortcutIndex < 0
                                   ? (lang.language === "tr" ? "Yeni hızlı erişim" : "New quick access")
                                   : (page.editingShortcutFixed
                                      ? (lang.language === "tr" ? "Son Konumu düzenle" : "Edit Last Location")
                                      : (lang.language === "tr" ? "Hızlı erişimi düzenle" : "Edit quick access"))
-                            color: AppTheme.text
-                            font.pixelSize: 18
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 18
+                            baseFontWeight: Font.DemiBold
                         }
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: page.editingShortcutFixed
                                   ? (lang.language === "tr" ? "Adı ve simgeyi özelleştir" : "Customize its name and icon")
                                   : (lang.language === "tr" ? "Adı, konumu ve simgeyi özelleştir" : "Customize its name, location, and icon")
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             elide: Text.ElideRight
                         }
                     }
@@ -1928,10 +1933,11 @@ Item {
                             radius: 10
                             color: shortcutCloseButton.hovered ? AppTheme.surfaceHover : "transparent"
                         }
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: shortcutCloseButton.text
-                            color: AppTheme.textMuted
-                            font.pixelSize: 21
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 21
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1939,7 +1945,7 @@ Item {
                 }
             }
 
-            Text { text: lang.language === "tr" ? "AD" : "NAME"; color: AppTheme.textFaint; font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
+            GText { text: lang.language === "tr" ? "AD" : "NAME"; baseColor: AppTheme.textFaint; basePixelSize: 9; baseBold: true; baseLetterSpacing: 1 }
             GTextField {
                 id: shortcutNameInput
                 Layout.fillWidth: true
@@ -1949,13 +1955,13 @@ Item {
                 background: Rectangle { radius: 11; color: AppTheme.surfaceRaised; border.color: shortcutNameInput.activeFocus ? AppTheme.accent : AppTheme.border }
             }
 
-            Text {
+            GText {
                 visible: !page.editingShortcutFixed
                 text: lang.language === "tr" ? "KONUM" : "LOCATION"
-                color: AppTheme.textFaint
-                font.pixelSize: 9
-                font.bold: true
-                font.letterSpacing: 1
+                baseColor: AppTheme.textFaint
+                basePixelSize: 9
+                baseBold: true
+                baseLetterSpacing: 1
             }
             GTextField {
                 id: shortcutLocationInput
@@ -1968,7 +1974,7 @@ Item {
                 background: Rectangle { radius: 11; color: AppTheme.surfaceRaised; border.color: shortcutLocationInput.activeFocus ? AppTheme.accent : AppTheme.border }
             }
 
-            Text { text: lang.language === "tr" ? "SİMGE" : "ICON"; color: AppTheme.textFaint; font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
+            GText { text: lang.language === "tr" ? "SİMGE" : "ICON"; baseColor: AppTheme.textFaint; basePixelSize: 9; baseBold: true; baseLetterSpacing: 1 }
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 visible: AppTheme.useSystemIcons
@@ -2025,12 +2031,12 @@ Item {
                 }
             }
 
-            Text {
+            GText {
                 visible: page.shortcutError.length > 0
                 Layout.fillWidth: true
                 text: page.shortcutError
-                color: AppTheme.danger
-                font.pixelSize: 10
+                baseColor: AppTheme.danger
+                basePixelSize: 10
             }
 
             Item { Layout.fillHeight: true }
@@ -2115,19 +2121,19 @@ Item {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 3
-                        Text {
+                        GText {
                             text: lang.language === "tr" ? "Öğeyi düzenle" : "Edit item"
-                            color: AppTheme.text
-                            font.pixelSize: 18
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 18
+                            baseFontWeight: Font.DemiBold
                         }
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: lang.language === "tr"
                                   ? "Keşfet kartının adını ve simgesini özelleştir"
                                   : "Customize the Discover card name and icon"
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             elide: Text.ElideRight
                         }
                     }
@@ -2161,7 +2167,7 @@ Item {
                 }
             }
 
-            Text { text: lang.language === "tr" ? "AD" : "NAME"; color: AppTheme.textFaint; font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
+            GText { text: lang.language === "tr" ? "AD" : "NAME"; baseColor: AppTheme.textFaint; basePixelSize: 9; baseBold: true; baseLetterSpacing: 1 }
             GTextField {
                 id: discoverEditNameInput
                 Layout.fillWidth: true
@@ -2172,7 +2178,7 @@ Item {
                 background: Rectangle { radius: 11; color: AppTheme.surfaceRaised; border.color: discoverEditNameInput.activeFocus ? AppTheme.accent : AppTheme.border }
             }
 
-            Text { text: lang.language === "tr" ? "SİMGE" : "ICON"; color: AppTheme.textFaint; font.pixelSize: 9; font.bold: true; font.letterSpacing: 1 }
+            GText { text: lang.language === "tr" ? "SİMGE" : "ICON"; baseColor: AppTheme.textFaint; basePixelSize: 9; baseBold: true; baseLetterSpacing: 1 }
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 visible: AppTheme.useSystemIcons
@@ -2229,12 +2235,12 @@ Item {
                 }
             }
 
-            Text {
+            GText {
                 visible: page.discoverEditError.length > 0
                 Layout.fillWidth: true
                 text: page.discoverEditError
-                color: AppTheme.danger
-                font.pixelSize: 10
+                baseColor: AppTheme.danger
+                basePixelSize: 10
             }
 
             Item { Layout.fillHeight: true }
@@ -2287,8 +2293,8 @@ Item {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text { text: page.oauthProvider === "google" ? "Google Drive OAuth" : "OneDrive OAuth"; font.pixelSize: 16; font.bold: true; color: AppTheme.text }
-            Text {
+            GText { text: page.oauthProvider === "google" ? "Google Drive OAuth" : "OneDrive OAuth"; basePixelSize: 16; baseBold: true; baseColor: AppTheme.text }
+            GText {
                 text: page.oauthProvider === "google"
                       ? (lang.language === "tr"
                          ? "Desktop OAuth istemcisinin Client ID'sini gir. İndirilen JSON'da client_secret varsa onu da ekleyebilirsin; Google masaüstü akışında bu alan opsiyoneldir."
@@ -2296,8 +2302,8 @@ Item {
                       : (lang.language === "tr"
                          ? "Uygulama (istemci) kimliğini gir. Kiracı alanı Client ID'nin yerine geçmez; yalnızca hangi Microsoft hesaplarının giriş yapacağını belirler. Sistem tarayıcısı için Entra > Authentication > Mobile and desktop applications bölümüne http://localhost redirect URI'sini ekle."
                          : "Enter the Application (client) ID. The tenant value does not replace the Client ID; it only selects which Microsoft accounts can sign in. For the system-browser flow, register http://localhost under Entra > Authentication > Mobile and desktop applications.")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -2308,12 +2314,12 @@ Item {
                 Layout.fillWidth: true
                 placeholderText: "Tenant: common / consumers / organizations / GUID"
             }
-            Text {
+            GText {
                 visible: page.oauthProvider === "onedrive"
                 Layout.fillWidth: true
                 text: (lang.language === "tr" ? "Kayıtlı redirect URI: " : "Registered redirect URI: ") + cloudAuth.oneDriveRedirectUri
-                color: AppTheme.accent
-                font.pixelSize: 11
+                baseColor: AppTheme.accent
+                basePixelSize: 11
                 wrapMode: Text.WordWrap
             }
             GTextField {
@@ -2369,23 +2375,23 @@ Item {
             id: oauthErrorColumn
             width: parent.width
             spacing: 12
-            Text {
+            GText {
                 text: page.oauthProvider === "google"
                     ? (lang.language === "tr" ? "Google Drive bağlantı hatası" : "Google Drive connection error")
                     : (lang.language === "tr" ? "OneDrive bağlantı hatası" : "OneDrive connection error")
-                color: AppTheme.text
-                font.pixelSize: 17
-                font.bold: true
+                baseColor: AppTheme.text
+                basePixelSize: 17
+                baseBold: true
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: page.oauthErrorText
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
                 wrapMode: Text.WordWrap
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: AppTheme.border }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 visible: true
                 text: page.oauthProvider === "google"
@@ -2395,8 +2401,8 @@ Item {
                       : (lang.language === "tr"
                          ? "OneDrive için Application (client) ID kullanılır. Entra > Authentication > Add a platform > Mobile and desktop applications altında http://localhost redirect URI'sini kaydet. Tenant genelde common bırakılabilir; kişisel hesap için consumers, yalnızca iş/okul hesapları için organizations kullanabilirsin."
                          : "OneDrive uses the Application (client) ID. Under Entra > Authentication > Add a platform > Mobile and desktop applications, register http://localhost. Tenant can usually stay common; use consumers for personal accounts or organizations for work/school accounts only.")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
                 wrapMode: Text.WordWrap
             }
             RowLayout {

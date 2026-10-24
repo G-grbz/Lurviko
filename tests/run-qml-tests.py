@@ -163,7 +163,8 @@ public slots:
         QElapsedTimer deadline;
         deadline.start();
         int settledTurns = 0;
-        while (settledTurns < 2 && deadline.elapsed() < 1000) {
+        qint64 quietSince = 0;
+        while (deadline.elapsed() < 1000) {
             QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
             bool pending = false;
             for (auto *controller : controllers) {
@@ -171,8 +172,13 @@ public slots:
                 pending |= controller->incubatingObjectCount() > 0;
             }
             settledTurns = pending ? 0 : settledTurns + 1;
+            if (pending) quietSince = deadline.elapsed();
+            // A new layout/polish turn can enqueue a delegate after the
+            // controller first reports idle. Require a full quiet frame span,
+            // rather than two immediate processEvents calls at teardown.
+            if (settledTurns >= 2 && deadline.elapsed() - quietSince >= 40) return true;
         }
-        return settledTurns == 2;
+        return false;
     }
     void applicationAvailable() {
         qApp->setOrganizationName("Lurviko-QA");
@@ -257,7 +263,7 @@ int main(int argc, char **argv) {
         XDG_CACHE_HOME=str(root / "cache"),
         PULSE_SERVER="unix:" + str(root / "no-pulse-server"))
     environment["LURVIKO_QML_BUNDLED_ICONS"] = ";".join(sorted(
-        path.name
+        "favorite-color.svg" if path == repo / "assets/icons/color/favorite.svg" else path.name
         for pattern in ("png/*.png", "symbolic/*.svg", "color/**/*.svg")
         for path in (repo / "assets/icons").glob(pattern)))
     if os.environ.get("LURVIKO_QML_AUDIO_DEVICE") == "1":

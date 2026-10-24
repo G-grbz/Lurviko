@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.3.2 LANGUAGES CXX)
+project(Lurviko VERSION 1.4.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -194,6 +194,11 @@ list(SORT LURVIKO_ICON_FILES)
 set(LURVIKO_ICON_NAMES)
 foreach(LURVIKO_ICON_FILE IN LISTS LURVIKO_ICON_FILES)
     get_filename_component(LURVIKO_ICON_NAME "${LURVIKO_ICON_FILE}" NAME)
+    # Keep the symbolic favorite.svg alias stable; the sidebar's colored
+    # variant shares its physical filename but needs its own resource name.
+    if(LURVIKO_ICON_FILE STREQUAL "assets/icons/color/favorite.svg")
+        set(LURVIKO_ICON_NAME "favorite-color.svg")
+    endif()
     if(LURVIKO_ICON_NAME IN_LIST LURVIKO_ICON_NAMES)
         message(FATAL_ERROR "Duplicate bundled icon filename: ${LURVIKO_ICON_NAME}")
     endif()
@@ -233,6 +238,9 @@ qt_add_qml_module(lurviko
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/TypographyStyle.qml
+        qml/GText.qml
+        qml/components/TypographyDialog.qml
         qml/AppTheme.qml
         qml/FolderArtwork.js
         qml/GButton.qml
@@ -250,6 +258,7 @@ qt_add_qml_module(lurviko
         qml/GPopupSurface.qml
         qml/GOverlaySurface.qml
         qml/GViewerIcon.qml
+        qml/components/SidebarShell.qml
         qml/components/AppSidebar.qml
         qml/components/SidebarItem.qml
         qml/components/BrowserPane.qml

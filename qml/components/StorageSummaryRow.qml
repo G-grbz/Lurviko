@@ -15,10 +15,10 @@ ColumnLayout {
         Layout.fillWidth: true
         Rectangle {
             width: 42; height: 42; radius: 9; color: AppTheme.accentSoft
-            Text { anchors.centerIn: parent; text: row.icon; color: row.accentColor; font.pixelSize: 18 }
+            GText { anchors.centerIn: parent; text: row.icon; baseColor: row.accentColor; basePixelSize: 18 }
         }
-        Text { text: row.title; color: AppTheme.textMuted; font.pixelSize: 13; Layout.fillWidth: true }
-        Text { text: row.valueText; color: AppTheme.text; font.pixelSize: 12; font.bold: true }
+        GText { text: row.title; baseColor: AppTheme.textMuted; basePixelSize: 13; Layout.fillWidth: true }
+        GText { text: row.valueText; baseColor: AppTheme.text; basePixelSize: 12; baseBold: true }
     }
     Rectangle {
         Layout.fillWidth: true; Layout.preferredHeight: 7; radius: 4; color: AppTheme.surfaceHover

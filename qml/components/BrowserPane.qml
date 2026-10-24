@@ -3971,12 +3971,12 @@ Rectangle {
                                 height: breadcrumbRow.height
                                 spacing: 2
 
-                                Text {
+                                GText {
                                     visible: index > 0
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "›"
-                                    color: AppTheme.textFaint
-                                    font.pixelSize: 14
+                                    baseColor: AppTheme.textFaint
+                                    basePixelSize: 14
                                 }
 
                                 Rectangle {
@@ -3989,13 +3989,13 @@ Rectangle {
                                     border.width: index === root.breadcrumbItems.length - 1 ? 1 : 0
                                     border.color: index === root.breadcrumbItems.length - 1 ? AppTheme.accentBorder : "transparent"
 
-                                    Text {
+                                    GText {
                                         id: crumbLabel
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: index === root.breadcrumbItems.length - 1 ? AppTheme.text : AppTheme.textMuted
-                                        font.pixelSize: 11
-                                        font.weight: index === root.breadcrumbItems.length - 1 ? Font.DemiBold : Font.Medium
+                                        baseColor: index === root.breadcrumbItems.length - 1 ? AppTheme.text : AppTheme.textMuted
+                                        basePixelSize: 11
+                                        baseFontWeight: index === root.breadcrumbItems.length - 1 ? Font.DemiBold : Font.Medium
                                     }
 
                                     MouseArea {
@@ -4038,7 +4038,7 @@ Rectangle {
                     text: directory.displayLocation
                     color: AppTheme.text
                     selectByMouse: true
-                    font.pixelSize: 11
+                    basePixelSize: 11
                     leftPadding: 10
                     rightPadding: 10
                     background: Item {}
@@ -4244,11 +4244,11 @@ Rectangle {
                         Layout.preferredHeight: 18
                         source: AppTheme.icon("trashfull.svg")
                     }
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "Çöpü Boşalt" : "Empty Trash"
-                        color: AppTheme.text
-                        font.pixelSize: 11
-                        font.weight: Font.Medium
+                        baseColor: AppTheme.text
+                        basePixelSize: 11
+                        baseFontWeight: Font.Medium
                     }
                 }
                 background: Rectangle {
@@ -4356,15 +4356,15 @@ Rectangle {
                     height: 34
                     radius: 7
                     color: index === root.locationCompletionIndex ? AppTheme.accentSoft : (completionMouse.containsMouse ? AppTheme.surfaceHover : "transparent")
-                    Text {
+                    GText {
                         anchors.fill: parent
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
                         verticalAlignment: Text.AlignVCenter
                         text: modelData.label || modelData.value
-                        color: AppTheme.text
+                        baseColor: AppTheme.text
                         elide: Text.ElideMiddle
-                        font.pixelSize: 11
+                        basePixelSize: 11
                     }
                     MouseArea {
                         id: completionMouse
@@ -4399,10 +4399,10 @@ Rectangle {
                 anchors.rightMargin: 8
                 spacing: 7
 
-                Text {
+                GText {
                     text: "⌕"
-                    color: AppTheme.textMuted
-                    font.pixelSize: 18
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 18
                 }
 
                 GTextField {
@@ -4416,7 +4416,7 @@ Rectangle {
                                         : "Search file or folder names…  (.mp3, *.jpg, report*2026)")
                     color: AppTheme.text
                     selectByMouse: true
-                    font.pixelSize: 11
+                    basePixelSize: 11
                     onTextChanged: {
                         if (root.restoringSearchState)
                             return
@@ -4508,7 +4508,7 @@ Rectangle {
                     }
                 }
 
-                Text {
+                GText {
                     visible: directory.searchActive || (root.localSearchMode && searchInput.text.trim().length > 0)
                     text: root.localSearchMode
                           ? ((root.categoryKey === "videos" && root.dlnaViewActive
@@ -4519,8 +4519,8 @@ Rectangle {
                              ? ((lang.language === "tr" ? "Aranıyor…" : "Searching…")
                                 + (directory.count > 0 ? " · " + directory.count + " " + (lang.language === "tr" ? "sonuç" : "results") : ""))
                              : directory.count + " " + (lang.language === "tr" ? "sonuç" : "results"))
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                 }
 
                 GToolButton {
@@ -4544,13 +4544,13 @@ Rectangle {
             Layout.preferredHeight: visible ? 38 : 0
             radius: 10
             color: AppTheme.surfaceRaised
-            Text {
+            GText {
                 anchors.fill: parent
                 anchors.margins: 10
                 text: lang.localizeMessage(directory.errorString)
-                color: AppTheme.danger
+                baseColor: AppTheme.danger
                 elide: Text.ElideRight
-                font.pixelSize: 11
+                basePixelSize: 11
             }
         }
 
@@ -4572,11 +4572,11 @@ Rectangle {
                 implicitHeight: 30
                 onClicked: root.toggleCategoryUrls(scopeUrls)
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: root.selectedCount + (lang.language === "tr" ? " öğe seçili" : " selected")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
             }
             GButton {
                 objectName: "categorySelectionActions"
@@ -4892,14 +4892,14 @@ Rectangle {
                                     color: AppTheme.surfaceRaised
                                     border.width: 1
                                     border.color: AppTheme.accent
-                                    Text {
+                                    GText {
                                         id: gridLinkBadgeText
                                         anchors.centerIn: parent
                                         text: root.linkBadgeText(linkType)
-                                        color: AppTheme.accent
-                                        font.pixelSize: 8
-                                        font.bold: true
-                                        font.letterSpacing: 0.3
+                                        baseColor: AppTheme.accent
+                                        basePixelSize: 8
+                                        baseBold: true
+                                        baseLetterSpacing: 0.3
                                     }
                                 }
 
@@ -5040,9 +5040,10 @@ Rectangle {
                                 Layout.rightMargin: 10
                                 Layout.preferredHeight: root.inlineRenameUrl === itemUrl ? 26 : Math.max(22, gridNameLabel.implicitHeight)
 
-                                Text {
+                                GText {
                                     id: gridNameLabel
                                     objectName: "gridFileName"
+                                    typographyRole: "body"
                                     anchors.fill: parent
                                     visible: root.inlineRenameUrl !== itemUrl
                                     text: name
@@ -5051,9 +5052,9 @@ Rectangle {
                                     wrapMode: Text.Wrap
                                     maximumLineCount: AppTheme.fileTitleLines
                                     elide: Text.ElideRight
-                                    color: AppTheme.text
-                                    font.pixelSize: grid.itemNameFontPixels
-                                    font.bold: isDir
+                                    baseColor: AppTheme.text
+                                    basePixelSize: grid.itemNameFontPixels
+                                    baseBold: isDir
                                 }
 
                                 GTextField {
@@ -5072,7 +5073,7 @@ Rectangle {
                                         cursorShape: Qt.IBeamCursor
                                     }
                                     horizontalAlignment: TextInput.AlignHCenter
-                                    font.pixelSize: grid.itemNameFontPixels
+                                    basePixelSize: grid.itemNameFontPixels
                                     leftPadding: 7
                                     rightPadding: 7
                                     topPadding: 1
@@ -5120,7 +5121,7 @@ Rectangle {
                                 }
                             }
 
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 10
                                 Layout.rightMargin: 10
@@ -5133,8 +5134,8 @@ Rectangle {
                                 wrapMode: Text.Wrap
                                 maximumLineCount: AppTheme.fileSubtitleLines
                                 elide: Text.ElideRight
-                                color: AppTheme.textFaint
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textFaint
+                                basePixelSize: 10
                             }
                         }
 
@@ -5560,25 +5561,27 @@ Rectangle {
                                 color: AppTheme.surfaceRaised
                                 border.width: 1
                                 border.color: AppTheme.accent
-                                Text {
+                                GText {
                                     id: listLinkBadgeText
                                     anchors.centerIn: parent
                                     text: root.linkBadgeText(linkType)
-                                    color: AppTheme.accent
-                                    font.pixelSize: 8
-                                    font.bold: true
+                                    baseColor: AppTheme.accent
+                                    basePixelSize: 8
+                                    baseBold: true
                                 }
                             }
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                Text {
+                                GText {
+                                    objectName: "listFileName"
+                                    typographyRole: "body"
                                     anchors.fill: parent
                                     visible: root.inlineRenameUrl !== itemUrl
                                     text: name
-                                    color: AppTheme.text
-                                    font.pixelSize: 13
-                                    font.bold: isDir
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 13
+                                    baseBold: isDir
                                     wrapMode: Text.Wrap
                                     maximumLineCount: AppTheme.fileTitleLines
                                     elide: Text.ElideRight
@@ -5602,7 +5605,7 @@ Rectangle {
                                         hoverEnabled: true
                                         cursorShape: Qt.IBeamCursor
                                     }
-                                    font.pixelSize: 13
+                                    basePixelSize: 13
                                     leftPadding: 8
                                     rightPadding: 8
                                     topPadding: 3
@@ -5649,22 +5652,22 @@ Rectangle {
                                     }
                                 }
                             }
-                            Text {
+                            GText {
                                 text: directory.searchActive ? root.searchParentLabel(itemUrl, localPath) : (isDir ? root.folderItemCountText(childCount) : suffix.toUpperCase())
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                                 Layout.preferredWidth: directory.searchActive ? 250 : 75
                                 wrapMode: Text.Wrap
                                 maximumLineCount: AppTheme.fileSubtitleLines
                                 elide: Text.ElideRight
                                 horizontalAlignment: Text.AlignRight
                             }
-                            Text {
+                            GText {
                                 visible: !directory.searchActive
                                 text: isDir ? "—" : directory.formatBytes(size)
                                       + (videoInfo.length ? " · " + videoInfo : "")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                                 Layout.preferredWidth: visible ? (videoInfo.length ? 210 : 85) : 0
                                 wrapMode: Text.Wrap
                                 maximumLineCount: AppTheme.fileSubtitleLines
@@ -5870,7 +5873,7 @@ Rectangle {
                                         Layout.minimumWidth: 90
                                         Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
                                         spacing: 2
-                                        Text {
+                                        GText {
                                             Layout.fillWidth: true
                                             horizontalAlignment: Text.AlignLeft
                                             text: root.categoryKey === "videos" && root.dlnaViewActive
@@ -5880,12 +5883,12 @@ Rectangle {
                                                   : (root.contentIndexModel
                                                      ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
                                                      : root.categoryKey)
-                                            color: AppTheme.text
-                                            font.pixelSize: Math.round(16 * root.categoryTextScale)
-                                            font.weight: Font.DemiBold
+                                            baseColor: AppTheme.text
+                                            basePixelSize: Math.round(16 * root.categoryTextScale)
+                                            baseFontWeight: Font.DemiBold
                                             elide: Text.ElideRight
                                         }
-                                        Text {
+                                        GText {
                                             Layout.fillWidth: true
                                             horizontalAlignment: Text.AlignLeft
                                             text: root.categoryKey === "videos" && root.dlnaViewActive
@@ -5897,8 +5900,8 @@ Rectangle {
                                                         : (lang.language === "tr" ? "GiG, Jellyfin veya Emby seç" : "Choose GiG, Jellyfin, or Emby")))
                                                   : (root.galleryFilesForView().length + " "
                                                      + (lang.language === "tr" ? "medya öğesi" : "media items"))
-                                            color: AppTheme.textMuted
-                                            font.pixelSize: Math.round(9 * root.categoryTextScale)
+                                            baseColor: AppTheme.textMuted
+                                            basePixelSize: Math.round(9 * root.categoryTextScale)
                                             elide: Text.ElideRight
                                         }
                                     }
@@ -5929,11 +5932,12 @@ Rectangle {
                                                     border.width: !root.dlnaViewActive ? 1 : 0
                                                     border.color: AppTheme.accentBorder
                                                 }
-                                                contentItem: Text {
+                                                contentItem: GText {
+        typographyRole: "menu"
                                                     text: lang.language === "tr" ? "Bu Bilgisayar" : "This Computer"
-                                                    color: !root.dlnaViewActive ? AppTheme.accent : AppTheme.text
-                                                    font.pixelSize: 10
-                                                    font.weight: !root.dlnaViewActive ? Font.DemiBold : Font.Medium
+                                                    baseColor: !root.dlnaViewActive ? AppTheme.accent : AppTheme.text
+                                                    basePixelSize: 10
+                                                    baseFontWeight: !root.dlnaViewActive ? Font.DemiBold : Font.Medium
                                                     horizontalAlignment: Text.AlignHCenter
                                                     verticalAlignment: Text.AlignVCenter
                                                 }
@@ -5956,23 +5960,23 @@ Rectangle {
                                                 }
                                                 contentItem: Column {
                                                     spacing: 0
-                                                    Text {
+                                                    GText {
                                                         width: parent.width
                                                         text: dlnaMedia.selectedServerName.length
                                                               ? dlnaMedia.selectedServerName
                                                               : (lang.language === "tr" ? "Medya Sunucusu" : "Media Server")
-                                                        color: root.dlnaViewActive ? AppTheme.accent : AppTheme.text
-                                                        font.pixelSize: 10
-                                                        font.weight: root.dlnaViewActive ? Font.DemiBold : Font.Medium
+                                                        baseColor: root.dlnaViewActive ? AppTheme.accent : AppTheme.text
+                                                        basePixelSize: 10
+                                                        baseFontWeight: root.dlnaViewActive ? Font.DemiBold : Font.Medium
                                                         horizontalAlignment: Text.AlignHCenter
                                                         elide: Text.ElideRight
                                                     }
-                                                    Text {
+                                                    GText {
                                                         width: parent.width
                                                         visible: dlnaMedia.selectedProvider.length > 0
                                                         text: dlnaMedia.selectedProvider
-                                                        color: AppTheme.textMuted
-                                                        font.pixelSize: 7
+                                                        baseColor: AppTheme.textMuted
+                                                        basePixelSize: 7
                                                         horizontalAlignment: Text.AlignHCenter
                                                     }
                                                 }
@@ -5995,18 +5999,18 @@ Rectangle {
                                             spacing: 5
                                             Row {
                                                 width: parent.width
-                                                Text {
+                                                GText {
                                                     width: parent.width * 0.58
                                                     text: lang.language === "tr" ? "Kategori boyutu" : "Category size"
-                                                    color: AppTheme.textMuted
-                                                    font.pixelSize: Math.round(9 * root.categoryTextScale)
+                                                    baseColor: AppTheme.textMuted
+                                                    basePixelSize: Math.round(9 * root.categoryTextScale)
                                                 }
-                                                Text {
+                                                GText {
                                                     width: parent.width * 0.42
                                                     text: root.galleryFormatBytes(root.mediaGalleryBytes)
-                                                    color: AppTheme.text
-                                                    font.pixelSize: Math.round(9 * root.categoryTextScale)
-                                                    font.weight: Font.DemiBold
+                                                    baseColor: AppTheme.text
+                                                    basePixelSize: Math.round(9 * root.categoryTextScale)
+                                                    baseFontWeight: Font.DemiBold
                                                     horizontalAlignment: Text.AlignRight
                                                 }
                                             }
@@ -6044,32 +6048,32 @@ Rectangle {
                                                 Layout.preferredHeight: 28
                                                 radius: 9
                                                 color: AppTheme.accentSoft
-                                                Text {
+                                                GText {
                                                     anchors.centerIn: parent
                                                     text: (dlnaMedia.selectedProvider || "D").substring(0, 1)
-                                                    color: AppTheme.accent
-                                                    font.pixelSize: 12
-                                                    font.weight: Font.Bold
+                                                    baseColor: AppTheme.accent
+                                                    basePixelSize: 12
+                                                    baseFontWeight: Font.Bold
                                                 }
                                             }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 0
-                                                Text {
+                                                GText {
                                                     Layout.fillWidth: true
                                                     text: dlnaMedia.selectedProvider || "DLNA"
-                                                    color: AppTheme.text
-                                                    font.pixelSize: 9
-                                                    font.weight: Font.DemiBold
+                                                    baseColor: AppTheme.text
+                                                    basePixelSize: 9
+                                                    baseFontWeight: Font.DemiBold
                                                     elide: Text.ElideRight
                                                 }
-                                                Text {
+                                                GText {
                                                     Layout.fillWidth: true
                                                     text: dlnaMedia.loading
                                                           ? (lang.language === "tr" ? "Yükleniyor…" : "Loading…")
                                                           : (lang.language === "tr" ? "Doğrudan oynat" : "Direct play")
-                                                    color: AppTheme.textMuted
-                                                    font.pixelSize: 7
+                                                    baseColor: AppTheme.textMuted
+                                                    basePixelSize: 7
                                                     elide: Text.ElideRight
                                                 }
                                             }
@@ -6197,18 +6201,18 @@ Rectangle {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
                             spacing: 1
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignLeft
                                 text: root.contentIndexModel
                                       ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
                                       : root.categoryKey
                                 elide: Text.ElideRight
-                                color: AppTheme.text
-                                font.pixelSize: 12
-                                font.weight: Font.DemiBold
+                                baseColor: AppTheme.text
+                                basePixelSize: 12
+                                baseFontWeight: Font.DemiBold
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignLeft
                                 text: root.categoryKey === "music"
@@ -6217,8 +6221,8 @@ Rectangle {
                                       : (lang.language === "tr"
                                          ? "Bu kategori yalnızca seçtiğin dizinleri ve kuralları indeksler"
                                          : "This category indexes only its selected folders and rules")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 8
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 8
                                 elide: Text.ElideRight
                             }
                         }
@@ -6275,12 +6279,13 @@ Rectangle {
                                     border.width: parent.checked ? 1 : 0
                                     border.color: parent.checked ? AppTheme.accentBorder : "transparent"
                                 }
-                                contentItem: Text {
+                                contentItem: GText {
+        typographyRole: "menu"
                                     id: tabLabel
                                     text: modelData
-                                    color: parent.checked ? AppTheme.accent : AppTheme.textMuted
-                                    font.pixelSize: 10
-                                    font.weight: parent.checked ? Font.DemiBold : Font.Medium
+                                    baseColor: parent.checked ? AppTheme.accent : AppTheme.textMuted
+                                    basePixelSize: 10
+                                    baseFontWeight: parent.checked ? Font.DemiBold : Font.Medium
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
@@ -6482,7 +6487,7 @@ Rectangle {
                 anchors.rightMargin: 10
                 spacing: 18
 
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: root.categoryKey === "videos" && root.dlnaViewActive
                           ? ""
@@ -6491,9 +6496,9 @@ Rectangle {
                           : (root.selectedCount > 1
                              ? (lang.language === "tr" ? root.selectedCount + " öğe seçildi" : root.selectedCount + " items selected")
                              : ""))
-                    color: AppTheme.text
-                    font.pixelSize: 10
-                    font.weight: Font.Medium
+                    baseColor: AppTheme.text
+                    basePixelSize: 10
+                    baseFontWeight: Font.Medium
                     elide: Text.ElideMiddle
                     GToolTip {
                         visible: statusNameHover.hovered && root.selectedCount === 1
@@ -6504,12 +6509,12 @@ Rectangle {
                     HoverHandler { id: statusNameHover }
                 }
 
-                Text {
+                GText {
                     visible: root.selectedCount === 1 && !root.selectedIsDir
                              && !(root.categoryKey === "videos" && root.dlnaViewActive)
                     text: directory.formatBytes(root.selectedSize)
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                 }
 
                 Rectangle {
@@ -6532,16 +6537,16 @@ Rectangle {
                     border.color: AppTheme.accentBorder
                     Behavior on color { ColorAnimation { duration: 100 } }
 
-                    Text {
+                    GText {
                         id: storageUsageText
                         anchors.centerIn: parent
                         text: (lang.language === "tr" ? "Toplam " : "Total ")
                               + directory.formatBytes(directory.storageTotalBytes)
                               + (lang.language === "tr" ? " / Boş " : " / Free ")
                               + directory.formatBytes(directory.storageAvailableBytes)
-                        color: storageUsageMouse.containsMouse ? AppTheme.text : AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.weight: storageUsageMouse.containsMouse ? Font.Medium : Font.Normal
+                        baseColor: storageUsageMouse.containsMouse ? AppTheme.text : AppTheme.textMuted
+                        basePixelSize: 10
+                        baseFontWeight: storageUsageMouse.containsMouse ? Font.Medium : Font.Normal
                     }
 
                     MouseArea {
@@ -6571,7 +6576,7 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: false
                     spacing: 4
-                    Text {
+                    GText {
                         readonly property int visibleCount: root.categoryKey === "videos" && root.dlnaViewActive
                                                             ? (dlnaMedia && dlnaMedia.displayEntries ? dlnaMedia.displayEntries.length : 0)
                                                             : (root.mediaGalleryCategory && root.searchVisible
@@ -6581,19 +6586,19 @@ Rectangle {
                         text: lang.language === "tr"
                               ? visibleCount + " öğe"
                               : visibleCount + (visibleCount === 1 ? " item" : " items")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.weight: Font.Medium
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseFontWeight: Font.Medium
                     }
-                    Text {
+                    GText {
                         objectName: "directorySizeLabel"
                         visible: root.currentLocationIsLocal && !directory.searchActive
                         readonly property bool ready: directoryProperties.statsReady
                                 && root.locationsEquivalent(directoryProperties.path, directory.location)
                                 && !directorySizeTimer.running
                         text: "· " + (ready ? root.formatTransferBytes(directoryProperties.totalSize) : "…")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                         HoverHandler { id: directorySizeHover }
                         GToolTip {
                             visible: directorySizeHover.hovered
@@ -6608,7 +6613,7 @@ Rectangle {
                     implicitWidth: 48; implicitHeight: 24
                     leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
                     text: String(operationPresentation.activeCount)
-                    font.pixelSize: 10
+                    basePixelSize: 10
                     icon.width: 13; icon.height: 13
                     icon.source: AppTheme.icon(operationPresentation.minimized ? "music-queue.svg" : "music-minimize.svg")
                     primary: operationPresentation.minimized
@@ -6659,22 +6664,22 @@ Rectangle {
                 Layout.topMargin: 22
                 Layout.bottomMargin: 14
                 spacing: 7
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: (root.contentIndexModel
                            ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
                            : root.categoryKey) + (lang.language === "tr" ? " Ayarları" : " Settings")
-                    color: AppTheme.text
-                    font.pixelSize: 20
-                    font.weight: Font.Bold
+                    baseColor: AppTheme.text
+                    basePixelSize: 20
+                    baseFontWeight: Font.Bold
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: lang.language === "tr"
                           ? "Bu kategorinin dizinlerini, gizli dosya davranışını ve hariç tutma kurallarını buradan yönetebilirsin."
                           : "Manage this category's folders, hidden-file behavior, and ignore rules here."
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                     wrapMode: Text.Wrap
                 }
             }
@@ -6730,21 +6735,21 @@ Rectangle {
                         Layout.rightMargin: 24
                         spacing: 10
 
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: lang.language === "tr" ? "Müzik etiketleri" : "Music tags"
-                            color: AppTheme.text
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 12
+                            baseFontWeight: Font.DemiBold
                         }
 
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: lang.language === "tr"
                                   ? "Albüm, sanatçı, yıl ve tür bilgileri arka planda okunur. Taramayı durdurup daha sonra kaldığın yerden devam ettirebilirsin."
                                   : "Album, artist, year and genre tags are read in the background. You can pause the scan and resume it later."
-                            color: AppTheme.textMuted
-                            font.pixelSize: 9
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 9
                             wrapMode: Text.Wrap
                         }
 
@@ -6764,7 +6769,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 spacing: 2
-                                Text {
+                                GText {
                                     Layout.fillWidth: true
                                     readonly property var library: root.musicPlayer ? root.musicPlayer.libraryManager : null
                                     text: {
@@ -6787,18 +6792,18 @@ Rectangle {
                                                    : "Completed · " + done + " / " + total + " read"
                                         return lang.language === "tr" ? "Taranacak parça yok" : "No tracks to scan"
                                     }
-                                    color: library && library.scanPaused ? AppTheme.warning
+                                    baseColor: library && library.scanPaused ? AppTheme.warning
                                            : (library && library.loading ? AppTheme.accent : AppTheme.textMuted)
-                                    font.pixelSize: 9
-                                    font.weight: Font.Medium
+                                    basePixelSize: 9
+                                    baseFontWeight: Font.Medium
                                     elide: Text.ElideRight
                                 }
-                                Text {
+                                GText {
                                     readonly property var library: root.musicPlayer ? root.musicPlayer.libraryManager : null
                                     text: library && Number(library.scanTotal || 0) > 0
                                           ? Math.round(Number(library.scanProgress || 0) * 100) + "%" : ""
-                                    color: AppTheme.textFaint
-                                    font.pixelSize: 8
+                                    baseColor: AppTheme.textFaint
+                                    basePixelSize: 8
                                 }
                             }
                             GButton {
@@ -6823,12 +6828,12 @@ Rectangle {
                             color: AppTheme.border
                         }
 
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: lang.language === "tr" ? "Oynatıcı" : "Player"
-                            color: AppTheme.text
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 12
+                            baseFontWeight: Font.DemiBold
                         }
 
                         GCheckBox {
@@ -6855,12 +6860,12 @@ Rectangle {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 text: categorySettingsPopup.commonLabel("hover_delay")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                                 wrapMode: Text.Wrap
                             }
                             GComboBox {
@@ -6884,21 +6889,21 @@ Rectangle {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 spacing: 2
-                                Text {
+                                GText {
                                     Layout.fillWidth: true
                                     text: lang.language === "tr" ? "Kuyruk boyutu" : "Queue size"
-                                    color: AppTheme.text
-                                    font.pixelSize: 10
-                                    font.weight: Font.Medium
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 10
+                                    baseFontWeight: Font.Medium
                                 }
-                                Text {
+                                GText {
                                     Layout.fillWidth: true
                                     Layout.minimumWidth: 0
                                     text: lang.language === "tr"
                                           ? "Bir parçayla oynatmayı başlatırken veya rastgele yeni kuyruk oluştururken uygulanır. Mevcut kuyruk ve kayıtlı listeler değişmez."
                                           : "Applies when starting playback from a track or generating a random queue. Existing queues and saved playlists stay unchanged."
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 8
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 8
                                     wrapMode: Text.Wrap
                                 }
                             }
@@ -6915,15 +6920,15 @@ Rectangle {
                             }
                         }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: lang.language === "tr"
                               ? "Bir USB/CIFS/NFS yolu geçici olarak bağlı değilse ayarda kalır; yeniden bağlandığında sonraki taramada tekrar indexlenir."
                               : "Temporarily unavailable USB/CIFS/NFS paths stay configured and are indexed again after they reconnect."
-                        color: AppTheme.textFaint
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textFaint
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
                     Item { Layout.preferredHeight: 8 }
@@ -7020,16 +7025,16 @@ Rectangle {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
-                    Text {
+                    GText {
                         text: "Filelight"
-                        color: AppTheme.text
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 13
+                        baseFontWeight: Font.DemiBold
                     }
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "Disk kullanımını incele" : "Inspect disk usage"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                     }
                 }
             }
@@ -7093,19 +7098,19 @@ Rectangle {
                     width: 38
                     height: 38
                 }
-                Text {
+                GText {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: lang.language === "tr" ? "Dizin hazırlanıyor…" : "Preparing folder…"
-                    color: AppTheme.text
-                    font.pixelSize: 13
-                    font.bold: true
+                    baseColor: AppTheme.text
+                    basePixelSize: 13
+                    baseBold: true
                 }
-                Text {
+                GText {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: directory.displayLocation
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                     elide: Text.ElideMiddle
                 }
             }
@@ -7771,13 +7776,13 @@ Rectangle {
             anchors.fill: parent
             spacing: 12
 
-            Text { text: lang.t("open_with"); font.pixelSize: 17; font.bold: true; color: AppTheme.text }
-            Text {
+            GText { text: lang.t("open_with"); basePixelSize: 17; baseBold: true; baseColor: AppTheme.text }
+            GText {
                 text: root.selectedCount > 1
                       ? (lang.language === "tr" ? root.selectedCount + " öğe seçili" : root.selectedCount + " items selected")
                       : root.selectedName
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
                 elide: Text.ElideMiddle
                 Layout.fillWidth: true
             }
@@ -7818,17 +7823,17 @@ Rectangle {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                         }
-                        Text { text: name; color: AppTheme.text; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Text { visible: isDefault; text: lang.t("default_app"); color: AppTheme.accent; font.pixelSize: 9; font.bold: true }
+                        GText { text: name; baseColor: AppTheme.text; basePixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
+                        GText { visible: isDefault; text: lang.t("default_app"); baseColor: AppTheme.accent; basePixelSize: 9; baseBold: true }
                     }
                 }
             }
 
-            Text {
+            GText {
                 visible: openWithModel.count === 0
                 text: lang.t("no_compatible_apps")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
             }
 
             GModalButton {
@@ -7979,22 +7984,22 @@ Rectangle {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 3
-                        Text {
+                        GText {
                             text: lang.language === "tr" ? "ÖZELLİKLER" : "PROPERTIES"
-                            color: AppTheme.accent
-                            font.pixelSize: 9
-                            font.bold: true
-                            font.letterSpacing: 1.1
+                            baseColor: AppTheme.accent
+                            basePixelSize: 9
+                            baseBold: true
+                            baseLetterSpacing: 1.1
                         }
-                        Text {
+                        GText {
                             text: propertiesDialog.multiple ? fileProperties.name : root.selectedName
-                            color: AppTheme.text
-                            font.pixelSize: 19
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 19
+                            baseFontWeight: Font.DemiBold
                             Layout.fillWidth: true
                             elide: Text.ElideMiddle
                         }
-                        Text {
+                        GText {
                             text: propertiesDialog.multiple && !propertiesDialog.localSelection
                                   ? (lang.language === "tr" ? "Uzak konumlardaki seçim" : "Selection from remote locations")
                                   : propertiesDialog.multiple
@@ -8004,16 +8009,16 @@ Rectangle {
                                   : root.selectedIsDir
                                   ? (lang.language === "tr" ? "Klasör" : "Folder")
                                   : (root.selectedMimeType || (lang.language === "tr" ? "Dosya" : "File"))
-                            color: AppTheme.textMuted
-                            font.pixelSize: 11
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 11
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
-                        Text {
+                        GText {
                             visible: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
                             text: lang.language === "tr" ? "Klasör ikonunu değiştirmek için simgeye tıkla" : "Click the icon to customize this folder"
-                            color: AppTheme.accent
-                            font.pixelSize: 9
+                            baseColor: AppTheme.accent
+                            basePixelSize: 9
                         }
                     }
 
@@ -8050,12 +8055,12 @@ Rectangle {
                     width: propertiesScroll.availableWidth
                     spacing: 14
 
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "GENEL BİLGİLER" : "GENERAL"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseBold: true
+                        baseLetterSpacing: 0.8
                     }
 
                     Rectangle {
@@ -8073,57 +8078,57 @@ Rectangle {
                             columnSpacing: 18
                             rowSpacing: 12
 
-                            Text { text: lang.t("location"); color: AppTheme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 105 }
-                            Text { text: propertiesDialog.multiple
+                            GText { text: lang.t("location"); baseColor: AppTheme.textMuted; basePixelSize: 11; Layout.preferredWidth: 105 }
+                            GText { text: propertiesDialog.multiple
                                    ? (fileProperties.commonLocation || (lang.language === "tr" ? "Farklı konumlar" : "Multiple locations"))
-                                   : root.selectedLocalPath.length ? root.selectedLocalPath : root.selectedUrl; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                                   : root.selectedLocalPath.length ? root.selectedLocalPath : root.selectedUrl; baseColor: AppTheme.text; basePixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
 
-                            Text { text: lang.t("size"); color: AppTheme.textMuted; font.pixelSize: 11 }
+                            GText { text: lang.t("size"); baseColor: AppTheme.textMuted; basePixelSize: 11 }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 7
                                 GBusyIndicator { visible: fileProperties.calculating; running: visible; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
-                                Text {
+                                GText {
                                     text: propertiesDialog.localSelection
                                           ? (fileProperties.calculating
                                              ? (lang.language === "tr" ? "Hesaplanıyor…" : "Calculating…")
                                              : fileProperties.formatBytes(fileProperties.totalSize))
                                           : propertiesDialog.multiple ? (lang.language === "tr" ? "Kullanılamıyor" : "Unavailable") : directory.formatBytes(root.selectedSize)
-                                    color: AppTheme.text; font.pixelSize: 11
+                                    baseColor: AppTheme.text; basePixelSize: 11
                                 }
                             }
 
-                            Text { visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders); text: lang.language === "tr" ? "İçerik" : "Contents"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text {
+                            GText { visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders); text: lang.language === "tr" ? "İçerik" : "Contents"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText {
                                 visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders)
                                 text: fileProperties.calculating ? "…" : (fileProperties.fileCount + (lang.language === "tr" ? " dosya · " : " files · ") + fileProperties.folderCount + (lang.language === "tr" ? " klasör" : " folders"))
-                                color: AppTheme.text; font.pixelSize: 11
+                                baseColor: AppTheme.text; basePixelSize: 11
                             }
 
-                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: lang.language === "tr" ? "Oluşturma" : "Created"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: fileProperties.created && !isNaN(fileProperties.created.getTime()) ? Qt.formatDateTime(fileProperties.created, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: lang.language === "tr" ? "Oluşturma" : "Created"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: fileProperties.created && !isNaN(fileProperties.created.getTime()) ? Qt.formatDateTime(fileProperties.created, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
 
-                            Text { visible: !propertiesDialog.multiple; text: lang.t("modified"); color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: !propertiesDialog.multiple; text: root.selectedLocalPath.length > 0 && fileProperties.modified ? Qt.formatDateTime(fileProperties.modified, "dd.MM.yyyy HH:mm") : (root.selectedModified ? Qt.formatDateTime(root.selectedModified, "dd.MM.yyyy HH:mm") : "—"); color: AppTheme.text; font.pixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple; text: lang.t("modified"); baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple; text: root.selectedLocalPath.length > 0 && fileProperties.modified ? Qt.formatDateTime(fileProperties.modified, "dd.MM.yyyy HH:mm") : (root.selectedModified ? Qt.formatDateTime(root.selectedModified, "dd.MM.yyyy HH:mm") : "—"); baseColor: AppTheme.text; basePixelSize: 11 }
 
-                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: lang.language === "tr" ? "Son erişim" : "Last accessed"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: fileProperties.accessed && !isNaN(fileProperties.accessed.getTime()) ? Qt.formatDateTime(fileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: lang.language === "tr" ? "Son erişim" : "Last accessed"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple && propertiesDialog.localSelection; text: fileProperties.accessed && !isNaN(fileProperties.accessed.getTime()) ? Qt.formatDateTime(fileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
 
-                            Text { visible: propertiesDialog.localSelection; text: lang.language === "tr" ? "İzinler" : "Permissions"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: propertiesDialog.localSelection; text: fileProperties.permissionsText.length ? fileProperties.permissionsText : "—"; color: AppTheme.text; font.pixelSize: 11 }
+                            GText { visible: propertiesDialog.localSelection; text: lang.language === "tr" ? "İzinler" : "Permissions"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { visible: propertiesDialog.localSelection; text: fileProperties.permissionsText.length ? fileProperties.permissionsText : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
 
-                            Text { visible: !propertiesDialog.multiple; text: lang.t("mime_type"); color: AppTheme.textMuted; font.pixelSize: 11 }
-                            Text { visible: !propertiesDialog.multiple; text: root.selectedMimeType || "—"; color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                            GText { visible: !propertiesDialog.multiple; text: lang.t("mime_type"); baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { visible: !propertiesDialog.multiple; text: root.selectedMimeType || "—"; baseColor: AppTheme.text; basePixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                     }
 
-                    Text {
+                    GText {
                         visible: propertiesDialog.localSelection
                         text: lang.language === "tr" ? "ERİŞİM İZİNLERİ" : "ACCESS PERMISSIONS"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseBold: true
+                        baseLetterSpacing: 0.8
                     }
 
                     Rectangle {
@@ -8146,7 +8151,7 @@ Rectangle {
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 3
-                                    Text { text: lang.language === "tr" ? "Sahibi" : "Owner"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                                    GText { text: lang.language === "tr" ? "Sahibi" : "Owner"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                                     GAccountPicker {
                                         id: permissionOwnerPicker
                                         objectName: "permissionOwnerCombo"
@@ -8168,7 +8173,7 @@ Rectangle {
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 3
-                                    Text { text: lang.language === "tr" ? "Grup" : "Group"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                                    GText { text: lang.language === "tr" ? "Grup" : "Group"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                                     GAccountPicker {
                                         id: permissionGroupPicker
                                         objectName: "permissionGroupCombo"
@@ -8189,7 +8194,7 @@ Rectangle {
                                 }
                                 ColumnLayout {
                                     spacing: 3
-                                    Text { text: lang.language === "tr" ? "İzin kodu" : "Mode"; color: AppTheme.textMuted; font.pixelSize: 10 }
+                                    GText { text: lang.language === "tr" ? "İzin kodu" : "Mode"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                                     GTextField {
                                         id: permissionModeInput
                                         objectName: "permissionModeInput"
@@ -8198,8 +8203,8 @@ Rectangle {
                                         leftPadding: 8
                                         rightPadding: 8
                                         horizontalAlignment: Text.AlignHCenter
-                                        font.pixelSize: 12
-                                        font.family: "monospace"
+                                        basePixelSize: 12
+                                        baseFontFamily: "monospace"
                                         enabled: propertiesDialog.canEditAccess
                                         validator: RegularExpressionValidator { regularExpression: /0?[0-7]{3}/ }
                                         inputMethodHints: Qt.ImhDigitsOnly
@@ -8247,14 +8252,14 @@ Rectangle {
                                                 ? (lang.language === "tr" ? "Çalıştırma / Giriş" : "Execute / Enter")
                                                 : root.selectedIsDir ? (lang.language === "tr" ? "Dizine girme" : "Enter folder")
                                                                : (lang.language === "tr" ? "Çalıştırma" : "Execute")]
-                                    Text {
+                                    GText {
                                         required property string modelData
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
                                         text: modelData
                                         horizontalAlignment: Text.AlignHCenter
-                                        color: AppTheme.textMuted
-                                        font.pixelSize: 10
+                                        baseColor: AppTheme.textMuted
+                                        basePixelSize: 10
                                     }
                                 }
                             }
@@ -8270,11 +8275,11 @@ Rectangle {
                                     required property var modelData
                                     Layout.fillWidth: true
                                     spacing: 8
-                                    Text {
+                                    GText {
                                         Layout.preferredWidth: 100
                                         text: permissionRow.modelData.label
-                                        color: AppTheme.text
-                                        font.pixelSize: 11
+                                        baseColor: AppTheme.text
+                                        basePixelSize: 11
                                     }
                                     Repeater {
                                         model: permissionRow.modelData.bits
@@ -8340,24 +8345,24 @@ Rectangle {
                                 onToggled: propertiesDialog.recursiveDraft = checked
                             }
 
-                            Text {
+                            GText {
                                 objectName: "folderTraversalWarning"
                                 visible: propertiesDialog.hasFolders && (!propertiesDialog.multiple || (propertiesDialog.permissionMask & 73) === 73) && (propertiesDialog.permissionDraft & 73) === 0
                                 Layout.fillWidth: true
                                 text: lang.language === "tr"
                                       ? "Bu izinler klasöre girme hakkını kaldırır. Dosyalar boşalmaz; ancak içerikleri ve boyut bilgileri okunamaz. Klasörler için genellikle 0755 veya 0700 kullanılır."
                                       : "These permissions remove folder access. Files keep their contents, but their data and sizes cannot be read. Folders typically use 0755 or 0700."
-                                color: AppTheme.danger
-                                font.pixelSize: 10
+                                baseColor: AppTheme.danger
+                                basePixelSize: 10
                                 wrapMode: Text.Wrap
                             }
 
-                            Text {
+                            GText {
                                 objectName: "specialPermissionsHint"
                                 Layout.fillWidth: true
                                 text: fileProperties.specialPermissionsHint()
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                                 wrapMode: Text.Wrap
                             }
 
@@ -8374,26 +8379,26 @@ Rectangle {
                                 visible: fileProperties.accessBusy
                                 Layout.fillWidth: true
                                 GBusyIndicator { running: fileProperties.accessBusy; Layout.preferredWidth: 20; Layout.preferredHeight: 20 }
-                                Text {
+                                GText {
                                     Layout.fillWidth: true
                                     text: (lang.language === "tr" ? "Erişim ayarları uygulanıyor · " : "Applying access settings · ")
                                             + fileProperties.accessCompleted
                                             + (fileProperties.accessSkipped > 0 ? fileProperties.accessSkippedSummary() : "")
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 10
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 10
                                 }
                             }
 
-                            Text {
+                            GText {
                                 visible: fileProperties.accessError.length > 0
                                 Layout.fillWidth: true
                                 text: fileProperties.accessError
-                                color: AppTheme.danger
-                                font.pixelSize: 10
+                                baseColor: AppTheme.danger
+                                basePixelSize: 10
                                 wrapMode: Text.Wrap
                             }
 
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 wrapMode: Text.Wrap
                                 text: propertiesDialog.multiple
@@ -8420,19 +8425,19 @@ Rectangle {
                                                                       : "Enter folder allows access to the directory. Changes apply only to this folder."))
                                           : (lang.language === "tr" ? "Değişiklikler Uygula düğmesiyle kaydedilir."
                                                                    : "Save your changes with Apply.")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
                             }
                         }
                     }
 
-                    Text {
+                    GText {
                         visible: propertiesDialog.localSelection && fileProperties.linkType.length > 0
                         text: lang.language === "tr" ? "BAĞLANTI" : "LINK"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseBold: true
+                        baseLetterSpacing: 0.8
                     }
 
                     Rectangle {
@@ -8451,17 +8456,17 @@ Rectangle {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text {
+                                GText {
                                     text: lang.language === "tr" ? "Tür" : "Type"
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 11
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 11
                                     Layout.preferredWidth: 105
                                 }
-                                Text {
+                                GText {
                                     text: root.linkTypeText(fileProperties.linkType)
-                                    color: AppTheme.text
-                                    font.pixelSize: 11
-                                    font.weight: Font.DemiBold
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 11
+                                    baseFontWeight: Font.DemiBold
                                     Layout.fillWidth: true
                                 }
                             }
@@ -8469,35 +8474,35 @@ Rectangle {
                             RowLayout {
                                 visible: fileProperties.linkType === "hardlink"
                                 Layout.fillWidth: true
-                                Text { text: "Inode"; color: AppTheme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 105 }
-                                Text { text: String(fileProperties.inode); color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true }
+                                GText { text: "Inode"; baseColor: AppTheme.textMuted; basePixelSize: 11; Layout.preferredWidth: 105 }
+                                GText { text: String(fileProperties.inode); baseColor: AppTheme.text; basePixelSize: 11; Layout.fillWidth: true }
                             }
                             RowLayout {
                                 visible: fileProperties.linkType === "hardlink"
                                 Layout.fillWidth: true
-                                Text { text: lang.language === "tr" ? "Bağ sayısı" : "Link count"; color: AppTheme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 105 }
-                                Text { text: String(fileProperties.linkCount); color: AppTheme.text; font.pixelSize: 11; Layout.fillWidth: true }
+                                GText { text: lang.language === "tr" ? "Bağ sayısı" : "Link count"; baseColor: AppTheme.textMuted; basePixelSize: 11; Layout.preferredWidth: 105 }
+                                GText { text: String(fileProperties.linkCount); baseColor: AppTheme.text; basePixelSize: 11; Layout.fillWidth: true }
                             }
 
-                            Text {
+                            GText {
                                 visible: fileProperties.linkType === "hardlink"
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 text: lang.language === "tr"
                                       ? "Hardlink'in tek bir hedefi yoktur; tüm adlar aynı inode'a eşittir. Aşağıya başka bir dosya seçersen bu dizin girdisi o dosyanın inode'una yeniden bağlanır."
                                       : "A hard link has no single target; every name is an equal reference to the same inode. Enter another file below to re-link this directory entry to that file's inode."
-                                color: AppTheme.textFaint
-                                font.pixelSize: 10
+                                baseColor: AppTheme.textFaint
+                                basePixelSize: 10
                             }
 
                             RowLayout {
                                 visible: fileProperties.linkType !== "hardlink"
                                 Layout.fillWidth: true
-                                Text { text: lang.language === "tr" ? "Hedef" : "Target"; color: AppTheme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 105 }
-                                Text {
+                                GText { text: lang.language === "tr" ? "Hedef" : "Target"; baseColor: AppTheme.textMuted; basePixelSize: 11; Layout.preferredWidth: 105 }
+                                GText {
                                     text: fileProperties.linkTarget.length ? fileProperties.linkTarget : "—"
-                                    color: AppTheme.text
-                                    font.pixelSize: 11
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 11
                                     Layout.fillWidth: true
                                     elide: Text.ElideMiddle
                                 }
@@ -8506,14 +8511,14 @@ Rectangle {
                             RowLayout {
                                 visible: fileProperties.linkType === "symlink"
                                 Layout.fillWidth: true
-                                Text { text: lang.language === "tr" ? "Hedef durumu" : "Target status"; color: AppTheme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 105 }
-                                Text {
+                                GText { text: lang.language === "tr" ? "Hedef durumu" : "Target status"; baseColor: AppTheme.textMuted; basePixelSize: 11; Layout.preferredWidth: 105 }
+                                GText {
                                     text: fileProperties.linkTargetExists
                                           ? (lang.language === "tr" ? "Mevcut" : "Available")
                                           : (lang.language === "tr" ? "Bulunamadı / kırık bağlantı" : "Missing / broken link")
-                                    color: fileProperties.linkTargetExists ? AppTheme.success : AppTheme.danger
-                                    font.pixelSize: 11
-                                    font.weight: Font.DemiBold
+                                    baseColor: fileProperties.linkTargetExists ? AppTheme.success : AppTheme.danger
+                                    basePixelSize: 11
+                                    baseFontWeight: Font.DemiBold
                                 }
                             }
 
@@ -8544,13 +8549,13 @@ Rectangle {
                         }
                     }
 
-                    Text {
+                    GText {
                         visible: !propertiesDialog.multiple && !root.selectedIsDir
                         text: lang.language === "tr" ? "VARSAYILAN UYGULAMA" : "DEFAULT APPLICATION"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseBold: true
+                        baseLetterSpacing: 0.8
                     }
 
                     Rectangle {
@@ -8603,13 +8608,13 @@ Rectangle {
 
             RowLayout {
                 Layout.fillWidth: true
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
                           ? (lang.language === "tr" ? "Simgeyi başlıktan değiştirebilirsin" : "You can change the icon from the header")
                           : ""
-                    color: AppTheme.textFaint
-                    font.pixelSize: 9
+                    baseColor: AppTheme.textFaint
+                    basePixelSize: 9
                 }
                 GModalButton {
                     objectName: "applyFilePermissions"
@@ -8675,44 +8680,44 @@ Rectangle {
                     Layout.preferredHeight: 42
                     radius: 12
                     color: AppTheme.accentSoft
-                    Text {
+                    GText {
                         anchors.centerIn: parent
                         text: renameDialog.batchMode ? "#" : "✎"
-                        color: AppTheme.accent
-                        font.pixelSize: 20
-                        font.bold: true
+                        baseColor: AppTheme.accent
+                        basePixelSize: 20
+                        baseBold: true
                     }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Text {
+                    GText {
                         text: renameDialog.batchMode
                               ? (lang.language === "tr" ? "Toplu yeniden adlandır" : "Batch rename")
                               : lang.t("rename")
-                        color: AppTheme.text
-                        font.pixelSize: 18
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 18
+                        baseFontWeight: Font.DemiBold
                     }
-                    Text {
+                    GText {
                         text: renameDialog.batchMode
                               ? renameDialog.targetUrls.length + (lang.language === "tr" ? " öğe seçildi" : " items selected")
                               : root.selectedName
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                         Layout.fillWidth: true
                         elide: Text.ElideMiddle
                     }
                 }
             }
 
-            Text {
+            GText {
                 text: renameDialog.batchMode
                       ? (lang.language === "tr" ? "Ad kalıbı" : "Name pattern")
                       : (lang.language === "tr" ? "Yeni ad" : "New name")
-                color: AppTheme.textMuted
-                font.pixelSize: 10
-                font.bold: true
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
+                baseBold: true
             }
             GTextField {
                 id: renameInput
@@ -8731,10 +8736,10 @@ Rectangle {
             RowLayout {
                 visible: renameDialog.batchMode
                 Layout.fillWidth: true
-                Text {
+                GText {
                     text: lang.language === "tr" ? "Başlangıç numarası" : "Start number"
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 11
                     Layout.fillWidth: true
                 }
                 GSpinBox {
@@ -8758,41 +8763,41 @@ Rectangle {
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 5
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "ÖNİZLEME" : "PREVIEW"
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
-                        font.bold: true
-                        font.letterSpacing: 0.7
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
+                        baseBold: true
+                        baseLetterSpacing: 0.7
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         text: root.batchRenamePreviewText()
-                        color: AppTheme.text
-                        font.pixelSize: 10
+                        baseColor: AppTheme.text
+                        basePixelSize: 10
                         lineHeight: 1.25
                         elide: Text.ElideRight
                     }
                 }
             }
 
-            Text {
+            GText {
                 visible: renameDialog.batchMode
                 text: lang.language === "tr"
                       ? "# numarayı gösterir; ### kullanırsan 001, 002 biçiminde ilerler. Dosya uzantıları korunur."
                       : "# inserts the number; ### produces 001, 002, and so on. File extensions are preserved."
-                color: AppTheme.textMuted
-                font.pixelSize: 9
+                baseColor: AppTheme.textMuted
+                basePixelSize: 9
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
             }
 
-            Text {
+            GText {
                 visible: renameDialog.errorText.length > 0
                 text: renameDialog.errorText
-                color: AppTheme.danger
-                font.pixelSize: 10
+                baseColor: AppTheme.danger
+                basePixelSize: 10
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
             }
@@ -8860,7 +8865,7 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text { text: lang.t("new_folder"); font.pixelSize: 16; font.bold: true; color: AppTheme.text }
+            GText { text: lang.t("new_folder"); basePixelSize: 16; baseBold: true; baseColor: AppTheme.text }
             GTextField {
                 id: newFolderInput
                 Layout.fillWidth: true
@@ -8908,11 +8913,11 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Yeni dosya" : "New file"
-                font.pixelSize: 16
-                font.bold: true
-                color: AppTheme.text
+                basePixelSize: 16
+                baseBold: true
+                baseColor: AppTheme.text
             }
             GTextField {
                 id: newFileInput
@@ -8965,11 +8970,11 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 10
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Yeni symlink" : "New symlink"
-                color: AppTheme.text
-                font.pixelSize: 16
-                font.bold: true
+                baseColor: AppTheme.text
+                basePixelSize: 16
+                baseBold: true
             }
             GTextField {
                 id: newSymlinkNameInput
@@ -8983,13 +8988,13 @@ Rectangle {
                 placeholderText: lang.language === "tr" ? "Hedef yol (mutlak veya göreli)" : "Target path (absolute or relative)"
                 onAccepted: newSymlinkDialog.createLink()
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: lang.language === "tr"
                       ? "Symlink dosya veya klasöre gidebilir; hedef henüz yoksa da oluşturulabilir."
                       : "A symlink may point to a file or folder, and the target may not exist yet."
-                color: AppTheme.textMuted
-                font.pixelSize: 10
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
                 wrapMode: Text.WordWrap
             }
             Item { Layout.fillHeight: true }
@@ -9036,11 +9041,11 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 10
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Yeni hardlink" : "New hardlink"
-                color: AppTheme.text
-                font.pixelSize: 16
-                font.bold: true
+                baseColor: AppTheme.text
+                basePixelSize: 16
+                baseBold: true
             }
             GTextField {
                 id: newHardlinkNameInput
@@ -9054,13 +9059,13 @@ Rectangle {
                 placeholderText: lang.language === "tr" ? "Mevcut dosyanın yolu" : "Path to an existing file"
                 onAccepted: newHardlinkDialog.createLink()
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: lang.language === "tr"
                       ? "Hardlink yalnız mevcut normal dosyaya ve aynı dosya sistemi içinde oluşturulabilir."
                       : "A hard link requires an existing regular file on the same filesystem."
-                color: AppTheme.textMuted
-                font.pixelSize: 10
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
                 wrapMode: Text.WordWrap
             }
             Item { Layout.fillHeight: true }
@@ -9091,13 +9096,13 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 10
-            Text {
+            GText {
                 text: root.drivePickerAction === "copy"
                     ? ((driveFolderPickerModel.location.startsWith("onedrive://") ? "OneDrive" : "Google Drive") + (lang.language === "tr" ? " hedef klasörü — Kopyala" : " destination — Copy"))
                     : ((driveFolderPickerModel.location.startsWith("onedrive://") ? "OneDrive" : "Google Drive") + (lang.language === "tr" ? " hedef klasörü — Taşı" : " destination — Move"))
-                color: AppTheme.text
-                font.pixelSize: 16
-                font.bold: true
+                baseColor: AppTheme.text
+                basePixelSize: 16
+                baseBold: true
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -9110,12 +9115,12 @@ Rectangle {
                     enabled: driveFolderPickerModel.location !== "gdrive://root" && driveFolderPickerModel.location !== "onedrive://root"
                     onClicked: driveFolderPickerModel.location = driveFolderPickerModel.parentLocation
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: driveFolderPickerModel.displayLocation
-                    color: AppTheme.textMuted
+                    baseColor: AppTheme.textMuted
                     elide: Text.ElideMiddle
-                    font.pixelSize: 11
+                    basePixelSize: 11
                 }
             }
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
@@ -9153,8 +9158,8 @@ Rectangle {
                             width: 25
                             height: 25
                         }
-                        Text { text: name; color: AppTheme.text; font.pixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Text { text: "›"; color: AppTheme.textMuted; font.pixelSize: 17 }
+                        GText { text: name; baseColor: AppTheme.text; basePixelSize: 12; Layout.fillWidth: true; elide: Text.ElideRight }
+                        GText { text: "›"; baseColor: AppTheme.textMuted; basePixelSize: 17 }
                     }
                     MouseArea {
                         id: folderPickerMouse
@@ -9199,7 +9204,7 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text { text: root.actionMode === "copy" ? lang.t("copy_to") : lang.t("move_to"); font.pixelSize: 16; font.bold: true; color: AppTheme.text }
+            GText { text: root.actionMode === "copy" ? lang.t("copy_to") : lang.t("move_to"); basePixelSize: 16; baseBold: true; baseColor: AppTheme.text }
             GTextField { id: destinationInput; Layout.fillWidth: true }
             Item { Layout.fillHeight: true }
             RowLayout {
@@ -9252,17 +9257,17 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 10
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Aynı adlı öğeler zaten var" : "Items with the same name already exist"
-                font.pixelSize: 16
-                font.bold: true
-                color: AppTheme.text
+                basePixelSize: 16
+                baseBold: true
+                baseColor: AppTheme.text
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+                baseColor: AppTheme.textMuted
+                basePixelSize: 12
                 text: {
                     const count = root.pendingArchiveConflicts ? root.pendingArchiveConflicts.length : 0
                     let preview = ""
@@ -9329,20 +9334,20 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Çöp boşaltılsın mı?" : "Empty the Trash?"
-                font.pixelSize: 16
-                font.bold: true
-                color: AppTheme.text
+                basePixelSize: 16
+                baseBold: true
+                baseColor: AppTheme.text
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: lang.language === "tr"
                       ? "Çöpteki tüm öğeler kalıcı olarak silinecek. Bu işlem geri alınamaz."
                       : "All items in the Trash will be permanently deleted. This action cannot be undone."
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+                baseColor: AppTheme.textMuted
+                basePixelSize: 12
             }
             Item { Layout.fillHeight: true }
             RowLayout {
@@ -9414,7 +9419,7 @@ Rectangle {
         contentItem: ColumnLayout {
             id: hiddenRenameContent
             spacing: 16
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: {
                     if (hiddenRenameDialog.actionType === "create_folder")
@@ -9423,9 +9428,9 @@ Rectangle {
                         return lang.language === "tr" ? "Gizli dosya oluşturulsun mu?" : "Create a hidden file?"
                     return lang.language === "tr" ? "Gizli ad kullanılarak yeniden adlandırılsın mı?" : "Rename using a hidden name?"
                 }
-                color: AppTheme.text
-                font.pixelSize: 16
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 16
+                baseFontWeight: Font.DemiBold
                 wrapMode: Text.WordWrap
             }
             Rectangle {
@@ -9434,7 +9439,7 @@ Rectangle {
                 radius: 10
                 color: AppTheme.surfaceRaised
                 border.color: AppTheme.border
-                Text {
+                GText {
                     id: hiddenRenameName
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -9446,18 +9451,18 @@ Rectangle {
                     wrapMode: Text.WrapAnywhere
                     maximumLineCount: 3
                     elide: Text.ElideMiddle
-                    color: AppTheme.text
-                    font.pixelSize: 14
-                    font.weight: Font.Medium
+                    baseColor: AppTheme.text
+                    basePixelSize: 14
+                    baseFontWeight: Font.Medium
                 }
             }
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: lang.language === "tr"
                       ? "Noktayla başlayan dosya ve klasörler gizlenir. Bunları görüntülemek için “Gizli dosyaları göster” seçeneğini açmak gerekebilir."
                       : "Files and folders with names beginning with a dot are hidden. You may need to enable “Show hidden files” to see them."
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+                baseColor: AppTheme.textMuted
+                basePixelSize: 12
                 wrapMode: Text.WordWrap
             }
             ColumnLayout {
@@ -9468,15 +9473,15 @@ Rectangle {
                     objectName: "dontAskHiddenAgain"
                     Layout.fillWidth: true
                     text: lang.t("dont_ask_again")
-                    font.pixelSize: 12
+                    basePixelSize: 12
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: lang.language === "tr"
                           ? "Dosya ve klasör oluşturma ile yeniden adlandırma için geçerlidir. Görünüm menüsünden değiştirilebilir."
                           : "Applies to file and folder creation and renaming. You can change this in View."
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 11
                     wrapMode: Text.WordWrap
                 }
             }
@@ -9513,19 +9518,19 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text { text: lang.t("delete_permanently") + "?"; font.pixelSize: 16; font.bold: true; color: AppTheme.text }
-            Text {
+            GText { text: lang.t("delete_permanently") + "?"; basePixelSize: 16; baseBold: true; baseColor: AppTheme.text }
+            GText {
                 text: root.selectedCount > 1
                       ? (lang.language === "tr" ? root.selectedCount + " öğe" : root.selectedCount + " items")
                       : root.selectedName
-                color: AppTheme.textMuted
-                font.pixelSize: 12
+                baseColor: AppTheme.textMuted
+                basePixelSize: 12
             }
 
             GCheckBox {
                 id: dontAskDeleteAgain
                 text: lang.t("dont_ask_again")
-                font.pixelSize: 12
+                basePixelSize: 12
                 palette.windowText: AppTheme.textMuted
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 indicator: Rectangle {
@@ -9537,19 +9542,20 @@ Rectangle {
                     color: dontAskDeleteAgain.checked ? AppTheme.accent : AppTheme.surfaceRaised
                     border.color: dontAskDeleteAgain.checked ? AppTheme.accent : AppTheme.borderStrong
                     border.width: 1
-                    Text {
+                    GText {
                         anchors.centerIn: parent
                         text: "✓"
                         visible: dontAskDeleteAgain.checked
-                        color: "white"
-                        font.pixelSize: 13
-                        font.bold: true
+                        baseColor: "white"
+                        basePixelSize: 13
+                        baseBold: true
                     }
                 }
-                contentItem: Text {
+                contentItem: GText {
+        typographyRole: "menu"
                     leftPadding: dontAskDeleteAgain.indicator.width + 8
                     text: dontAskDeleteAgain.text
-                    color: AppTheme.textMuted
+                    baseColor: AppTheme.textMuted
                     font: dontAskDeleteAgain.font
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -9711,11 +9717,11 @@ Rectangle {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        Text {
+                        GText {
                             Layout.fillWidth: true
-                            color: AppTheme.text
-                            font.pixelSize: 12
-                            font.bold: true
+                            baseColor: AppTheme.text
+                            basePixelSize: 12
+                            baseBold: true
                             text: operation.finished
                                   ? (operation.success
                                      ? (operation.kind === "copy" ? (lang.language === "tr" ? "Kopyalama tamamlandı" : "Copy complete")
@@ -9743,12 +9749,12 @@ Rectangle {
                                   : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuluyor" : "Creating archive")
                                   : (lang.language === "tr" ? "Arşiv çıkarılıyor" : "Extracting archive")
                         }
-                        Text {
+                        GText {
                             text: operation.finished ? (operation.success ? "✓" : "!")
                                                      : (shownPercent >= 0 ? Math.round(shownPercent) + "%" : "…")
-                            color: operation.finished ? (operation.success ? AppTheme.success : AppTheme.danger) : AppTheme.accent
-                            font.pixelSize: 11
-                            font.bold: true
+                            baseColor: operation.finished ? (operation.success ? AppTheme.success : AppTheme.danger) : AppTheme.accent
+                            basePixelSize: 11
+                            baseBold: true
                         }
                         GToolButton {
                             objectName: "operationCardMinimize"
@@ -9782,18 +9788,18 @@ Rectangle {
                             }
                         }
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: operation.detail
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 11
                         elide: Text.ElideMiddle
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: root.transferMetrics(operation)
-                        color: AppTheme.text
-                        font.pixelSize: 10
+                        baseColor: AppTheme.text
+                        basePixelSize: 10
                         elide: Text.ElideRight
                     }
                     Rectangle {
@@ -9823,19 +9829,19 @@ Rectangle {
                     RowLayout {
                         Layout.fillWidth: true
                         visible: !operation.finished
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.transferRemaining(operation)
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             elide: Text.ElideRight
                         }
-                        Text {
+                        GText {
                             visible: !operation.paused && Number(operation.speed || 0) > 0
                             text: root.formatTransferBytes(operation.speed) + (lang.language === "tr" ? "/sn" : "/s")
-                            color: AppTheme.text
-                            font.pixelSize: 10
-                            font.bold: true
+                            baseColor: AppTheme.text
+                            basePixelSize: 10
+                            baseBold: true
                         }
                     }
                     RowLayout {

@@ -1,0 +1,63 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64" viewBox="0 0 64 64" version="1.1" role="img" id="favorite-icon" aria-labelledby="favorite-title">
+  <title id="favorite-title">Favoriler</title>
+  <desc id="favorite-description">Şampanya ve altın tonlarında, yıldız sembollü cam panel.</desc>
+  <defs id="favorite-defs21">
+    <linearGradient id="favorite-linearGradient31" x1="30" y1="22" x2="44" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#947039" id="favorite-stop30" offset="0" style="stop-color:#947039;stop-opacity:0.5;"/>
+      <stop offset="1" stop-color="#fff8e7" id="favorite-stop31"/>
+    </linearGradient>
+    <linearGradient xlink:href="#favorite-linearGradient1151" id="favorite-linearGradient1153" x1="295.09521" y1="488.87494" x2="295.09521" y2="448.58279" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0.7458151,0,0,0.7458151,-209.33817,-317.52515)"/>
+    <linearGradient id="favorite-linearGradient1151">
+      <stop style="stop-color:#947039;stop-opacity:1" offset="0" id="favorite-stop1" stop-color="#947039"/>
+      <stop style="stop-color:#f1d08b;stop-opacity:1" offset="1" id="favorite-stop2" stop-color="#f1d08b"/>
+    </linearGradient>
+    <linearGradient xlink:href="#favorite-linearGradient1159" id="favorite-linearGradient1161" x1="394.49759" y1="375.78607" x2="437.58456" y2="418.87305" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0.7458151,0,0,0.7458151,-272.64243,-260.00087)"/>
+    <linearGradient id="favorite-linearGradient1159">
+      <stop style="stop-color:#eeddbb;stop-opacity:1;" offset="0" id="favorite-stop3" stop-color="#eeddbb"/>
+      <stop style="stop-color:#c8a76f;stop-opacity:1;" offset="0.37870529" id="favorite-stop4" stop-color="#c8a76f"/>
+      <stop style="stop-color:#ba985e;stop-opacity:1" offset="0.46836704" id="favorite-stop5" stop-color="#ba985e"/>
+      <stop style="stop-color:#cfaf77;stop-opacity:1;" offset="0.53680056" id="favorite-stop6" stop-color="#cfaf77"/>
+      <stop style="stop-color:#fff0c6;stop-opacity:1" offset="1" id="favorite-stop7" stop-color="#fff0c6"/>
+    </linearGradient>
+    <linearGradient xlink:href="#favorite-linearGradient1169" id="favorite-linearGradient1173" gradientUnits="userSpaceOnUse" x1="443.30798" y1="369.79868" x2="410.05933" y2="403.04733" gradientTransform="matrix(0.7458151,0,0,0.7458151,-272.64243,-260.00087)"/>
+    <linearGradient id="favorite-linearGradient1169">
+      <stop style="stop-color:#fff8e7;stop-opacity:1;" offset="0" id="favorite-stop8" stop-color="#fff8e7"/>
+      <stop style="stop-color:#fff8e7;stop-opacity:0.09411765;" offset="0.56953174" id="favorite-stop9" stop-color="#fff8e7"/>
+      <stop style="stop-color:#fff8e7;stop-opacity:0.04705882;" offset="0.65517962" id="favorite-stop10" stop-color="#fff8e7"/>
+      <stop style="stop-color:#fff8e7;stop-opacity:0.01" offset="0.72648168" id="favorite-stop11" stop-color="#fff8e7"/>
+      <stop style="stop-color:#fff8e7;stop-opacity:0" offset="0.85895157" id="favorite-stop12" stop-color="#fff8e7"/>
+      <stop style="stop-color:#fff8e7;stop-opacity:0;" offset="1" id="favorite-stop13" stop-color="#fff8e7"/>
+    </linearGradient>
+    <linearGradient xlink:href="#favorite-linearGradient1215" id="favorite-linearGradient1221" gradientUnits="userSpaceOnUse" x1="415.04605" y1="434.0502" x2="415.04605" y2="407.41519" gradientTransform="matrix(0.7458151,0,0,0.7458151,-272.64243,-260.00087)"/>
+    <linearGradient id="favorite-linearGradient1215">
+      <stop style="stop-color:#fff0bf;stop-opacity:1;" offset="0" id="favorite-stop14" stop-color="#fff0bf"/>
+      <stop style="stop-color:#fff0bf;stop-opacity:0.16470588;" offset="0.72590101" id="favorite-stop15" stop-color="#fff0bf"/>
+      <stop style="stop-color:#fff0bf;stop-opacity:0.12156863;" offset="0.78715777" id="favorite-stop16" stop-color="#fff0bf"/>
+      <stop style="stop-color:#fff0bf;stop-opacity:0.08627451;" offset="0.84562707" id="favorite-stop17" stop-color="#fff0bf"/>
+      <stop style="stop-color:#fff0bf;stop-opacity:0.05882353;" offset="0.91712201" id="favorite-stop18" stop-color="#fff0bf"/>
+      <stop style="stop-color:#fff0bf;stop-opacity:0;" offset="1" id="favorite-stop19" stop-color="#fff0bf"/>
+    </linearGradient>
+    <radialGradient xlink:href="#favorite-linearGradient1169" id="favorite-radialGradient1233" cx="444.1925" cy="368.84537" fx="444.1925" fy="368.84537" r="33.348068" gradientTransform="matrix(0.7458151,0,0,0.73094614,-272.64243,-254.07775)" gradientUnits="userSpaceOnUse"/>
+    <linearGradient xlink:href="#favorite-linearGradient31" id="favorite-linearGradient36" x1="29.990574" y1="12.849561" x2="44.817486" y2="61.346207" gradientUnits="userSpaceOnUse"/>
+    <linearGradient id="favorite-symbol-fill" gradientUnits="userSpaceOnUse" x1="25" y1="21" x2="49" y2="55">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fff3d6"/>
+    </linearGradient>
+    <linearGradient id="favorite-symbol-shadow-fill" gradientUnits="userSpaceOnUse" x1="25" y1="21" x2="49" y2="55">
+      <stop offset="0" stop-color="#947039"/>
+      <stop offset="1" stop-color="#eeddbb"/>
+    </linearGradient>
+  </defs>
+  <rect style="opacity:0.96;fill:url(#favorite-linearGradient1153);fill-opacity:1;stroke:none;stroke-width:0.96956;stroke-linecap:square;stroke-opacity:1" width="46.041916" height="44.697418" x="-4.2766409" y="11.190881" rx="10.675963" ry="10.675963" transform="rotate(-15)" id="favorite-rect21"/>
+  <rect style="opacity:0.96;fill:url(#favorite-linearGradient1161);fill-opacity:1;stroke:none;stroke-width:0.96956;stroke-linecap:square" width="49.742985" height="48.751282" x="12.532542" y="12.722236" rx="10.675963" ry="10.675963" id="favorite-rect22"/>
+  <rect style="opacity:0.96;fill:url(#favorite-linearGradient1173);fill-opacity:1;stroke:none;stroke-width:0.96956;stroke-linecap:square" width="49.742985" height="48.751282" x="12.532542" y="12.722236" rx="10.675963" ry="10.675963" id="favorite-rect23"/>
+  <rect style="opacity:0.96;fill:url(#favorite-linearGradient1221);fill-opacity:1;stroke:none;stroke-width:0.96956;stroke-linecap:square" width="49.742985" height="48.751282" x="12.532542" y="12.722236" rx="10.675963" ry="10.675963" id="favorite-rect24"/>
+  <rect style="opacity:0.96;fill:url(#favorite-radialGradient1233);fill-opacity:1;stroke:none;stroke-width:0.96956;stroke-linecap:square" width="49.742985" height="48.751282" x="12.532542" y="12.722236" rx="10.675963" ry="10.675963" id="favorite-rect25"/>
+  <path style="opacity:0.96;fill:#fff3d9;fill-opacity:0.120017;stroke:none;stroke-width:0.96956;stroke-linecap:square" d="m 23.208727,12.72274 c -5.914485,0 -10.675933,4.761447 -10.675933,10.675933 v 27.398509 c 0,5.914478 4.761448,10.675933 10.675933,10.675933 H 51.59923 c 5.914478,0 10.675933,-4.761455 10.675933,-10.675933 V 23.398673 c 0,-5.914486 -4.761455,-10.675933 -10.675933,-10.675933 z m 0.617632,0.579752 h 27.15524 c 5.914485,0 10.675932,4.761447 10.67594,10.675933 v 26.238998 c 0,5.914485 -4.761455,10.67594 -10.67594,10.67594 h -27.15524 c -5.914485,0 -10.675941,-4.761455 -10.675941,-10.67594 V 23.978425 c 0,-5.914486 4.761456,-10.675933 10.675941,-10.675933 z" id="favorite-path25"/>
+  <rect style="opacity:0.5;fill:none;fill-opacity:1;stroke:url(#favorite-linearGradient36);stroke-width:0.5;stroke-linecap:square;stroke-opacity:1;stroke-dasharray:none;stroke-linejoin:round" width="49.742985" height="48.751282" x="12.532542" y="12.722236" rx="10.675963" ry="10.675963" id="favorite-rect35"/>
+  <g id="favorite-symbol" transform="matrix(1.8,0,0,1.8,15.804,16.263)">
+    <path id="favorite-symbol-shadow" d="m12 3 2.8 5.67 6.2.9-4.5 4.39 1.06 6.2L12 17.22l-5.56 2.93 1.06-6.2L3 9.58l6.2-.9z" transform="translate(0.36,0.47)" fill="url(#favorite-symbol-shadow-fill)" opacity="0.18" stroke="url(#favorite-symbol-shadow-fill)" stroke-width="0.28" stroke-linejoin="round"/>
+    <path id="favorite-symbol-foreground" d="m12 3 2.8 5.67 6.2.9-4.5 4.39 1.06 6.2L12 17.22l-5.56 2.93 1.06-6.2L3 9.58l6.2-.9z" fill="url(#favorite-symbol-fill)" stroke="url(#favorite-symbol-fill)" stroke-width="0.28" stroke-linejoin="round"/>
+  </g>
+</svg>

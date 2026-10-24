@@ -332,7 +332,7 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 Published tags are immutable: source fixes need a new version/tag rather than
 replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
 
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.3.2`** (or `Lurviko-v1.3.2`). Push `main` and that tag together. The release workflow waits for that exact commit's existing main-branch build/tests and CodeQL runs, checks for open CodeQL findings, then creates **Lurviko v1.3.2** with generated notes, source `.tar`, `.tar.gz` / `.zip` archives and SHA-256 checksums. It does not start a duplicate build. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt`, then create a matching tag such as **`v1.4.0`** (or `Lurviko-v1.4.0`). Push `main` and that tag together. The release workflow waits for that exact commit's existing main-branch build/tests and CodeQL runs, checks for open CodeQL findings, then creates **Lurviko v1.4.0** with generated notes, source `.tar`, `.tar.gz` / `.zip` archives and SHA-256 checksums. It does not start a duplicate build. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
 
 Release archives use the exported Git tree with a fixed timestamp. AUR recipe
 metadata stays in Git but is excluded from source archives because it contains

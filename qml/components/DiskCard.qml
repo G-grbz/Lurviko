@@ -151,11 +151,11 @@ Rectangle {
             anchors.fill: parent
             spacing: 8
 
-            Text {
+            GText {
                 text: card.title
-                color: AppTheme.text
-                font.pixelSize: 15
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 15
+                baseFontWeight: Font.DemiBold
                 elide: Text.ElideRight
                 horizontalAlignment: Text.AlignHCenter
                 Layout.fillWidth: true
@@ -178,10 +178,10 @@ Rectangle {
                     }
                 }
 
-                Text {
+                GText {
                     text: card.subtitle
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 11
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
@@ -198,11 +198,11 @@ Rectangle {
             anchors.fill: parent
             spacing: 7
 
-            Text {
+            GText {
                 text: card.title
-                color: AppTheme.text
-                font.pixelSize: 15
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 15
+                baseFontWeight: Font.DemiBold
                 elide: Text.ElideRight
                 horizontalAlignment: Text.AlignHCenter
                 Layout.fillWidth: true
@@ -224,10 +224,10 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: 8
 
-                Text {
+                GText {
                     text: card.subtitle
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 11
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
@@ -304,16 +304,16 @@ Rectangle {
                 Layout.preferredWidth: 13
                 Layout.preferredHeight: 13
             }
-            Text {
+            GText {
                 text: card.mountActionText.length ? card.mountActionText : card.mountedStatusText
-                color: {
+                baseColor: {
                     if (card.mountBusy) return AppTheme.textMuted
                     if (!card.canMountToggle) return card.mounted ? AppTheme.success : AppTheme.textMuted
                     return card.mounted ? (mountBadgeMouse.containsMouse ? AppTheme.danger : AppTheme.textMuted)
                                         : (mountBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.textMuted)
                 }
-                font.pixelSize: 9
-                font.weight: Font.DemiBold
+                basePixelSize: 9
+                baseFontWeight: Font.DemiBold
             }
         }
 
@@ -357,8 +357,8 @@ Rectangle {
         anchors.bottomMargin: 7
         spacing: 8
 
-        Text { text: card.usedText; color: AppTheme.textMuted; font.pixelSize: 11 }
+        GText { text: card.usedText; baseColor: AppTheme.textMuted; basePixelSize: 11 }
         Item { Layout.fillWidth: true }
-        Text { text: card.totalText; color: AppTheme.textMuted; font.pixelSize: 11 }
+        GText { text: card.totalText; baseColor: AppTheme.textMuted; basePixelSize: 11 }
     }
 }

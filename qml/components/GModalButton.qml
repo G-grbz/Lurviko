@@ -5,7 +5,7 @@ import Lurviko.App
 GButton {
     id: control
 
-    implicitHeight: 40
+    implicitHeight: Math.max(40, modalLabel.implicitHeight + 16)
     implicitWidth: Math.max(88, modalLabel.implicitWidth + leftPadding + rightPadding)
     leftPadding: 16
     rightPadding: 16
@@ -40,12 +40,13 @@ GButton {
         Behavior on border.color { ColorAnimation { duration: 100 } }
     }
 
-    contentItem: Text {
+    contentItem: GText {
+        typographyRole: "menu"
         id: modalLabel
         text: control.text
-        color: control.enabled ? (control.primary ? AppTheme.highlightedText : (control.danger ? AppTheme.danger : AppTheme.text)) : AppTheme.textFaint
-        font.pixelSize: 12
-        font.weight: Font.DemiBold
+        baseColor: control.enabled ? (control.primary ? AppTheme.highlightedText : (control.danger ? AppTheme.danger : AppTheme.text)) : AppTheme.textFaint
+        basePixelSize: 12
+        baseFontWeight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight

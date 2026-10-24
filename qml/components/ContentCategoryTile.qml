@@ -1,4 +1,5 @@
 import QtQuick
+import Lurviko.App
 import QtQuick.Controls
 import QtQuick.Layouts
 import ".."
@@ -103,30 +104,32 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 3
 
-            Text {
+            GText {
+                objectName: "categoryTileTitle"
+                typographyRole: "body"
                 width: parent.width
                 text: root.title
-                color: AppTheme.text
-                font.pixelSize: 13
-                font.weight: Font.DemiBold
+                baseColor: AppTheme.text
+                basePixelSize: 13
+                baseFontWeight: Font.Normal
                 elide: Text.ElideRight
             }
-            Text {
+            GText {
                 text: root.secondaryText.length > 0 ? root.secondaryText : (root.itemCount + " " + root.itemLabel)
-                color: AppTheme.textMuted
-                font.pixelSize: 10
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
             }
         }
 
-        Text {
+        GText {
             id: arrowText
             visible: !root.actionVisible
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: "›"
-            color: mouse.containsMouse ? AppTheme.accent : AppTheme.textFaint
-            font.pixelSize: 24
-            font.weight: Font.Light
+            baseColor: mouse.containsMouse ? AppTheme.accent : AppTheme.textFaint
+            basePixelSize: 24
+            baseFontWeight: Font.Light
         }
     }
 
@@ -155,14 +158,14 @@ Rectangle {
                 visible: root.actionIcon.length > 0
                 source: AppTheme.icon(root.actionIcon)
             }
-            Text {
+            GText {
                 anchors.fill: parent
                 visible: root.actionIcon.length === 0
                 text: root.actionText
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                font.pixelSize: 14
-                color: AppTheme.text
+                basePixelSize: 14
+                baseColor: AppTheme.text
             }
         }
         GToolTip { text: root.actionToolTip }

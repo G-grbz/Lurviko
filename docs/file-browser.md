@@ -197,3 +197,57 @@ The tests also verify counters, speed/ETA formatting and GUI responsiveness
 during slow archive inspection. Actual SMB/SFTP outages and physical disk-full
 conditions have not been exercised by these tests; remote worker behavior and
 available progress metrics still depend on the installed KIO protocols.
+
+### Auto-hide sidebar
+
+**View → Auto-hide sidebar** replaces the full sidebar with four vertical badges
+spaced evenly down a narrow strip at the left window edge: Places, Favorites,
+Network and Devices. Choose **Title and icon**, **Title only**, or **Icon only**.
+Icon only uses larger icons without individual backgrounds or borders: Explore,
+Places, Favorites, Network and Devices form a compact vertical dock centered in
+the area above Administrator access. The bottom controls are excluded from this
+centering. The setting is off by default and is saved with the appearance
+preferences. Explore has its own button, first in the dock or at the top of the
+other compact modes, and is omitted from the Places popup.
+
+Hover briefly to reveal one section. Moving into the panel keeps it open;
+leaving closes it after a short delay. Clicking Places opens your home directory;
+the other section badges pin their popup until Escape, an outside click, another
+badge click or navigation. **Pin** restores the full sidebar, including from
+Explore; **Hide** on the full sidebar returns to the compact strip. Administrator
+access, language and theme controls remain visible at the bottom of the strip; the mini
+player button also appears there during playback. These are the same controls
+used by the full sidebar.
+
+One sidebar instance reuses the existing favorites/storage models, navigation,
+context menus and drag actions. Revealing it overlays the workspace without
+resizing the file list. Active context menus, sidebar drags and sidebar dialogs
+keep the panel open. Its popup follows the current Lurviko or Qt theme surface.
+
+### Fonts and colors
+
+Open **View → Fonts and colors…** to customize headings, subheadings, body
+text, the sidebar, descriptions, and menus/buttons. Each group has a searchable
+installed-font picker, an automatic or 8–48 px size, and an optional text color.
+Style checkboxes have two states: checked enables bold, italic, underline,
+overline or strikethrough; unchecked disables it. Missing style preferences also
+mean disabled, so folder names do not become bold automatically.
+
+The sidebar group controls Places, Favorites, Network, Devices and their entries
+independently of body text. File/folder names in Grid, List and Columns, category
+names and quick-access names use body text. All four sidebar section headings
+share the same automatic 13 px icon and 10 px text dimensions.
+
+Examples use real interface text, such as Categories, Icon sizes, Private,
+Downloads and Copy, and explain where each group applies. Resolved fonts are
+cached per group with bounded context variants. Changing a group leaves other
+group caches intact; changing a color does not invalidate fonts. Changes apply
+immediately and are saved. Restore defaults clears all six groups. Roboto is
+preferred when installed; otherwise the system font is used. Missing saved fonts
+also fall back to the default.
+
+Automatic sizes retain contextual sizing; automatic colors follow the active
+Lurviko or Qt palette. Semantic colors, icon glyphs, monospaced technical fields
+and subtitles' dedicated styling retain their own purpose. Large custom fonts
+can reduce the number of visible rows. With Qt theme enabled, the settings
+dialog uses the same native backdrop surface as other dialogs.

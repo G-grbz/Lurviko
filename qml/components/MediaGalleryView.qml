@@ -852,16 +852,16 @@ Item {
                 width: parent.width
                 height: 28
                 spacing: 10
-                Text {
+                GText {
                     text: root.lang.language === "tr" ? "Albümler" : "Albums"
-                    color: AppTheme.text
-                    font.pixelSize: 15
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.text
+                    basePixelSize: 15
+                    baseFontWeight: Font.DemiBold
                 }
-                Text {
+                GText {
                     text: root.albums.length + (root.lang.language === "tr" ? " klasör · Klasörüne göre keşfet" : " folders · Explore by folder")
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                 }
                 Item { Layout.fillWidth: true }
                 GButton {
@@ -942,14 +942,14 @@ Item {
                     onPressedChanged: if (pressed) albumScrollAnimation.stop()
                 }
             }
-            Text {
+            GText {
                 visible: root.activeAlbumPath.length > 0
                 width: parent.width
                 text: root.activeAlbumPath + " · " + root.displayFiles.length
                       + (root.lang.language === "tr" ? " görsel" : " images")
                 elide: Text.ElideMiddle
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
             }
         }
     }
@@ -970,11 +970,11 @@ Item {
                     width: parent.width
                     height: 30
                     spacing: 8
-                    Text {
+                    GText {
                         text: root.lang.language === "tr" ? "Öne Çıkanlar" : "Highlights"
-                        color: AppTheme.text
-                        font.pixelSize: Math.round(15 * root.textScale)
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: Math.round(15 * root.textScale)
+                        baseFontWeight: Font.DemiBold
                     }
                     Rectangle {
                         Layout.preferredWidth: 5
@@ -983,13 +983,13 @@ Item {
                         radius: 3
                         color: AppTheme.accent
                     }
-                    Text {
+                    GText {
                         Layout.alignment: Qt.AlignVCenter
                         text: root.lang.language === "tr"
                               ? "En son eklenenlerden otomatik kolaj"
                               : "Automatic collage from recent media"
-                        color: AppTheme.textMuted
-                        font.pixelSize: Math.round(9 * root.textScale)
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: Math.round(9 * root.textScale)
                     }
                     Item { Layout.fillWidth: true }
                 }
@@ -1201,20 +1201,20 @@ Item {
                 Layout.topMargin: 22
                 Layout.bottomMargin: 14
                 spacing: 7
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: root.lang.language === "tr" ? "Resim Ayarları" : "Image Settings"
-                    color: AppTheme.text
-                    font.pixelSize: 20
-                    font.weight: Font.Bold
+                    baseColor: AppTheme.text
+                    basePixelSize: 20
+                    baseFontWeight: Font.Bold
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: root.lang.language === "tr"
                           ? "Resim kütüphanesi, hover önizlemesi ve slayt davranışını buradan yönetebilirsin."
                           : "Manage the image library, hover preview and slideshow behavior here."
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                     wrapMode: Text.Wrap
                 }
             }
@@ -1260,14 +1260,14 @@ Item {
                         color: AppTheme.border
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr" ? "Önizleme ve slayt" : "Preview and slideshow"
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
+                        baseFontWeight: Font.DemiBold
                     }
 
                     GridLayout {
@@ -1296,11 +1296,11 @@ Item {
                         columns: 2
                         columnSpacing: 18
                         rowSpacing: 10
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.hoverLabel("hover_delay")
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                         }
                         GComboBox {
                             id: imageHoverDelayInput
@@ -1308,11 +1308,11 @@ Item {
                             Layout.fillWidth: true
                             model: ["200 ms", "420 ms", "600 ms", "800 ms"]
                         }
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.lang.language === "tr" ? "Slayt aralığı" : "Slideshow interval"
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                         }
                         GComboBox {
                             id: imageSlideshowInput
@@ -1391,20 +1391,20 @@ Item {
                 Layout.bottomMargin: 14
                 spacing: 7
 
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: root.lang.language === "tr" ? "Video Ayarları" : "Video Settings"
-                    color: AppTheme.text
-                    font.pixelSize: 20
-                    font.weight: Font.Bold
+                    baseColor: AppTheme.text
+                    basePixelSize: 20
+                    baseFontWeight: Font.Bold
                 }
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: root.lang.language === "tr"
                           ? "TMDB eşleştirme, hover kartı ve DLNA video görünümünü buradan yönetebilirsin."
                           : "Manage TMDB matching, hover cards and the DLNA video view here."
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
                     wrapMode: Text.Wrap
                 }
             }
@@ -1455,24 +1455,24 @@ Item {
                         color: AppTheme.border
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr" ? "TMDB" : "TMDB"
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
+                        baseFontWeight: Font.DemiBold
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: "API Read Access Token"
-                        color: AppTheme.text
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                     }
                     GTextField {
                         id: tmdbTokenInput
@@ -1485,14 +1485,14 @@ Item {
                         color: AppTheme.text
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr" ? "TMDB bilgi dili" : "TMDB metadata language"
-                        color: AppTheme.text
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                     }
                     GComboBox {
                         id: tmdbLanguageInput
@@ -1503,15 +1503,15 @@ Item {
                         model: ["tr", "en", "de", "fr", "es", "it", "pt", "ru", "ar", "ja", "ko", "zh", "nl", "pl", "sv", "da", "fi", "no", "el", "cs", "hu", "ro", "bg", "uk", "he", "id", "th", "vi", "fa"]
                         currentIndex: 0
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr"
                               ? "Varsayılan tr. Backdrop: dil etiketsiz → seçilen dil → en. Logo/poster: seçilen dil → en → dil etiketsiz."
                               : "Default is tr. Backdrop: no-language → selected language → en. Logo/poster: selected language → en → no-language."
-                        color: AppTheme.textFaint
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textFaint
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
 
@@ -1523,14 +1523,14 @@ Item {
                         color: AppTheme.border
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr" ? "Hover ve DLNA" : "Hover and DLNA"
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 12
+                        baseFontWeight: Font.DemiBold
                     }
 
                     GridLayout {
@@ -1577,11 +1577,11 @@ Item {
                         columnSpacing: 18
                         rowSpacing: 10
 
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.hoverLabel("hover_delay")
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             verticalAlignment: Text.AlignVCenter
                         }
                         GComboBox {
@@ -1591,11 +1591,11 @@ Item {
                             model: valueModel.map(function(value) { return value + " ms" })
                         }
 
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.lang.language === "tr" ? "Eşzamanlı TMDB artwork" : "Concurrent TMDB artwork"
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             verticalAlignment: Text.AlignVCenter
                         }
                         GComboBox {
@@ -1606,24 +1606,24 @@ Item {
                         }
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr"
                               ? "6 eşzamanlı istek varsayılandır. Cache dolduktan sonra tekrar TMDB sorgusu yapılmaz."
                               : "6 concurrent requests is the default. Cached entries are not requested from TMDB again."
-                        color: AppTheme.textFaint
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textFaint
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: (root.lang.language === "tr" ? "Önbellek: " : "Cache: ") + tmdbManager.cacheDirectory
-                        color: AppTheme.textFaint
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textFaint
+                        basePixelSize: 9
                         elide: Text.ElideMiddle
                     }
 
@@ -1635,15 +1635,15 @@ Item {
                         color: AppTheme.border
                     }
 
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         Layout.leftMargin: 24
                         Layout.rightMargin: 24
                         text: root.lang.language === "tr"
                               ? "Bu ürün TMDB API'sini kullanır ancak TMDB tarafından desteklenmez veya onaylanmaz."
                               : "This product uses the TMDB API but is not endorsed or certified by TMDB."
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                         wrapMode: Text.Wrap
                     }
 

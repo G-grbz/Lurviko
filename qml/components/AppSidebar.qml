@@ -12,6 +12,33 @@ Rectangle {
     required property var favoritesModel
     required property var storageModel
     property var musicPlayer: null
+    // Empty filter is the existing full sidebar. The shell reuses this same
+    // instance in its hover popup; models and file actions are not duplicated.
+    property string sectionFilter: ""
+    property bool drawerPresentation: false
+    // Reuse the same language/theme/player controls in the permanent rail.
+    property Item controlsHost: null
+    readonly property real controlsHeight: footerControls.implicitHeight
+    readonly property alias footer: footerControls
+    readonly property url favoritesSectionIcon: AppTheme.icon("favorite-color.svg")
+    property int activeItemInteractions: 0
+    readonly property bool interactionActive: activeItemInteractions > 0 || favoriteDrop.containsDrag
+        || miniMusicPopup.visible || favoriteEditPopup.visible || sidebarFolderPropertiesPopup.visible
+    readonly property real drawerContentHeight: navigationSections.implicitHeight
+        + (controlsHost ? 28 : footerControls.implicitHeight + 57)
+    function showsSection(key) { return sectionFilter.length === 0 || sectionFilter === key }
+    onSectionFilterChanged: {
+        sidebarWheelScrollAnimation.stop()
+        wheelBurstLastMs = 0
+        wheelBurstCount = 0
+        wheelBurstDirection = 0
+        Qt.callLater(function() {
+            if (navScroll.contentItem) {
+                navScroll.contentItem.cancelFlick()
+                navScroll.contentItem.contentY = navScroll.contentItem.originY || 0
+            }
+        })
+    }
 
     signal homeRequested()
     signal locationRequested(string location)
@@ -60,8 +87,9 @@ Rectangle {
         }
         // Anchor to the sidebar after its layout has settled, independently
         // of the opener's position and press animation.
-        miniMusicPopup.x = (sidebar.width - miniMusicPopup.width) / 2
-        miniMusicPopup.y = Math.max(8, sidebar.height - miniMusicPopup.height - 48)
+        miniMusicPopup.x = controlsHost ? controlsHost.width + 4 : (sidebar.width - miniMusicPopup.width) / 2
+        miniMusicPopup.y = controlsHost ? Math.min(0, controlsHost.height - miniMusicPopup.height)
+                                      : Math.max(8, sidebar.height - miniMusicPopup.height - 48)
         miniMusicPopup.open()
     }
 
@@ -282,7 +310,7 @@ Rectangle {
     }
 
     radius: AppTheme.panelRadius
-    color: AppTheme.sidebar
+    color: drawerPresentation ? "transparent" : AppTheme.sidebar
     // The sidebar is a floating surface now; its own fill/radius already
     // separates it from the workspace.  Do not draw an outer stroke here:
     // a Rectangle border is all-or-nothing and masking only the right edge
@@ -370,11 +398,13 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
+        anchors.topMargin: 12
         anchors.rightMargin: 4
         spacing: 14
 
         ScrollView {
             id: navScroll
+            objectName: "sidebarNavigation"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -406,293 +436,399 @@ Rectangle {
 
             ColumnLayout {
                 width: Math.max(0, navScroll.availableWidth)
-                spacing: 2
+                id: navigationSections
+                spacing: 11
 
-                Repeater {
-                    model: sidebar.systemItems
-                    delegate: SidebarItem {
+                ColumnLayout {
+                    objectName: "sidebarSection_places"
+                    Layout.fillWidth: true
+                    spacing: 2
+                    visible: sidebar.showsSection("places")
+                    RowLayout {
+                        objectName: "sidebarPlacesHeading"
                         Layout.fillWidth: true
-                        title: modelData.label
-                        iconSource: sidebar.sidebarItemIcon(modelData)
-                        active: sidebar.systemItemActive(modelData)
+                        Layout.bottomMargin: 2
+                        spacing: 8
+                        CrispIcon {
+                            objectName: "sidebarPlacesHeadingIcon"
+                            source: sidebar.sidebarModeIcon("folder.svg", "")
+                            Layout.preferredWidth: AppTheme.sidebarSectionIconPixels
+                            Layout.preferredHeight: AppTheme.sidebarSectionIconPixels
+                        }
+                        GText {
+                            objectName: "sidebarPlacesHeadingText"
+                            typographyRole: "sidebar"
+                            text: lang.language === "tr" ? "KONUMLAR" : "PLACES"
+                            baseColor: AppTheme.textFaint
+                            basePixelSize: AppTheme.sidebarSectionFontPixels
+                            baseFontWeight: Font.Normal
+                            baseLetterSpacing: AppTheme.sidebarSectionLetterSpacing
+                        }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
+                    }
+
+                    Repeater {
+                        model: sidebar.systemItems
+                        delegate: SidebarItem {
+                        onInteractionChanged: function(active) {
+                            sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+                        }
+                            Layout.fillWidth: true
+                            objectName: "sidebarSystemItem_" + modelData.key
+                            visible: !sidebar.drawerPresentation || !modelData.dashboard
+                            title: modelData.label
+                            iconSource: sidebar.sidebarItemIcon(modelData)
+                            active: sidebar.systemItemActive(modelData)
+                            propertiesEnabled: true
+                            propertiesText: lang.t("properties")
+                            dragUrl: modelData.dashboard ? "" : modelData.path
+                            dragIcon: modelData.icon
+                            onClicked: {
+                                sidebar.selectedKey = modelData.key
+                                if (modelData.dashboard)
+                                    sidebar.homeRequested()
+                                else
+                                    sidebar.locationRequested(modelData.path)
+                            }
+                            onMiddleClicked: {
+                                if (!modelData.dashboard)
+                                    sidebar.locationNewTabRequested(modelData.path)
+                            }
+                            onPropertiesRequested: sidebar.openSidebarFolderProperties(modelData)
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    objectName: "sidebarSection_favorites"
+                    Layout.fillWidth: true
+                    spacing: 2
+                    visible: sidebar.showsSection("favorites")
+                    RowLayout {
+                        objectName: "sidebarFavoritesHeading"
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: 2
+                        spacing: 8
+                        Item {
+                            Layout.preferredWidth: 16
+                            Layout.preferredHeight: 16
+                            CrispIcon {
+                                objectName: "sidebarFavoritesHeadingIcon"
+                                anchors.centerIn: parent
+                                source: sidebar.favoritesSectionIcon
+                                width: AppTheme.sidebarSectionIconPixels
+                                height: AppTheme.sidebarSectionIconPixels
+                            }
+                        }
+                        GText {
+                            objectName: "sidebarFavoritesHeadingText"
+                            typographyRole: "sidebar"
+                            text: lang.t("favorites").toUpperCase()
+                            baseColor: AppTheme.textFaint
+                            basePixelSize: AppTheme.sidebarSectionFontPixels
+                            baseFontWeight: Font.Normal
+                            baseLetterSpacing: AppTheme.sidebarSectionLetterSpacing
+                        }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
+                    }
+
+                    Rectangle {
+                        id: favoriteDropPanel
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: favoriteColumn.implicitHeight + 8
+                        radius: 12
+                        color: favoriteDrop.containsDrag ? AppTheme.accentSoft
+                                                         : (favoritesModel.count === 0 ? AppTheme.surfaceRaised : "transparent")
+                        border.color: favoriteDrop.containsDrag ? AppTheme.accent
+                                                                : (favoritesModel.count === 0 ? AppTheme.border : "transparent")
+                        border.width: favoriteDrop.containsDrag ? 2 : 1
+
+                        DropArea {
+                            id: favoriteDrop
+                            anchors.fill: parent
+                            onDropped: function(drop) {
+                                if (drop.source && drop.source.dragUrl
+                                        && (typeof drop.source.isDir === "undefined" || drop.source.isDir)) {
+                                    favoritesModel.addFavorite(drop.source.dragUrl)
+                                    drop.acceptProposedAction()
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            id: favoriteColumn
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 4
+                            spacing: 2
+
+                            GText {
+                                visible: favoritesModel.count === 0
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 6
+                                Layout.rightMargin: 6
+                                Layout.preferredHeight: visible ? 46 : 0
+                                text: lang.language === "tr"
+                                      ? "Klasörleri sağ tıkla veya buraya sürükle."
+                                      : "Right-click folders or drag them here."
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
+                                wrapMode: Text.WordWrap
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            Repeater {
+                                model: favoritesModel
+                                delegate: SidebarItem {
+                        onInteractionChanged: function(active) {
+                            sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+                        }
+                                    required property int index
+                                    required property string name
+                                    required property string location
+                                    required property string favoriteIcon
+                                    Layout.fillWidth: true
+                                    title: name
+                                    subtitle: location
+                                    iconSource: sidebar.sidebarFavoriteIcon(favoriteIcon, "folder.svg")
+                                    iconScale: 0.86
+                                    removable: true
+                                    editable: true
+                                    editText: lang.language === "tr" ? "Düzenle" : "Edit"
+                                    removeText: lang.language === "tr" ? "Kaldır" : "Remove"
+                                    dragUrl: location
+                                    dragIcon: favoriteIcon
+                                    active: sidebar.locationEquals(sidebar.currentLocation, location)
+                                    onClicked: {
+                                        sidebar.selectedKey = "favorite:" + location
+                                        sidebar.locationRequested(location)
+                                    }
+                                    onMiddleClicked: sidebar.locationNewTabRequested(location)
+                                    onRemoveRequested: favoritesModel.removeFavorite(location)
+                                    onEditRequested: {
+                                        sidebar.editingFavoriteIndex = index
+                                        favoriteNameInput.text = name
+                                        sidebar.editingFavoriteIcon = favoriteIcon
+                                        favoriteEditPopup.open()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    objectName: "sidebarSection_network"
+                    Layout.fillWidth: true
+                    spacing: 2
+                    visible: sidebar.showsSection("network")
+                    RowLayout {
+                        objectName: "sidebarNetworkHeading"
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: 2
+                        spacing: 8
+                        CrispIcon {
+                            objectName: "sidebarNetworkHeadingIcon"
+                            source: sidebar.sidebarModeIcon("network.svg", "")
+                            Layout.preferredWidth: AppTheme.sidebarSectionIconPixels
+                            Layout.preferredHeight: AppTheme.sidebarSectionIconPixels
+                        }
+                        GText {
+                            objectName: "sidebarNetworkHeadingText"
+                            typographyRole: "sidebar"
+                            text: lang.t("network").toUpperCase()
+                            baseColor: AppTheme.textFaint
+                            basePixelSize: AppTheme.sidebarSectionFontPixels
+                            baseFontWeight: Font.Normal
+                            baseLetterSpacing: AppTheme.sidebarSectionLetterSpacing
+                        }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
+                    }
+
+                    SidebarItem {
+                        onInteractionChanged: function(active) {
+                            sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+                        }
+                        Layout.fillWidth: true
+                        title: "SMB"
+                        subtitle: "smb://"
+                        iconSource: sidebar.sidebarModeIcon("network.svg", sidebar.savedSidebarIcon("smb"))
+                        active: sidebar.locationEquals(sidebar.currentLocation, "smb://")
+                        dragUrl: "smb://"
+                        dragIcon: "network.svg"
                         propertiesEnabled: true
                         propertiesText: lang.t("properties")
-                        dragUrl: modelData.dashboard ? "" : modelData.path
-                        dragIcon: modelData.icon
-                        onClicked: {
-                            sidebar.selectedKey = modelData.key
-                            if (modelData.dashboard)
-                                sidebar.homeRequested()
-                            else
-                                sidebar.locationRequested(modelData.path)
+                        onPropertiesRequested: sidebar.openSidebarFolderProperties({ key: "smb", label: "SMB", path: "smb://", icon: "network.svg" })
+                        onClicked: { sidebar.selectedKey = "smb"; sidebar.locationRequested("smb://") }
+                        onMiddleClicked: sidebar.locationNewTabRequested("smb://")
+                    }
+
+                    SidebarItem {
+                        onInteractionChanged: function(active) {
+                            sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
                         }
-                        onMiddleClicked: {
-                            if (!modelData.dashboard)
-                                sidebar.locationNewTabRequested(modelData.path)
-                        }
-                        onPropertiesRequested: sidebar.openSidebarFolderProperties(modelData)
-                    }
-                }
-
-                Item { Layout.preferredHeight: 7 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    Item {
-                        Layout.preferredWidth: 16
-                        Layout.preferredHeight: 16
-                        CrispIcon {
-                            anchors.centerIn: parent
-                            source: sidebar.sidebarModeIcon("favorite.svg", "")
-                            width: 13
-                            height: 13
-                        }
-                    }
-                    Text {
-                        text: lang.t("favorites").toUpperCase()
-                        color: AppTheme.textFaint
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
-                    }
-                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
-                }
-
-                Rectangle {
-                    id: favoriteDropPanel
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: favoriteColumn.implicitHeight + 8
-                    radius: 12
-                    color: favoriteDrop.containsDrag ? AppTheme.accentSoft
-                                                     : (favoritesModel.count === 0 ? AppTheme.surfaceRaised : "transparent")
-                    border.color: favoriteDrop.containsDrag ? AppTheme.accent
-                                                            : (favoritesModel.count === 0 ? AppTheme.border : "transparent")
-                    border.width: favoriteDrop.containsDrag ? 2 : 1
-
-                    DropArea {
-                        id: favoriteDrop
-                        anchors.fill: parent
-                        onDropped: function(drop) {
-                            if (drop.source && drop.source.dragUrl
-                                    && (typeof drop.source.isDir === "undefined" || drop.source.isDir)) {
-                                favoritesModel.addFavorite(drop.source.dragUrl)
-                                drop.acceptProposedAction()
-                            }
-                        }
-                    }
-
-                    ColumnLayout {
-                        id: favoriteColumn
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 4
-                        spacing: 2
-
-                        Text {
-                            visible: favoritesModel.count === 0
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 6
-                            Layout.rightMargin: 6
-                            Layout.preferredHeight: visible ? 46 : 0
-                            text: lang.language === "tr"
-                                  ? "Klasörleri sağ tıkla veya buraya sürükle."
-                                  : "Right-click folders or drag them here."
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
-                            wrapMode: Text.WordWrap
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        Repeater {
-                            model: favoritesModel
-                            delegate: SidebarItem {
-                                required property int index
-                                required property string name
-                                required property string location
-                                required property string favoriteIcon
-                                Layout.fillWidth: true
-                                title: name
-                                subtitle: location
-                                iconSource: sidebar.sidebarFavoriteIcon(favoriteIcon, "folder.svg")
-                                iconScale: 0.86
-                                removable: true
-                                editable: true
-                                editText: lang.language === "tr" ? "Düzenle" : "Edit"
-                                removeText: lang.language === "tr" ? "Kaldır" : "Remove"
-                                dragUrl: location
-                                dragIcon: favoriteIcon
-                                active: sidebar.locationEquals(sidebar.currentLocation, location)
-                                onClicked: {
-                                    sidebar.selectedKey = "favorite:" + location
-                                    sidebar.locationRequested(location)
-                                }
-                                onMiddleClicked: sidebar.locationNewTabRequested(location)
-                                onRemoveRequested: favoritesModel.removeFavorite(location)
-                                onEditRequested: {
-                                    sidebar.editingFavoriteIndex = index
-                                    favoriteNameInput.text = name
-                                    sidebar.editingFavoriteIcon = favoriteIcon
-                                    favoriteEditPopup.open()
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Item { Layout.preferredHeight: 7 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    Text {
-                        text: lang.t("network").toUpperCase()
-                        color: AppTheme.textFaint
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
-                    }
-                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
-                }
-
-                SidebarItem {
-                    Layout.fillWidth: true
-                    title: "SMB"
-                    subtitle: "smb://"
-                    iconSource: sidebar.sidebarModeIcon("network.svg", sidebar.savedSidebarIcon("smb"))
-                    active: sidebar.locationEquals(sidebar.currentLocation, "smb://")
-                    dragUrl: "smb://"
-                    dragIcon: "network.svg"
-                    propertiesEnabled: true
-                    propertiesText: lang.t("properties")
-                    onPropertiesRequested: sidebar.openSidebarFolderProperties({ key: "smb", label: "SMB", path: "smb://", icon: "network.svg" })
-                    onClicked: { sidebar.selectedKey = "smb"; sidebar.locationRequested("smb://") }
-                    onMiddleClicked: sidebar.locationNewTabRequested("smb://")
-                }
-
-                SidebarItem {
-                    Layout.fillWidth: true
-                    title: "SFTP"
-                    subtitle: "sftp://"
-                    iconSource: sidebar.sidebarModeIcon("network.svg", sidebar.savedSidebarIcon("sftp"))
-                    active: sidebar.locationEquals(sidebar.currentLocation, "sftp://")
-                    dragUrl: "sftp://"
-                    dragIcon: "network.svg"
-                    propertiesEnabled: true
-                    propertiesText: lang.t("properties")
-                    onPropertiesRequested: sidebar.openSidebarFolderProperties({ key: "sftp", label: "SFTP", path: "sftp://", icon: "network.svg" })
-                    onClicked: { sidebar.selectedKey = "sftp"; sidebar.locationRequested("sftp://") }
-                    onMiddleClicked: sidebar.locationNewTabRequested("sftp://")
-                }
-
-                Item { Layout.preferredHeight: 7 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    CrispIcon {
-                        source: sidebar.sidebarModeIcon("drive.svg", "")
-                        Layout.preferredWidth: 13
-                        Layout.preferredHeight: 13
-                    }
-                    Text {
-                        text: lang.t("disks").toUpperCase()
-                        color: AppTheme.textFaint
-                        font.pixelSize: 10
-                        font.bold: true
-                        font.letterSpacing: 0.8
-                    }
-                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
-                }
-
-                Repeater {
-                    model: sidebar.storageModel.favoriteItems
-                    delegate: SidebarItem {
-                        required property var modelData
                         Layout.fillWidth: true
-                        title: modelData.name
-                        subtitle: modelData.rootPath
-                        capacityText: !modelData.mounted
-                                      ? (lang.language === "tr" ? "Bağlı değil" : "Not mounted")
-                                      : modelData.totalBytes > 0
-                                        ? (lang.language === "tr" ? "Boş " : "Free ")
-                                          + sidebar.storageModel.formatBytes(modelData.freeBytes)
-                                          + " / " + sidebar.storageModel.formatBytes(modelData.totalBytes)
-                                        : (lang.language === "tr" ? "Kapasite bilinmiyor" : "Capacity unavailable")
-                        showUsageBar: modelData.mounted && modelData.totalBytes > 0
-                        usageRatio: modelData.usedRatio
-                        iconSource: sidebar.sidebarModeIcon("drive.svg", "")
-                        dragUrl: modelData.rootPath
-                        dragIcon: "drive.svg"
-                        active: sidebar.locationEquals(sidebar.currentLocation, modelData.rootPath)
-                        removable: true
-                        removeText: lang.language === "tr" ? "Disklerden kaldır" : "Remove from Disks"
-                        onClicked: {
-                            sidebar.selectedKey = "disk:" + modelData.rootPath
-                            sidebar.locationRequested(modelData.rootPath)
-                        }
-                        onMiddleClicked: sidebar.locationNewTabRequested(modelData.rootPath)
-                        onRemoveRequested: sidebar.storageModel.setFavorite(modelData.rootPath, false)
+                        title: "SFTP"
+                        subtitle: "sftp://"
+                        iconSource: sidebar.sidebarModeIcon("network.svg", sidebar.savedSidebarIcon("sftp"))
+                        active: sidebar.locationEquals(sidebar.currentLocation, "sftp://")
+                        dragUrl: "sftp://"
+                        dragIcon: "network.svg"
+                        propertiesEnabled: true
+                        propertiesText: lang.t("properties")
+                        onPropertiesRequested: sidebar.openSidebarFolderProperties({ key: "sftp", label: "SFTP", path: "sftp://", icon: "network.svg" })
+                        onClicked: { sidebar.selectedKey = "sftp"; sidebar.locationRequested("sftp://") }
+                        onMiddleClicked: sidebar.locationNewTabRequested("sftp://")
                     }
                 }
 
-                SidebarItem {
+                ColumnLayout {
+                    objectName: "sidebarSection_disks"
                     Layout.fillWidth: true
-                    title: lang.t("root")
-                    subtitle: lang.language === "tr" ? "Yönetici erişimi" : "Administrator access"
-                    iconSource: sidebar.sidebarModeIcon("root.svg", sidebar.savedSidebarIcon("admin"))
-                    danger: true
-                    active: sidebar.locationEquals(sidebar.currentLocation, "admin:///")
-                    dragUrl: "admin:///"
-                    dragIcon: "root.svg"
-                    propertiesEnabled: true
-                    propertiesText: lang.t("properties")
-                    onPropertiesRequested: sidebar.openSidebarFolderProperties({ key: "admin", label: lang.t("root"), path: "admin:///", icon: "root.svg" })
-                    onClicked: { sidebar.selectedKey = "admin"; sidebar.locationRequested("admin:///") }
-                    onMiddleClicked: sidebar.locationNewTabRequested("admin:///")
+                    spacing: 2
+                    visible: sidebar.showsSection("disks")
+                    RowLayout {
+                        objectName: "sidebarDisksHeading"
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: 2
+                        spacing: 8
+                        CrispIcon {
+                            objectName: "sidebarDisksHeadingIcon"
+                            source: sidebar.sidebarModeIcon("drive.svg", "")
+                            Layout.preferredWidth: AppTheme.sidebarSectionIconPixels
+                            Layout.preferredHeight: AppTheme.sidebarSectionIconPixels
+                        }
+                        GText {
+                            objectName: "sidebarDisksHeadingText"
+                            typographyRole: "sidebar"
+                            text: lang.t("disks").toUpperCase()
+                            baseColor: AppTheme.textFaint
+                            basePixelSize: AppTheme.sidebarSectionFontPixels
+                            baseFontWeight: Font.Normal
+                            baseLetterSpacing: AppTheme.sidebarSectionLetterSpacing
+                        }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
+                    }
+
+                    Repeater {
+                        model: sidebar.storageModel.favoriteItems
+                        delegate: SidebarItem {
+                        onInteractionChanged: function(active) {
+                            sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+                        }
+                            required property var modelData
+                            Layout.fillWidth: true
+                            title: modelData.name
+                            subtitle: modelData.rootPath
+                            capacityText: !modelData.mounted
+                                          ? (lang.language === "tr" ? "Bağlı değil" : "Not mounted")
+                                          : modelData.totalBytes > 0
+                                            ? (lang.language === "tr" ? "Boş " : "Free ")
+                                              + sidebar.storageModel.formatBytes(modelData.freeBytes)
+                                              + " / " + sidebar.storageModel.formatBytes(modelData.totalBytes)
+                                            : (lang.language === "tr" ? "Kapasite bilinmiyor" : "Capacity unavailable")
+                            showUsageBar: modelData.mounted && modelData.totalBytes > 0
+                            usageRatio: modelData.usedRatio
+                            iconSource: sidebar.sidebarModeIcon("drive.svg", "")
+                            dragUrl: modelData.rootPath
+                            dragIcon: "drive.svg"
+                            active: sidebar.locationEquals(sidebar.currentLocation, modelData.rootPath)
+                            removable: true
+                            removeText: lang.language === "tr" ? "Disklerden kaldır" : "Remove from Disks"
+                            onClicked: {
+                                sidebar.selectedKey = "disk:" + modelData.rootPath
+                                sidebar.locationRequested(modelData.rootPath)
+                            }
+                            onMiddleClicked: sidebar.locationNewTabRequested(modelData.rootPath)
+                            onRemoveRequested: sidebar.storageModel.setFavorite(modelData.rootPath, false)
+                        }
+                    }
+
+                    SidebarItem {
+                        onInteractionChanged: function(active) {
+                            sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+                        }
+                        Layout.fillWidth: true
+                        objectName: "sidebarAdministratorItem"
+                        visible: !sidebar.drawerPresentation
+                        title: lang.t("root")
+                        subtitle: lang.language === "tr" ? "Yönetici erişimi" : "Administrator access"
+                        iconSource: sidebar.sidebarModeIcon("root.svg", sidebar.savedSidebarIcon("admin"))
+                        danger: true
+                        active: sidebar.locationEquals(sidebar.currentLocation, "admin:///")
+                        dragUrl: "admin:///"
+                        dragIcon: "root.svg"
+                        propertiesEnabled: true
+                        propertiesText: lang.t("properties")
+                        onPropertiesRequested: sidebar.openSidebarFolderProperties({ key: "admin", label: lang.t("root"), path: "admin:///", icon: "root.svg" })
+                        onClicked: { sidebar.selectedKey = "admin"; sidebar.locationRequested("admin:///") }
+                        onMiddleClicked: sidebar.locationNewTabRequested("admin:///")
+                    }
                 }
+
             }
         }
 
-        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
+        Rectangle { visible: !sidebar.controlsHost; Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
 
-        RowLayout {
+        Item {
+            id: footerSlot
+            visible: !sidebar.controlsHost
             Layout.fillWidth: true
-            spacing: 7
+            Layout.preferredHeight: footerControls.implicitHeight
+        }
+    }
+
+        GridLayout {
+            id: footerControls
+            objectName: "sidebarFooterControls"
+            parent: sidebar.controlsHost || footerSlot
+            anchors.fill: parent
+            columns: sidebar.controlsHost ? 1 : 6
+            columnSpacing: 7
+            rowSpacing: 4
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 id: trButton
+                objectName: "sidebarTurkishButton"
                 text: "TR"
-                implicitWidth: 40
+                implicitWidth: sidebar.controlsHost ? 36 : 40
                 implicitHeight: 32
+                Layout.fillWidth: !!sidebar.controlsHost
+                padding: 4
                 onClicked: lang.language = "tr"
                 background: Rectangle {
                     radius: 9
                     color: lang.language === "tr" ? AppTheme.accentSoft : "transparent"
                     border.color: lang.language === "tr" ? AppTheme.accentBorder : AppTheme.border
                 }
-                contentItem: Text { text: trButton.text; color: AppTheme.text; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                contentItem: GText { text: trButton.text; baseColor: AppTheme.text; basePixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 id: enButton
+                objectName: "sidebarEnglishButton"
                 text: "EN"
-                implicitWidth: 40
+                implicitWidth: sidebar.controlsHost ? 36 : 40
                 implicitHeight: 32
+                Layout.fillWidth: !!sidebar.controlsHost
+                padding: 4
                 onClicked: lang.language = "en"
                 background: Rectangle {
                     radius: 9
                     color: lang.language === "en" ? AppTheme.accentSoft : "transparent"
                     border.color: lang.language === "en" ? AppTheme.accentBorder : AppTheme.border
                 }
-                contentItem: Text { text: enButton.text; color: AppTheme.text; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                contentItem: GText { text: enButton.text; baseColor: AppTheme.text; basePixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
             GButton {
                 id: miniMusicButton
+                objectName: "sidebarMiniMusicButton"
                 visible: sidebar.musicPlayer && sidebar.musicPlayer.opened
                 implicitWidth: visible ? 32 : 0
                 implicitHeight: 32
+                Layout.fillWidth: !!sidebar.controlsHost
                 onClicked: sidebar.toggleMiniMusicPopup()
                 GToolTip { text: lang.language === "tr" ? "Müzik oynatıcı" : "Music player" }
                 background: Rectangle {
@@ -716,15 +852,16 @@ Rectangle {
                     }
                 }
             }
-            Item { Layout.fillWidth: true }
+            Item { visible: !sidebar.controlsHost; Layout.fillWidth: true }
             GButton {
                 id: themeSwitch
                 objectName: "themeSwitch"
                 enabled: !AppTheme.useQtTheme
                 opacity: enabled ? 1 : 0.45
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                Layout.preferredWidth: 68
+                Layout.preferredWidth: sidebar.controlsHost ? 36 : 68
                 Layout.preferredHeight: 32
+                Layout.fillWidth: !!sidebar.controlsHost
                 onClicked: AppTheme.toggle()
                 GToolTip {
                     text: AppTheme.useQtTheme
@@ -740,6 +877,7 @@ Rectangle {
                     Behavior on color { ColorAnimation { duration: 140 } }
 
                     CrispIcon {
+                        visible: !sidebar.controlsHost
                         anchors.left: parent.left
                         anchors.leftMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
@@ -750,6 +888,7 @@ Rectangle {
                     }
 
                     CrispIcon {
+                        visible: !sidebar.controlsHost
                         anchors.right: parent.right
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
@@ -760,6 +899,7 @@ Rectangle {
                     }
 
                     Rectangle {
+                        visible: !sidebar.controlsHost
                         width: 26; height: 26; radius: 13
                         y: 3
                         x: AppTheme.dark ? parent.width - width - 3 : 3
@@ -773,19 +913,45 @@ Rectangle {
                         }
                     }
                 }
-                contentItem: Item {}
+                contentItem: Item {
+                    CrispIcon {
+                        visible: !!sidebar.controlsHost
+                        anchors.centerIn: parent
+                        width: 18; height: 18
+                        source: AppTheme.icon(AppTheme.dark ? "moon.svg" : "sun.svg")
+                    }
+                }
+            }
+            GToolButton {
+                objectName: "sidebarRestoreButton"
+                implicitWidth: sidebar.controlsHost ? 36 : 28
+                implicitHeight: 32
+                Layout.fillWidth: !!sidebar.controlsHost
+                Accessible.name: sidebar.drawerPresentation
+                    ? (lang.language === "tr" ? "Sabitle" : "Pin")
+                    : (lang.language === "tr" ? "Gizle" : "Hide")
+                onClicked: AppTheme.setSidebarAutoHide(!sidebar.drawerPresentation)
+                contentItem: Item {
+                    CrispIcon {
+                        objectName: "sidebarRestoreIcon"
+                        anchors.centerIn: parent
+                        width: 18; height: 18
+                        source: AppTheme.icon(sidebar.drawerPresentation ? "nav-forward.svg" : "nav-back.svg")
+                    }
+                }
+                GToolTip { text: parent.Accessible.name }
             }
         }
-    }
 
     GPopupDismissHandler { popup: miniMusicPopup; opener: miniMusicButton }
 
     Popup {
         id: miniMusicPopup
+        objectName: "sidebarMiniMusicPopup"
         property bool interactionOpen: false
         onAboutToShow: interactionOpen = true
         onAboutToHide: interactionOpen = false
-        parent: sidebar
+        parent: sidebar.controlsHost || sidebar
         popupType: Popup.Item
         modal: false
         dim: false
@@ -842,17 +1008,17 @@ Rectangle {
                             if (sidebar.musicPlayer) sidebar.musicPlayer.openArtist(artist)
                             miniMusicPopup.close()
                         }
-                        color: AppTheme.text
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideMiddle
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: sidebar.musicPlayer && sidebar.musicPlayer.queue.length
                               ? (sidebar.musicPlayer.currentIndex + 1) + " / " + sidebar.musicPlayer.queue.length : ""
-                        color: AppTheme.textMuted
-                        font.pixelSize: 8
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 8
                     }
                 }
                 GToolButton {
@@ -879,10 +1045,10 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 6
-                Text {
+                GText {
                     text: sidebar.formatMediaTime(sidebar.musicPlayer ? sidebar.musicPlayer.position : 0)
-                    color: AppTheme.textMuted
-                    font.pixelSize: 8
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 8
                 }
                 GSlider {
                     id: miniSeek
@@ -917,11 +1083,11 @@ Rectangle {
                         border.color: AppTheme.accentBorder
                     }
                 }
-                Text {
+                GText {
                     id: miniDurationLabel
                     text: sidebar.musicPlayer ? sidebar.musicPlayer.durationText() : "0:00"
-                    color: miniDurationHover.hovered ? AppTheme.accent : AppTheme.textMuted
-                    font.pixelSize: 8
+                    baseColor: miniDurationHover.hovered ? AppTheme.accent : AppTheme.textMuted
+                    basePixelSize: 8
                     HoverHandler { id: miniDurationHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         onTapped: if (sidebar.musicPlayer)
@@ -1163,11 +1329,11 @@ Rectangle {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
-            Text {
+            GText {
                 text: lang.language === "tr" ? "Favoriyi düzenle" : "Edit favorite"
-                color: AppTheme.text
-                font.pixelSize: 17
-                font.bold: true
+                baseColor: AppTheme.text
+                basePixelSize: 17
+                baseBold: true
             }
             GTextField {
                 id: favoriteNameInput
@@ -1203,12 +1369,12 @@ Rectangle {
                             sidebar.editingFavoriteIcon = AppTheme.iconSelection(chosen)
                     }
                 }
-                Text {
+                GText {
                     visible: !AppTheme.useSystemIcons
                     Layout.fillWidth: true
                     text: lang.language === "tr" ? "Lurviko ikonlarından seç" : "Choose a Lurviko icon"
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 11
                 }
             }
             GButton {
@@ -1338,34 +1504,34 @@ Rectangle {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 3
-                    Text {
+                    GText {
                         text: lang.language === "tr" ? "ÖZELLİKLER" : "PROPERTIES"
-                        color: AppTheme.accent
-                        font.pixelSize: 9
-                        font.bold: true
-                        font.letterSpacing: 1.1
+                        baseColor: AppTheme.accent
+                        basePixelSize: 9
+                        baseBold: true
+                        baseLetterSpacing: 1.1
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         text: sidebar.sidebarPropertiesLabel
-                        color: AppTheme.text
-                        font.pixelSize: 19
-                        font.weight: Font.DemiBold
+                        baseColor: AppTheme.text
+                        basePixelSize: 19
+                        baseFontWeight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    Text {
+                    GText {
                         Layout.fillWidth: true
                         visible: sidebar.sidebarPropertiesPath.length > 0
                         text: sidebar.sidebarPropertiesPath
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
                         elide: Text.ElideMiddle
                     }
-                    Text {
+                    GText {
                         visible: AppTheme.useSystemIcons
                         text: lang.language === "tr" ? "Simgeye tıklayarak Plasma ikonunu değiştirebilirsin" : "Click the icon to choose a Plasma icon"
-                        color: AppTheme.accent
-                        font.pixelSize: 10
+                        baseColor: AppTheme.accent
+                        basePixelSize: 10
                     }
                 }
             }
@@ -1378,29 +1544,29 @@ Rectangle {
                 columns: 2
                 columnSpacing: 16
                 rowSpacing: 11
-                Text { text: lang.language === "tr" ? "Boyut" : "Size"; color: AppTheme.textMuted; font.pixelSize: 11 }
+                GText { text: lang.language === "tr" ? "Boyut" : "Size"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
                 RowLayout {
                     GBusyIndicator { visible: sidebarFileProperties.calculating; running: visible; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                    Text {
+                    GText {
                         text: sidebarFileProperties.calculating ? "…" : sidebarFileProperties.formatBytes(sidebarFileProperties.totalSize)
-                        color: AppTheme.text; font.pixelSize: 11
+                        baseColor: AppTheme.text; basePixelSize: 11
                     }
                 }
-                Text { text: lang.language === "tr" ? "İçerik" : "Contents"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                Text {
+                GText { text: lang.language === "tr" ? "İçerik" : "Contents"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                GText {
                     text: sidebarFileProperties.calculating ? "…"
                           : sidebarFileProperties.fileCount + (lang.language === "tr" ? " dosya · " : " files · ")
                             + sidebarFileProperties.folderCount + (lang.language === "tr" ? " klasör" : " folders")
-                    color: AppTheme.text; font.pixelSize: 11
+                    baseColor: AppTheme.text; basePixelSize: 11
                 }
-                Text { text: lang.language === "tr" ? "Oluşturma" : "Created"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                Text { text: sidebarFileProperties.created && !isNaN(sidebarFileProperties.created.getTime()) ? Qt.formatDateTime(sidebarFileProperties.created, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
-                Text { text: lang.language === "tr" ? "Değiştirme" : "Modified"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                Text { text: sidebarFileProperties.modified && !isNaN(sidebarFileProperties.modified.getTime()) ? Qt.formatDateTime(sidebarFileProperties.modified, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
-                Text { text: lang.language === "tr" ? "Son erişim" : "Last accessed"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                Text { text: sidebarFileProperties.accessed && !isNaN(sidebarFileProperties.accessed.getTime()) ? Qt.formatDateTime(sidebarFileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; color: AppTheme.text; font.pixelSize: 11 }
-                Text { text: lang.language === "tr" ? "İzinler" : "Permissions"; color: AppTheme.textMuted; font.pixelSize: 11 }
-                Text { text: sidebarFileProperties.permissionsText || "—"; color: AppTheme.text; font.pixelSize: 11 }
+                GText { text: lang.language === "tr" ? "Oluşturma" : "Created"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                GText { text: sidebarFileProperties.created && !isNaN(sidebarFileProperties.created.getTime()) ? Qt.formatDateTime(sidebarFileProperties.created, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                GText { text: lang.language === "tr" ? "Değiştirme" : "Modified"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                GText { text: sidebarFileProperties.modified && !isNaN(sidebarFileProperties.modified.getTime()) ? Qt.formatDateTime(sidebarFileProperties.modified, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                GText { text: lang.language === "tr" ? "Son erişim" : "Last accessed"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                GText { text: sidebarFileProperties.accessed && !isNaN(sidebarFileProperties.accessed.getTime()) ? Qt.formatDateTime(sidebarFileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                GText { text: lang.language === "tr" ? "İzinler" : "Permissions"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                GText { text: sidebarFileProperties.permissionsText || "—"; baseColor: AppTheme.text; basePixelSize: 11 }
             }
 
             Item { Layout.fillHeight: true }

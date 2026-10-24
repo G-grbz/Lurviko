@@ -10,6 +10,8 @@ QtObject {
         category: "Appearance"
         property bool darkMode: false
         property bool qtTheme: false
+        property bool sidebarAutoHide: false
+        property string sidebarRailMode: "both"
         property bool systemIcons: false
         property bool coloredFolderIcons: false
         property bool kioProgressEnabled: false
@@ -23,6 +25,82 @@ QtObject {
         property int fileTitleLines: 1
         property int fileSubtitleLines: 1
     }
+
+    // Role settings are independent of the palette: empty color and zero px
+    // follow the active Qt/Lurviko theme and the original responsive size.
+    property Settings typographySettings: Settings {
+        category: "Typography"
+        property string rolesJson: "{}"
+    }
+    property var typography: {
+        try { return JSON.parse(typographySettings.rolesJson) || ({}) } catch (error) { return ({}) }
+    }
+    readonly property var typographyRoles: ["title", "subtitle", "body", "sidebar", "description", "menu"]
+    readonly property var availableFontFamilies: Qt.fontFamilies()
+    readonly property string defaultFontFamily: availableFontFamilies.indexOf("Roboto") >= 0
+        ? "Roboto" : Qt.application.font.family
+    readonly property TypographyStyle titleTypography: TypographyStyle {
+        specification: JSON.stringify(typography.title || ({}))
+        defaultFamily: defaultFontFamily
+        families: availableFontFamilies
+    }
+    readonly property TypographyStyle subtitleTypography: TypographyStyle {
+        specification: JSON.stringify(typography.subtitle || ({}))
+        defaultFamily: defaultFontFamily
+        families: availableFontFamilies
+    }
+    readonly property TypographyStyle bodyTypography: TypographyStyle {
+        specification: JSON.stringify(typography.body || ({}))
+        defaultFamily: defaultFontFamily
+        families: availableFontFamilies
+    }
+    readonly property TypographyStyle sidebarTypography: TypographyStyle {
+        specification: JSON.stringify(typography.sidebar || ({}))
+        defaultFamily: defaultFontFamily
+        families: availableFontFamilies
+    }
+    readonly property TypographyStyle descriptionTypography: TypographyStyle {
+        specification: JSON.stringify(typography.description || ({}))
+        defaultFamily: defaultFontFamily
+        families: availableFontFamilies
+    }
+    readonly property TypographyStyle menuTypography: TypographyStyle {
+        specification: JSON.stringify(typography.menu || ({}))
+        defaultFamily: defaultFontFamily
+        families: availableFontFamilies
+    }
+    function styleFor(role) {
+        switch (role) {
+        case "title": return titleTypography
+        case "subtitle": return subtitleTypography
+        case "sidebar": return sidebarTypography
+        case "description": return descriptionTypography
+        case "menu": return menuTypography
+        default: return bodyTypography
+        }
+    }
+    function typographyValue(role) { return styleFor(role).options }
+    function typographyFamily(role) { return styleFor(role).family }
+    function typographySize(role, automaticPixels) { return styleFor(role).pixels || automaticPixels }
+    function typographyColor(role, automaticColor) { return styleFor(role).customColor || automaticColor }
+    function typographyFlag(role, field, automaticValue) { return styleFor(role).flag(field, automaticValue) }
+    function typographyWeight(role, automaticWeight) { return styleFor(role).weight(automaticWeight) }
+    function setTypography(role, field, value) {
+        if (typographyRoles.indexOf(role) < 0 || ["family", "pixels", "color", "bold", "italic", "underline", "overline", "strikeout"].indexOf(field) < 0) return
+        if (field === "family" && value && availableFontFamilies.indexOf(value) < 0) return
+        if (field === "color" && value && !/^#[0-9a-fA-F]{6}$/.test(value)) return
+        if (field === "pixels") value = Number(value) === 0 ? 0 : Math.max(8, Math.min(48, Math.round(Number(value) || 12)))
+        const next = JSON.parse(JSON.stringify(typography))
+        const entry = next[role] || ({})
+        if (["bold", "italic", "underline", "overline", "strikeout"].indexOf(field) >= 0) {
+            if (value === null) delete entry[field]
+            else if (typeof value === "boolean") entry[field] = value
+            else return
+        } else entry[field] = value
+        next[role] = entry
+        typographySettings.rolesJson = JSON.stringify(next)
+    }
+    function resetTypography() { typographySettings.rolesJson = "{}" }
 
     property Settings interactionSettings: Settings {
         category: "Interaction"
@@ -120,6 +198,16 @@ QtObject {
     readonly property int systemHomeIconSize: Math.max(8, Math.min(128, settings.systemHomeIconSize))
     // Discover/sidebar icon geometry is shared across bundled and system icons.
     // Switching icon source must not make the layout jump to a different px scale.
+    readonly property bool sidebarAutoHide: settings.sidebarAutoHide
+    readonly property string sidebarRailMode: ["both", "title", "icon"].indexOf(settings.sidebarRailMode) >= 0
+        ? settings.sidebarRailMode : "both"
+    function setSidebarAutoHide(enabled) { settings.sidebarAutoHide = !!enabled }
+    function setSidebarRailMode(mode) {
+        if (["both", "title", "icon"].indexOf(mode) >= 0) settings.sidebarRailMode = mode
+    }
+    readonly property int sidebarSectionIconPixels: 13
+    readonly property int sidebarSectionFontPixels: 10
+    readonly property real sidebarSectionLetterSpacing: 0.8
     readonly property int effectiveSidebarIconSize: systemSidebarIconSize
     readonly property int effectiveHomeIconSize: systemHomeIconSize
     readonly property int wheelScrollStep: Math.max(10, Math.min(1000, settings.wheelScrollStep))
@@ -132,8 +220,12 @@ QtObject {
         return Math.max(96, Math.min(512, Math.ceil(pixels / 64) * 64))
     }
     function fileLabelExtraHeight(titlePixels, subtitlePixels) {
-        return (fileTitleLines - 1) * fileLabelLineHeight(titlePixels)
-             + (fileSubtitleLines - 1) * fileLabelLineHeight(subtitlePixels)
+        const title = typographySize("body", titlePixels)
+        const subtitle = typographySize("description", subtitlePixels)
+        return (fileTitleLines - 1) * fileLabelLineHeight(title)
+             + (fileSubtitleLines - 1) * fileLabelLineHeight(subtitle)
+             + Math.max(0, fileLabelLineHeight(title) - fileLabelLineHeight(titlePixels))
+             + Math.max(0, fileLabelLineHeight(subtitle) - fileLabelLineHeight(subtitlePixels))
     }
     // Lurviko UI design tokens.  Qt Quick Controls provide behaviour, focus,
     // accessibility and keyboard semantics. Optional desktop colors come from

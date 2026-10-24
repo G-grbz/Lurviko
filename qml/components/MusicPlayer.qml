@@ -780,12 +780,12 @@ Rectangle {
                             suffixText: " — " + String(root.trackMeta.title || root.currentTitle || "")
                             fallbackText: root.displayTitle || (root.lang.language === "tr" ? "Müzik oynatıcı" : "Music player")
                             onArtistRequested: function(artist) { root.openArtist(artist) }
-                            color: AppTheme.text
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.text
+                            basePixelSize: 12
+                            baseFontWeight: Font.DemiBold
                             elide: Text.ElideRight
                         }
-                        Text {
+                        GText {
                             id: metadataDetails
                             objectName: "normalMusicDetails"
                             visible: root.detailText.length > 0
@@ -795,20 +795,20 @@ Rectangle {
                             verticalAlignment: Text.AlignVCenter
                             text: root.detailText
                             textFormat: Text.PlainText
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                             elide: Text.ElideRight
                         }
-                        Text {
+                        GText {
                             id: lyricSeparator
                             visible: root.activeLyricText.length > 0
                             height: parent.height
                             verticalAlignment: Text.AlignVCenter
                             text: "~"
-                            color: AppTheme.textFaint
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textFaint
+                            basePixelSize: 10
                         }
-                        Text {
+                        GText {
                             id: metadataLyrics
                             objectName: "normalMusicLiveLyrics"
                             width: visible ? Math.max(0, nowPlayingRow.textBudget - artistTitle.width - metadataDetails.width) : 0
@@ -817,21 +817,21 @@ Rectangle {
                             visible: root.activeLyricText.length > 0
                             text: root.activeLyricText
                             textFormat: Text.PlainText
-                            color: AppTheme.accent
-                            font.pixelSize: 10
-                            font.weight: Font.Medium
+                            baseColor: AppTheme.accent
+                            basePixelSize: 10
+                            baseFontWeight: Font.Medium
                             elide: Text.ElideRight
                         }
                     }
-                    Text {
+                    GText {
                         id: queuePosition
                         objectName: "normalMusicQueuePosition"
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.queue.length > 0 && root.currentIndex >= 0
                               ? (root.currentIndex + 1) + " / " + root.queue.length : ""
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                         horizontalAlignment: Text.AlignRight
                     }
                 }
@@ -839,13 +839,13 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    Text {
+                    GText {
                         Layout.minimumWidth: 52
                         Layout.preferredWidth: 52
                         Layout.maximumWidth: 52
                         text: root.formatTime(player.position)
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                         horizontalAlignment: Text.AlignLeft
                     }
                     Item {
@@ -889,14 +889,14 @@ Rectangle {
                             }
                         }
                     }
-                    Text {
+                    GText {
                         id: durationLabel
                         Layout.minimumWidth: 52
                         Layout.preferredWidth: 52
                         Layout.maximumWidth: 52
                         text: root.durationText()
-                        color: durationHover.hovered ? AppTheme.accent : AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: durationHover.hovered ? AppTheme.accent : AppTheme.textMuted
+                        basePixelSize: 9
                         horizontalAlignment: Text.AlignRight
                         HoverHandler { id: durationHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: root.showRemainingTime = !root.showRemainingTime }
@@ -1063,11 +1063,12 @@ Rectangle {
                             border.width: lyricsButton.checked ? 1 : 0
                             border.color: lyricsButton.checked ? AppTheme.accentBorder : "transparent"
                         }
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: "LRC"
-                            color: lyricsButton.checked ? AppTheme.accent : AppTheme.textMuted
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
+                            baseColor: lyricsButton.checked ? AppTheme.accent : AppTheme.textMuted
+                            basePixelSize: 9
+                            baseFontWeight: Font.Bold
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1203,11 +1204,12 @@ Rectangle {
                             border.width: 1
                             border.color: queueTabButton.checked ? AppTheme.accentBorder : AppTheme.border
                         }
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: root.lang.language === "tr" ? "Kuyruk" : "Queue"
-                            color: queueTabButton.checked ? AppTheme.accent : AppTheme.text
-                            font.pixelSize: 10
-                            font.weight: queueTabButton.checked ? Font.DemiBold : Font.Medium
+                            baseColor: queueTabButton.checked ? AppTheme.accent : AppTheme.text
+                            basePixelSize: 10
+                            baseFontWeight: queueTabButton.checked ? Font.DemiBold : Font.Medium
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1224,11 +1226,12 @@ Rectangle {
                             border.width: 1
                             border.color: playlistTabButton.checked ? AppTheme.accentBorder : AppTheme.border
                         }
-                        contentItem: Text {
+                        contentItem: GText {
+        typographyRole: "menu"
                             text: root.lang.language === "tr" ? "Çalma listeleri" : "Playlists"
-                            color: playlistTabButton.checked ? AppTheme.accent : AppTheme.text
-                            font.pixelSize: 10
-                            font.weight: playlistTabButton.checked ? Font.DemiBold : Font.Medium
+                            baseColor: playlistTabButton.checked ? AppTheme.accent : AppTheme.text
+                            basePixelSize: 10
+                            baseFontWeight: playlistTabButton.checked ? Font.DemiBold : Font.Medium
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1236,11 +1239,11 @@ Rectangle {
                         onClicked: root.drawerTab = 1
                     }
                     Item { Layout.fillWidth: true }
-                    Text {
+                    GText {
                         visible: root.drawerTab === 0
                         text: root.queue.length + (root.lang.language === "tr" ? " parça" : " tracks")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 9
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 9
                     }
                     GToolButton {
                         background: Rectangle {
@@ -1286,17 +1289,17 @@ Rectangle {
                             anchors.leftMargin: 9
                             anchors.rightMargin: 9
                             spacing: 8
-                            Text {
+                            GText {
                                 text: String(index + 1)
-                                color: AppTheme.textFaint
-                                font.pixelSize: 9
+                                baseColor: AppTheme.textFaint
+                                basePixelSize: 9
                                 Layout.preferredWidth: 22
                             }
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: String(modelData.name || "")
-                                color: AppTheme.text
-                                font.pixelSize: 10
+                                baseColor: AppTheme.text
+                                basePixelSize: 10
                                 elide: Text.ElideMiddle
                             }
                             CrispIcon {
@@ -1324,13 +1327,13 @@ Rectangle {
                     spacing: 7
                     RowLayout {
                         Layout.fillWidth: true
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: root.lang.language === "tr"
                                   ? "Mevcut kuyruğu bir çalma listesi olarak kaydet"
                                   : "Save the current queue as a playlist"
-                            color: AppTheme.textMuted
-                            font.pixelSize: 9
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 9
                         }
                         GButton {
                             background: Rectangle {
@@ -1372,14 +1375,14 @@ Rectangle {
                                 anchors.leftMargin: 10
                                 anchors.rightMargin: 6
                                 spacing: 8
-                                Text {
+                                GText {
                                     objectName: "normalPlaylistName"
                                     Layout.fillWidth: true
                                     text: String(modelData.name || "")
                                     textFormat: Text.PlainText
-                                    color: AppTheme.text
-                                    font.pixelSize: 10
-                                    font.weight: Font.DemiBold
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 10
+                                    baseFontWeight: Font.DemiBold
                                     elide: Text.ElideRight
                                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                                     TapHandler {
@@ -1388,10 +1391,10 @@ Rectangle {
                                         onTapped: root.playPlaylist(index)
                                     }
                                 }
-                                Text {
+                                GText {
                                     text: String((modelData.items || []).length) + (root.lang.language === "tr" ? " parça" : " tracks")
-                                    color: AppTheme.textMuted
-                                    font.pixelSize: 9
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 9
                                 }
                                 GToolButton {
                         background: Rectangle {
@@ -1425,12 +1428,12 @@ Rectangle {
                                 acceptedButtons: Qt.NoButton
                             }
                         }
-                        Text {
+                        GText {
                             anchors.centerIn: parent
                             visible: root.playlists.length === 0
                             text: root.lang.language === "tr" ? "Henüz çalma listesi yok" : "No playlists yet"
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            baseColor: AppTheme.textMuted
+                            basePixelSize: 10
                         }
                     }
                 }
@@ -1469,19 +1472,19 @@ Rectangle {
             spacing: 8
             RowLayout {
                 Layout.fillWidth: true
-                Text {
+                GText {
                     Layout.fillWidth: true
                     text: root.lang.language === "tr" ? "Şarkı Sözleri" : "Lyrics"
-                    color: AppTheme.text
-                    font.pixelSize: 14
-                    font.weight: Font.Bold
+                    baseColor: AppTheme.text
+                    basePixelSize: 14
+                    baseFontWeight: Font.Bold
                 }
-                Text {
+                GText {
                     text: root.lyricsSource === "lrc" ? ".lrc"
                           : root.lyricsSource === "lyrics" ? ".lyrics"
                           : (root.lyricsSource === "embedded" ? (root.lang.language === "tr" ? "Gömülü" : "Embedded") : "")
-                    color: AppTheme.textFaint
-                    font.pixelSize: 9
+                    baseColor: AppTheme.textFaint
+                    basePixelSize: 9
                 }
                 GToolButton {
                     implicitWidth: 28; implicitHeight: 28
@@ -1508,15 +1511,15 @@ Rectangle {
                 model: lyricsPopup.visible && root.lyricsSynced ? root.lyricsLines : []
                 reuseItems: true
                 cacheBuffer: 0
-                delegate: Text {
+                delegate: GText {
                     required property var modelData
                     required property int index
                     width: lyricList.width
                     text: String(modelData.text || "")
                     textFormat: Text.PlainText
-                    color: index === root.activeLyricIndex ? AppTheme.accent : AppTheme.textMuted
-                    font.pixelSize: index === root.activeLyricIndex ? 13 : 11
-                    font.weight: index === root.activeLyricIndex ? Font.DemiBold : Font.Normal
+                    baseColor: index === root.activeLyricIndex ? AppTheme.accent : AppTheme.textMuted
+                    basePixelSize: index === root.activeLyricIndex ? 13 : 11
+                    baseFontWeight: index === root.activeLyricIndex ? Font.DemiBold : Font.Normal
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                     opacity: index === root.activeLyricIndex ? 1.0 : 0.76

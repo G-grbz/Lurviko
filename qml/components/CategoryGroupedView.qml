@@ -398,8 +398,9 @@ Item {
                                 Layout.preferredHeight: root.inlineRenameUrl === String(cell.modelData.itemUrl || "") ? 26
                                     : Math.max(22, groupedNameLabel.implicitHeight)
 
-                                Text {
+                                GText {
                                     id: groupedNameLabel
+                                    typographyRole: "body"
                                     anchors.fill: parent
                                     visible: root.inlineRenameUrl !== String(cell.modelData.itemUrl || "")
                                     text: String(cell.modelData.name || "")
@@ -408,9 +409,9 @@ Item {
                                     wrapMode: Text.Wrap
                                     maximumLineCount: AppTheme.fileTitleLines
                                     elide: Text.ElideRight
-                                    color: AppTheme.text
-                                    font.pixelSize: Math.max(12, Math.min(15, Math.round(12 * root.textScale)))
-                                    font.bold: !!cell.modelData.isDir
+                                    baseColor: AppTheme.text
+                                    basePixelSize: Math.max(12, Math.min(15, Math.round(12 * root.textScale)))
+                                    baseBold: !!cell.modelData.isDir
                                 }
 
                                 GTextField {
@@ -422,7 +423,7 @@ Item {
                                     selectByMouse: true
                                     HoverHandler { cursorShape: Qt.IBeamCursor }
                                     horizontalAlignment: TextInput.AlignHCenter
-                                    font.pixelSize: Math.max(12, Math.min(15, Math.round(12 * root.textScale)))
+                                    basePixelSize: Math.max(12, Math.min(15, Math.round(12 * root.textScale)))
                                     leftPadding: 7
                                     rightPadding: 7
                                     topPadding: 1
@@ -464,15 +465,15 @@ Item {
                                 }
                             }
 
-                            Text {
+                            GText {
                                 Layout.fillWidth: true
                                 text: String(cell.modelData.metaText || "")
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.Wrap
                                 maximumLineCount: AppTheme.fileSubtitleLines
                                 elide: Text.ElideRight
-                                color: AppTheme.textFaint
-                                font.pixelSize: Math.max(9, Math.min(11, Math.round(10 * root.textScale)))
+                                baseColor: AppTheme.textFaint
+                                basePixelSize: Math.max(9, Math.min(11, Math.round(10 * root.textScale)))
                             }
                         }
 

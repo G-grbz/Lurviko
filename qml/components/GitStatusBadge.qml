@@ -1,4 +1,5 @@
 import QtQuick
+import Lurviko.App
 
 Rectangle {
     id: badge
@@ -13,10 +14,10 @@ Rectangle {
         : status === "renamed" ? "#588ee1" : status === "ignored" ? "#858b99" : "#d28a20"
     color: AppTheme.surfaceRaised
     border.color: ink
-    Text {
+    GText {
         anchors.centerIn: parent
         text: ({modified: "M", added: "+", untracked: "?", deleted: "−", renamed: "R", ignored: "I", conflict: "!", repository: "G", clean: "✓"})[badge.status] || ""
-        color: badge.ink; font.pixelSize: 11; font.bold: true
+        baseColor: badge.ink; basePixelSize: 11; baseBold: true
     }
     HoverHandler { id: hover }
     GToolTip {

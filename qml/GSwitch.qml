@@ -4,11 +4,23 @@ import Lurviko.App
 
 Switch {
     id: control
+    font: AppTheme.menuTypography.fontFor(basePixelSize, baseBold ? Font.Bold : baseFontWeight,
+        baseItalic, baseUnderline, baseOverline, baseStrikeout, false,
+        baseFontFamily, baseLetterSpacing, baseCapitalization)
+    property string baseFontFamily: ""
+    property real baseLetterSpacing: 0
+    property int baseCapitalization: Font.MixedCase
+    property bool baseBold: false
+    property int baseFontWeight: Font.Normal
+    property bool baseItalic: false
+    property bool baseUnderline: false
+    property bool baseOverline: false
+    property bool baseStrikeout: false
+    property real basePixelSize: AppTheme.fontSizeBody
 
     spacing: 10
     hoverEnabled: true
-    font.pixelSize: AppTheme.fontSizeBody
-    implicitHeight: Math.max(AppTheme.controlHeightCompact, indicator.implicitHeight)
+    implicitHeight: Math.max(AppTheme.controlHeightCompact, indicator.implicitHeight, implicitContentHeight + 8)
 
     indicator: Item {
         implicitWidth: 42
@@ -43,11 +55,12 @@ Switch {
         }
     }
 
-    contentItem: Text {
+    contentItem: GText {
+        typographyRole: "menu"
         leftPadding: control.indicator.width + control.spacing
         text: control.text
         font: control.font
-        color: control.enabled ? AppTheme.text : AppTheme.textFaint
+        baseColor: control.enabled ? AppTheme.text : AppTheme.textFaint
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }

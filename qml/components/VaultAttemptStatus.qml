@@ -14,23 +14,23 @@ ColumnLayout {
         return minutes + ":" + String(seconds % 60).padStart(2, "0")
     }
 
-    Text {
+    GText {
         Layout.fillWidth: true
         visible: root.vault.passwordWaitSeconds > 0
         wrapMode: Text.WordWrap
-        color: root.vault.passwordLockedOut ? AppTheme.danger : AppTheme.warning
-        font.pixelSize: 11
+        baseColor: root.vault.passwordLockedOut ? AppTheme.danger : AppTheme.warning
+        basePixelSize: 11
         text: root.vault.passwordLockedOut
               ? (root.lang.language === "tr" ? "Giriş geçici olarak kilitlendi. Kalan süre: " : "Sign-in temporarily locked. Time remaining: ")
                 + root.remainingTime(root.vault.passwordWaitSeconds)
               : (root.lang.language === "tr" ? "Sonraki parola denemesi: " : "Next password attempt in: ")
                 + root.remainingTime(root.vault.passwordWaitSeconds)
     }
-    Text {
+    GText {
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
-        color: AppTheme.textMuted
-        font.pixelSize: 10
+        baseColor: AppTheme.textMuted
+        basePixelSize: 10
         text: (root.lang.language === "tr" ? "Hatalı deneme: " : "Failed attempts: ")
               + root.vault.failedPasswordAttempts + " / " + root.vault.maxPasswordAttempts
     }

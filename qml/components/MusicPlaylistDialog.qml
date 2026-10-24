@@ -77,21 +77,21 @@ GModalPopup {
         anchors.fill: parent
         anchors.margins: 20
         spacing: 12
-        Text {
+        GText {
             Layout.fillWidth: true
             text: control.artistName || control.label("music_save_playlist")
-            color: AppTheme.text
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
+            baseColor: AppTheme.text
+            basePixelSize: 18
+            baseFontWeight: Font.DemiBold
             elide: Text.ElideRight
         }
         RowLayout {
             Layout.fillWidth: true
-            Text {
+            GText {
                 Layout.fillWidth: true
                 text: control.selectedCount + " / " + control.items.length + " · " + control.label("music_selected_tracks")
-                color: AppTheme.textMuted
-                font.pixelSize: 11
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
             }
             GButton {
                 objectName: "playlistToggleAll"
@@ -101,12 +101,12 @@ GModalPopup {
                 onClicked: control.toggleAll()
             }
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             visible: control.artistName.length > 0 && player.libraryManager.loading
             text: control.label("music_loading_artist")
-            color: AppTheme.textMuted
-            font.pixelSize: 10
+            baseColor: AppTheme.textMuted
+            basePixelSize: 10
         }
         ListView {
             id: tracks
@@ -151,11 +151,11 @@ GModalPopup {
                     onClicked: player.playTemporaryQueueItem(trackRow.modelData)
                     contentItem: RowLayout {
                         spacing: 10
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: playTrack.text
                             textFormat: Text.PlainText
-                            color: playTrack.checked ? AppTheme.accent : AppTheme.text
+                            baseColor: playTrack.checked ? AppTheme.accent : AppTheme.text
                             font: playTrack.font
                             elide: Text.ElideRight
                         }
@@ -168,17 +168,17 @@ GModalPopup {
                     }
                 }
             }
-            Text {
+            GText {
                 anchors.centerIn: parent
                 width: parent.width - 24
                 visible: tracks.count === 0
                 text: player.libraryManager.loading ? control.label("music_loading_artist") : control.label("music_no_artist_tracks")
-                color: AppTheme.textMuted
+                baseColor: AppTheme.textMuted
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
             }
         }
-        Text { text: control.label("music_playlist_destination"); color: AppTheme.textMuted; font.pixelSize: 11 }
+        GText { text: control.label("music_playlist_destination"); baseColor: AppTheme.textMuted; basePixelSize: 11 }
         GComboBox {
             id: destination
             objectName: "playlistDestination"
@@ -197,11 +197,11 @@ GModalPopup {
             placeholderText: control.label("music_playlist_name")
             onAccepted: control.saveSelection()
         }
-        Text {
+        GText {
             Layout.fillWidth: true
             visible: control.errorText.length > 0
             text: control.errorText
-            color: AppTheme.danger
+            baseColor: AppTheme.danger
             wrapMode: Text.Wrap
         }
         RowLayout {

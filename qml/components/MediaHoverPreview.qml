@@ -76,19 +76,19 @@ GOverlaySurface {
         anchors.top: stage.bottom
         anchors.margins: 8
         spacing: 4
-        Text {
+        GText {
             width: parent.width
             text: preview.itemData ? preview.itemData.name : ""
-            color: AppTheme.text
-            font.pixelSize: 13
-            font.weight: Font.DemiBold
+            baseColor: AppTheme.text
+            basePixelSize: 13
+            baseFontWeight: Font.DemiBold
             elide: Text.ElideMiddle
         }
-        Text {
+        GText {
             width: parent.width
             text: preview.locationLabel
-            color: AppTheme.textMuted
-            font.pixelSize: 10
+            baseColor: AppTheme.textMuted
+            basePixelSize: 10
             elide: Text.ElideMiddle
         }
     }

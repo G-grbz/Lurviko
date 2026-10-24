@@ -553,20 +553,20 @@ Popup {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 0
-                        Text {
+                        GText {
                             id: titleText
                             Layout.fillWidth: true
                             text: viewer.currentItem ? viewer.currentItem.name : ""
-                            color: AppTheme.viewerText
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
+                            baseColor: AppTheme.viewerText
+                            basePixelSize: 12
+                            baseFontWeight: Font.DemiBold
                             elide: Text.ElideMiddle
                         }
-                        Text {
+                        GText {
                             Layout.fillWidth: true
                             text: viewer.currentItem ? viewer.formatSize(viewer.currentItem.size) + " · " + viewer.formatDate(viewer.currentItem.modifiedMs) : ""
-                            color: AppTheme.viewerTextMuted
-                            font.pixelSize: 9
+                            baseColor: AppTheme.viewerTextMuted
+                            basePixelSize: 9
                             elide: Text.ElideRight
                         }
                     }
@@ -613,13 +613,13 @@ Popup {
                 radius: 10
                 tintColor: AppTheme.viewerGlassSoft
                 borderColor: AppTheme.viewerGlassBorderSoft
-                Text {
+                GText {
                     id: counterLabel
                     anchors.centerIn: parent
                     text: viewer.currentIndex >= 0 ? (viewer.currentIndex + 1) + " / " + viewer.files.length : ""
-                    color: AppTheme.viewerText
-                    font.pixelSize: 10
-                    font.weight: Font.DemiBold
+                    baseColor: AppTheme.viewerText
+                    basePixelSize: 10
+                    baseFontWeight: Font.DemiBold
                 }
             }
 
@@ -662,16 +662,16 @@ Popup {
                     id: statusRow
                     anchors.centerIn: parent
                     spacing: 8
-                    Text { text: Math.round(viewer.zoom * 100) + "%"; color: AppTheme.viewerTextMuted; font.pixelSize: 9 }
+                    GText { text: Math.round(viewer.zoom * 100) + "%"; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9 }
                     Rectangle { width: 1; height: 12; color: AppTheme.viewerGlassBorderSoft }
-                    Text { text: viewer.currentIndex >= 0 ? (viewer.currentIndex + 1) + "/" + viewer.files.length : ""; color: AppTheme.viewerTextMuted; font.pixelSize: 9 }
+                    GText { text: viewer.currentIndex >= 0 ? (viewer.currentIndex + 1) + "/" + viewer.files.length : ""; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9 }
                     Rectangle { width: 1; height: 12; color: AppTheme.viewerGlassBorderSoft; visible: (viewer.showingImageA ? imageA.sourceSize.width : imageB.sourceSize.width) > 0 }
-                    Text { text: (viewer.showingImageA ? imageA.sourceSize.width : imageB.sourceSize.width) > 0
+                    GText { text: (viewer.showingImageA ? imageA.sourceSize.width : imageB.sourceSize.width) > 0
                                 ? (viewer.showingImageA ? imageA.sourceSize.width + "×" + imageA.sourceSize.height
                                                         : imageB.sourceSize.width + "×" + imageB.sourceSize.height)
-                                : ""; color: AppTheme.viewerTextMuted; font.pixelSize: 9; visible: text.length > 0 }
+                                : ""; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9; visible: text.length > 0 }
                     Rectangle { width: 1; height: 12; color: AppTheme.viewerGlassBorderSoft; visible: viewer.currentItem !== null }
-                    Text { text: viewer.currentItem ? viewer.formatSize(viewer.currentItem.size) : ""; color: AppTheme.viewerTextMuted; font.pixelSize: 9 }
+                    GText { text: viewer.currentItem ? viewer.formatSize(viewer.currentItem.size) : ""; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9 }
                 }
             }
 
@@ -694,7 +694,7 @@ Popup {
                     ViewerIconButton { iconName: "viewer-zoom-out.svg"; toolTipText: viewer.lang.language === "tr" ? "Uzaklaştır" : "Zoom out"; onClicked: viewer.zoom = Math.max(0.25, viewer.zoom / 1.18) }
                     Rectangle {
                         width: 52; height: 34; radius: 8; color: AppTheme.viewerGlassSoft; border.width: 1; border.color: AppTheme.viewerGlassBorderSoft
-                        Text { anchors.centerIn: parent; text: Math.round(viewer.zoom * 100) + "%"; color: AppTheme.viewerText; font.pixelSize: 9; font.weight: Font.DemiBold }
+                        GText { anchors.centerIn: parent; text: Math.round(viewer.zoom * 100) + "%"; baseColor: AppTheme.viewerText; basePixelSize: 9; baseFontWeight: Font.DemiBold }
                     }
                     ViewerIconButton { iconName: "viewer-zoom-in.svg"; toolTipText: viewer.lang.language === "tr" ? "Yakınlaştır" : "Zoom in"; onClicked: viewer.zoom = Math.min(5.0, viewer.zoom * 1.18) }
                     Rectangle { width: 1; height: 24; color: AppTheme.viewerGlassBorderSoft }

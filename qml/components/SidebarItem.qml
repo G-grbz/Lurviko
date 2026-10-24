@@ -26,15 +26,35 @@ Rectangle {
     property real usageRatio: 0
     readonly property int iconSize: AppTheme.effectiveSidebarIconSize
 
+    signal interactionChanged(bool active)
+    property bool interactionTracked: false
+    property bool beingDestroyed: false
+    readonly property bool contextMenuVisible: contextMenu.visible
+    function refreshInteraction() {
+        if (beingDestroyed) return
+        const active = dragging || contextMenuVisible
+        if (interactionTracked !== active) {
+            interactionTracked = active
+            interactionChanged(active)
+        }
+    }
+    onDraggingChanged: refreshInteraction()
+    onContextMenuVisibleChanged: refreshInteraction()
+    Component.onDestruction: {
+        beingDestroyed = true
+        if (interactionTracked) interactionChanged(false)
+    }
+
     signal clicked()
     signal middleClicked()
     signal removeRequested()
     signal editRequested()
     signal propertiesRequested()
 
-    implicitHeight: capacityText.length > 0
+    implicitHeight: Math.max(AppTheme.typographySize("sidebar", 12) + (subtitle.length ? AppTheme.typographySize("sidebar", 10) + 2 : 0) + 16,
+                    capacityText.length > 0
                     ? Math.max(66, iconSize + 32)
-                    : Math.max(subtitle.length > 0 ? 44 : 38, iconSize + 12)
+                    : Math.max(subtitle.length > 0 ? 44 : 38, iconSize + 12))
     radius: 14
     color: active ? AppTheme.accentSoft
                   : (itemMouse.containsMouse || dragging ? AppTheme.surfaceHover : "transparent")
@@ -85,30 +105,34 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 1
 
-            Text {
+            GText {
+                objectName: "sidebarItemTitle"
+                typographyRole: "sidebar"
                 Layout.fillWidth: true
                 text: control.title
-                color: control.danger ? AppTheme.danger : AppTheme.text
-                font.pixelSize: 12
-                font.weight: control.active ? Font.Bold : Font.Medium
+                baseColor: control.danger ? AppTheme.danger : AppTheme.text
+                basePixelSize: 12
+                baseFontWeight: Font.Normal
                 elide: Text.ElideRight
             }
 
-            Text {
+            GText {
+                typographyRole: "sidebar"
                 visible: control.subtitle.length > 0
                 Layout.fillWidth: true
                 text: control.subtitle
-                color: AppTheme.textFaint
-                font.pixelSize: 10
+                baseColor: AppTheme.textFaint
+                basePixelSize: 10
                 elide: Text.ElideMiddle
             }
 
-            Text {
+            GText {
+                typographyRole: "sidebar"
                 visible: control.capacityText.length > 0
                 Layout.fillWidth: true
                 text: control.capacityText
-                color: AppTheme.textMuted
-                font.pixelSize: 10
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
                 elide: Text.ElideRight
             }
 
