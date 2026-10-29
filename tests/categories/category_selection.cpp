@@ -107,12 +107,50 @@ ApplicationWindow {
     require(pane, "active category pane");
     auto directory = pane->property("directory").value<QObject *>();
     require(directory, "real category model");
+    require(until([&] { return pane->property("userLocationSignalsReady").toBool()
+                && !directory->property("loading").toBool(); }),
+            "initial category construction settles before user navigation");
+    int explicitScans = 0;
+    QObject::connect(&index, &ContentIndexModel::scanProgressVisibilityChanged, [&] {
+        if (index.scanProgressVisible()) ++explicitScans;
+    });
     for (const auto &key : keys) {
         evaluate(pane, "navigateTo('category:/" + key + "')");
         const bool ready = until([&] { return !directory->property("loading").toBool() && directory->property("count").toInt() == 4
             && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; });
         if (!ready) std::fprintf(stderr, "category=%s index=%d location=%s count=%d scope=%d visible=%d\n", qPrintable(key), index.countForCategory(key), qPrintable(directory->property("location").toString()), directory->property("count").toInt(), evaluate(pane, "categorySelectionUrls().length").toInt(), pane->property("visible").toBool());
         require(ready, qPrintable("category has all real URLs: " + key));
+        // '+' uses the same location, but must not request a disk reindex or
+        // leave the shared pane/history in its transient tab-switch state.
+        evaluate(page, "addTab('category:/" + key + "', true)");
+        { QEventLoop loop; QTimer::singleShot(60, &loop, &QEventLoop::quit); loop.exec(); }
+        require(until([&] { return !page->property("switchingTabLocation").toBool()
+                && evaluate(page, "currentTab === tabs.length - 1").toBool()
+                && !directory->property("loading").toBool()
+                && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; }),
+                "new category tab restores cached entries and settles navigation");
+        const auto other = key == "images" ? QStringLiteral("videos") : QStringLiteral("images");
+        evaluate(page, "navigateCurrentTab('category:/" + other + "')");
+        require(until([&] { return directory->property("location").toString() == "category:/" + other
+                    && !directory->property("loading").toBool() && evaluate(page, "canGoBack()").toBool(); }),
+                "new category tab accepts navigation");
+        evaluate(page, "goBack()");
+        require(until([&] { return directory->property("location").toString() == "category:/" + key
+                    && !directory->property("loading").toBool() && evaluate(page, "canGoForward()").toBool(); }),
+                "new category tab supports back history");
+        evaluate(page, "goForward()");
+        require(until([&] { return directory->property("location").toString() == "category:/" + other
+                    && !directory->property("loading").toBool(); }), "new category tab supports forward history");
+        evaluate(page, "closeTab(currentTab)");
+        const bool originalRestored = until([&] { return !page->property("switchingTabLocation").toBool()
+                    && directory->property("location").toString() == "category:/" + key
+                    && !directory->property("loading").toBool()
+                    && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; });
+        if (!originalRestored) std::fprintf(stderr, "RESTORE: category=%s location=%s loading=%d scope=%d tabs=%s\n",
+            qPrintable(key), qPrintable(directory->property("location").toString()), directory->property("loading").toBool(),
+            evaluate(pane, "categorySelectionUrls().length").toInt(), qPrintable(evaluate(page, "JSON.stringify(tabs)").toString()));
+        require(originalRestored, "closing the duplicate tab restores the original category");
+        require(explicitScans == 0, "category tabs and navigation never start an explicit reindex");
         require(evaluate(pane, "toggleCategoryUrls(categorySelectionUrls()); selectedCount").toInt() == 4, "select entire category");
         const QStringList selected = pane->property("selectedUrls").toStringList();
         require(selected.size() == 4 && selected[0].startsWith("file:/") && selected.join(',').contains("/second/"), "mixed parent selection stays file based");
@@ -175,6 +213,23 @@ ApplicationWindow {
     require(listing.waitForFinished() && listing.exitCode() == 0, "archive readable");
     const QByteArray members = listing.readAllStandardOutput();
     require(members.contains("first/item-0.txt") && members.contains("second/item-0.txt"), "same basenames have distinct archive paths");
+    evaluate(page, "navigateCurrentTab('category:/images')");
+    require(until([&] { return !directory->property("loading").toBool()
+            && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; }), "image category ready for real deletion");
+    evaluate(pane, "toggleCategoryUrls([categorySelectionUrls()[0]]); performPermanentDelete()");
+    require(until([&] { return !index.indexing() && index.countForCategory("images") == 3
+                && !directory->property("loading").toBool()
+                && evaluate(pane, "categorySelectionUrls().length").toInt() == 3; }),
+            "KIO category deletion reconciles the existing index and visible selection scope");
+    for (const auto &key : keys)
+        require(index.countForCategory(key) == (key == "images" ? 3 : 4),
+                "deleting images preserves every unrelated Home count");
+    require(explicitScans == 0, "category deletion never starts a full explicit scan");
+    evaluate(pane, "refreshDirectory()");
+    require(until([&] { return !index.indexing() && explicitScans == 1; }), "manual category refresh completes");
+    require(index.scanMatchedFiles() == 3, "manual refresh scans only the current image category");
+    for (const auto &key : keys)
+        require(index.countForCategory(key) == (key == "images" ? 3 : 4), "manual refresh preserves all category counts");
     evaluate(pane, "visible = false");
-    std::fprintf(stderr, "PASS: all six category selections, individual toggles, real batch menu, cross-parent clipboard, stable context selection and distinct archive members\n");
+    std::fprintf(stderr, "PASS: six category selections, duplicate tabs, back/forward, KIO deletion, stable index counts, batch menu, clipboard and cross-parent archives\n");
 }

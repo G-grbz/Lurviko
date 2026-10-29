@@ -160,7 +160,6 @@ private:
     QHash<QString, QStringList> m_ignoreRules;
     QHash<QString, IndexedFile> m_files;
     QHash<QString, int> m_counts;
-    QHash<QString, int> m_liveCounts;
     QFileSystemWatcher m_watcher;
     QTimer m_changeDebounce;
     QTimer m_saveDebounce;

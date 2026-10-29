@@ -10,8 +10,9 @@ Folder and category pages show tabs across the top of the window, followed by
 Back, Forward, Up, Refresh, recent locations and the address/search controls.
 The file command row sits below, beside the sidebar's separate **Explore**
 shortcut. The active tab has concave cubic corners that meet the navigation
-surface without a dividing bottom edge. Inactive tabs use the same concave
-sloping profile, meeting in narrow V-shaped gaps. The active tab overlaps its
+surface without a dividing bottom edge. Inactive tabs use the same straight,
+gently sloped sides and small rounded corners, meeting in narrow V-shaped gaps.
+The active tab overlaps its
 neighbours with a thin outline along the top and sides, leaving the bottom
 open. A brief 110 ms color transition highlights selection without blur,
 offscreen textures or continuous animation. Inactive tabs
@@ -19,12 +20,31 @@ blend toward the header background. Labels keep the same position and font
 weight when selection changes. Navigation, sidebar and file workspace share one continuous
 background. Compact controls retain padding inside their row backgrounds. **Explore** stays outside the
 Places section, including when the sidebar is collapsed. The main Explore page keeps its own home search and does
-not show the browser tab or address rows.
+not show the browser tab or address rows. Entering or leaving Explore settles
+the shared header layout immediately, so the outgoing page does not visibly
+shrink or expand while a transition is still running.
 
 In split view, the shared address row follows the active pane. Existing tab
 history, tab scrolling, directory views and shortcuts remain available. Selected
 text in the address field, browser search or home search stays selected when
 opening its context menu, so Copy and Cut apply to that selection.
+
+**View → Continue where I left off** optionally restores the open tabs, their
+order and the selected tab after an accepted window close. It is off by default.
+Closing from Explore, where no browser tabs are open, returns to Explore next
+time. Disabling the option clears the saved session. An explicit folder/file
+manager request takes precedence over a saved session. Search jobs and history
+are not resumed, and URLs containing passwords or token-bearing queries are
+excluded. Saved locations may need authentication again through KIO.
+
+**View → Warn before closing multiple tabs** is on by default. Closing a window
+with several tabs asks for confirmation using Lurviko's modal, including when
+quitting through a shortcut. **Yes** closes the window; **No** keeps it open.
+**Don't ask again** disables the warning with either answer; View can re-enable
+it. Dismissing the modal with Escape does not change the preference.
+
+Administrator locations retain their distinct tab color and **ADM** badge.
+Their navigation and workspace use the regular light, dark or Qt palette.
 
 ## Directory size
 
@@ -33,12 +53,17 @@ count, in IEC units (KiB, MiB, GiB). The calculation includes hidden descendants
 and skips symbolic links. It runs in the background and is cancelled when the
 pane leaves that directory. A short delay avoids scanning locations passed
 through during navigation; transfers take priority over automatic recalculation.
+Automatic scans yield most of the time, using a small budget of roughly 5% of
+one core while work remains. Showing an unchanged pane reuses its ready result.
+Refreshes during a scan are coalesced into a follow-up rather than repeatedly
+cancelling and restarting the tree walk.
 
 Properties shares this calculation and its immediate-child subtotals. Selecting
 all visible items therefore reuses the ready result, or waits for the same
 in-flight scan, rather than starting another recursive walk. Hidden items that
-are not selected are excluded from selection totals. Results are snapshots;
-refreshing the directory recalculates its size.
+are not selected are excluded from selection totals. Opening Properties gives
+the shared scan foreground priority; closing it releases that priority.
+Results are snapshots; refreshing the directory recalculates its size.
 
 ## Video titles and episodes
 
@@ -64,6 +89,11 @@ Actions and Settings controls share the main file command row. They use the
 existing indexed entries and settings dialogs. Card checkboxes select individual files
 without opening them. In Music, album, artist and playlist checkboxes select
 those collections' underlying tracks; repeated tracks are counted once.
+
+Opening or switching category tabs reuses the ready index. Refresh scans only
+the current category; directory watches reconcile additions and deletions.
+Explore counts retain the last completed index while a scan is in progress,
+and change when its results are committed.
 
 Right-clicking a selected item preserves the whole selection. **Actions** opens
 the same context menu for cut, copy, copy actions, batch rename, sharing,

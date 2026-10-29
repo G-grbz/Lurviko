@@ -2667,7 +2667,7 @@ Rectangle {
 
     function refreshDirectory() {
         if (root.isCategoryLocation && root.contentIndexModel)
-            root.contentIndexModel.refresh()
+            root.contentIndexModel.refreshCategory(root.categoryKey)
         else
             directory.refresh()
     }
@@ -3645,13 +3645,24 @@ Rectangle {
         objectName: "directorySizeProperties"
         backgroundStats: true
         Component.onCompleted: root.scheduleDirectorySize()
+        onCalculatingChanged: {
+            if (!calculating && root.directorySizeNeedsRefresh)
+                Qt.callLater(root.scheduleDirectorySize)
+        }
     }
-    function scheduleDirectorySize() {
+    property bool directorySizeNeedsRefresh: true
+    function scheduleDirectorySize(changed) {
+        if (changed) directorySizeNeedsRefresh = true
         if (!root.visible || !root.currentLocationIsLocal || directory.searchActive) {
             directorySizeTimer.stop()
-            directoryProperties.cancelInspection()
+            if (directoryProperties.calculating) directoryProperties.cancelInspection()
             return
         }
+        // Keep an in-flight scan; queue at most one follow-up for real refreshes.
+        // Showing an unchanged pane again can reuse its completed snapshot.
+        if (directoryProperties.calculating) return
+        if (!directorySizeNeedsRefresh && directoryProperties.statsReady
+                && root.locationsEquivalent(directoryProperties.path, directory.location)) return
         directorySizeTimer.restart()
     }
     Timer {
@@ -3659,13 +3670,16 @@ Rectangle {
         interval: 350
         onTriggered: {
             if (fileOps.ioBusy) { directorySizeTimer.restart(); return }
-            if (root.visible && root.currentLocationIsLocal && !directory.searchActive && !directory.loading)
+            if (root.visible && root.currentLocationIsLocal && !directory.searchActive && !directory.loading) {
+                root.directorySizeNeedsRefresh = false
                 directoryProperties.inspect(directory.location)
+            }
         }
     }
     Connections {
         target: root
         function onCurrentLocationChanged() {
+            root.directorySizeNeedsRefresh = true
             directoryProperties.cancelInspection()
             root.scheduleDirectorySize()
         }
@@ -3674,8 +3688,8 @@ Rectangle {
     Connections {
         target: directory
         function onLoadingChanged() { if (!directory.loading) root.scheduleDirectorySize() }
-        function onRefreshCompleted() { root.scheduleDirectorySize() }
-        function onSearchChanged() { root.scheduleDirectorySize() }
+        function onRefreshCompleted() { root.scheduleDirectorySize(true) }
+        function onSearchChanged() { root.scheduleDirectorySize(true) }
     }
 
     FilePropertiesManager {
@@ -7969,6 +7983,7 @@ Rectangle {
             // Start the shared source first so the dialog joins that one scan.
             if (directorySizeTimer.running && root.currentLocationIsLocal && !directory.loading) {
                 directorySizeTimer.stop()
+                root.directorySizeNeedsRefresh = false
                 directoryProperties.inspect(directory.location)
             }
             fileProperties.inspectSelection(selectionUrls)

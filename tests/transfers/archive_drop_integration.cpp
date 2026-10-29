@@ -100,7 +100,10 @@ ApplicationWindow {
         QDragEnterEvent enter(point.toPoint(), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
         QDropEvent drop(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
         app.sendEvent(window, &enter);
-        require(until([&] { return pane->property("dropTargetUrl").toString() == expectedTarget; }),
+        const bool highlighted = until([&] { return pane->property("dropTargetUrl").toString() == expectedTarget; });
+        if (!highlighted) std::fprintf(stderr, "DRAG: x=%.1f y=%.1f expected=%s actual=%s\n", point.x(), point.y(),
+            qPrintable(expectedTarget), qPrintable(pane->property("dropTargetUrl").toString()));
+        require(highlighted,
                 "Ark drag highlights the actual hovered folder before extraction");
         if (!expectedTarget.isEmpty()) {
             auto *entry = qobject_cast<QQuickItem *>(eval(pane,
@@ -147,7 +150,15 @@ ApplicationWindow {
         };
         // Deliver the actual external Ark MIME payload to the real DropArea.
         const auto *item = qobject_cast<QQuickItem *>(pane);
-        const QPointF point = item->mapToScene(QPointF(item->width() - 25, item->height() - 80));
+        const auto *view = qobject_cast<QQuickItem *>(eval(pane, "root.directoryView()").value<QObject *>());
+        require(view && view->isVisible(), "background drop view is available");
+        // Use the reserved scrollbar gutter, outside the file cells. A fixed
+        // point near the pane's bottom can land on a real folder after toolbar,
+        // font or viewport changes, and must then mean that folder instead.
+        const QPointF point = view->mapToScene(QPointF(view->width() + 7, view->height() / 2));
+        const QPointF local = item->mapFromScene(point);
+        require(local.x() >= 0 && local.x() < item->width() && local.y() >= 0 && local.y() < item->height(),
+                "background drop stays inside the pane and outside the file viewport");
         dropAt(point);
         require(until([&] { return extracted; }), "real ZIP extraction finishes");
         require(until([&] {

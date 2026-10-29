@@ -141,8 +141,6 @@ int main(int argc, char **argv) {
         settings.setValue("contentIndex/ignoreRules/" + key, ignores.value(key));
     }
     settings.sync();
-    ContentIndexModel model;
-    model.refresh();
     const auto waitFor = [&](const std::function<bool()> &predicate) {
         QElapsedTimer timer; timer.start();
         while (!predicate() && timer.elapsed() < 10000) {
@@ -150,16 +148,78 @@ int main(int argc, char **argv) {
         }
         return predicate();
     };
-    if (!waitFor([&] { return !model.indexing() && model.totalIndexed() == expected.size(); })) return 6;
-    { QEventLoop loop; QTimer::singleShot(150, &loop, &QEventLoop::quit); loop.exec(); }
-    makeFile(base + "/.sync/Dcim/new.png");
-    if (!waitFor([&] { return !model.indexing() && model.countForCategory("images") == 2; })) return 7;
-    if (!QFile::remove(base + "/.sync/Dcim/new.png")) return 8;
-    if (!waitFor([&] { return !model.indexing() && model.countForCategory("images") == 1; })) return 9;
-    cpu = cpuSeconds();
-    { QEventLoop loop; QTimer::singleShot(2000, &loop, &QEventLoop::quit); loop.exec(); }
-    const double idleCpu = cpuSeconds() - cpu;
-    std::fprintf(stderr, "Automatic add/delete updates passed; 2s idle used %.4f CPU seconds\n", idleCpu);
-    if (idleCpu > 0.1) return 10;
+    {
+        ContentIndexModel model;
+        model.refresh();
+        if (!waitFor([&] { return !model.indexing() && model.totalIndexed() == expected.size(); })) return 6;
+        { QEventLoop loop; QTimer::singleShot(150, &loop, &QEventLoop::quit); loop.exec(); }
+        makeFile(base + "/.sync/Dcim/new.png");
+        if (!waitFor([&] { return !model.indexing() && model.countForCategory("images") == 2; })) return 7;
+        if (!QFile::remove(base + "/.sync/Dcim/new.png")) return 8;
+        if (!waitFor([&] { return !model.indexing() && model.countForCategory("images") == 1; })) return 9;
+        cpu = cpuSeconds();
+        { QEventLoop loop; QTimer::singleShot(2000, &loop, &QEventLoop::quit); loop.exec(); }
+        const double idleCpu = cpuSeconds() - cpu;
+        std::fprintf(stderr, "Automatic add/delete updates passed; 2s idle used %.4f CPU seconds\n", idleCpu);
+        if (idleCpu > 0.1) return 10;
+    }
+
+    // Separate roots reproduce the per-root progress that used to overwrite
+    // every Home card with zeros, even after an unchanged scan had finished.
+    app.setApplicationName("IndexCounts");
+    QTemporaryDir separate;
+    QSettings countSettings;
+    const QHash<QString, QString> suffixes{{"images", ".png"}, {"videos", ".mkv"},
+        {"music", ".mp3"}, {"documents", ".txt"}, {"archives", ".zip"}, {"appimage", ".AppImage"}};
+    for (auto it = suffixes.constBegin(); it != suffixes.constEnd(); ++it) {
+        const QString root = separate.path() + "/" + it.key();
+        makeFile(root + "/sample" + it.value(), it.key() == "videos" ? 1048576 : 32768);
+        countSettings.setValue("contentIndex/mediaRoots/" + it.key(), QStringList{root});
+    }
+    countSettings.sync();
+    ContentIndexModel counts;
+    counts.refresh();
+    if (!waitFor([&] { return !counts.indexing() && counts.totalIndexed() == 6; })) return 11;
+    const auto stableCounts = [&] {
+        for (int row = 0; row < counts.rowCount(); ++row) {
+            const auto item = counts.index(row);
+            const QString key = counts.data(item, ContentIndexModel::KeyRole).toString();
+            const int expectedCount = key == "private" ? 0 : 1;
+            if (counts.countForCategory(key) != expectedCount
+                    || counts.data(item, ContentIndexModel::CountRole).toInt() != expectedCount)
+                qFatal("Committed category count changed during an unchanged scan: %s", qPrintable(key));
+        }
+    };
+    int progressUpdates = 0, countNotifications = 0, fileNotifications = 0;
+    auto progress = QObject::connect(&counts, &ContentIndexModel::scanProgressChanged, [&] {
+        if (counts.scanProgressVisible()) { ++progressUpdates; stableCounts(); }
+    });
+    QObject::connect(&counts, &ContentIndexModel::dataChanged, [&](const QModelIndex &, const QModelIndex &, const QList<int> &roles) {
+        if (roles.contains(ContentIndexModel::CountRole)) ++countNotifications;
+    });
+    QSet<QString> changedCategories;
+    QObject::connect(&counts, &ContentIndexModel::categoryFilesChanged, [&](const QStringList &keys) {
+        ++fileNotifications;
+        for (const auto &key : keys) changedCategories.insert(key);
+    });
+    counts.refresh();
+    if (!waitFor([&] { return !counts.indexing(); })) return 12;
+    stableCounts();
+    if (progressUpdates < 6 || countNotifications != 0 || fileNotifications != 0) return 13;
+    progressUpdates = 0;
+    counts.refreshCategory("images");
+    if (!waitFor([&] { return !counts.indexing(); })) return 14;
+    stableCounts();
+    if (progressUpdates == 0 || countNotifications != 0 || fileNotifications != 0) return 15;
+    QObject::disconnect(progress);
+    // Deletion is reconciled through the existing directory watcher; unrelated
+    // category views must not be torn down or have their counts cleared.
+    if (!waitFor([&] { return counts.m_watcher.directories().contains(separate.path() + "/images"); })) return 16;
+    if (!QFile::remove(separate.path() + "/images/sample.png")) return 17;
+    if (!waitFor([&] { return !counts.indexing() && counts.countForCategory("images") == 0; })) return 18;
+    if (changedCategories != QSet<QString>{"images"}) return 19;
+    for (const auto &key : suffixes.keys())
+        if (key != "images" && counts.countForCategory(key) != 1) return 20;
+    std::fprintf(stderr, "Committed multi-root counts, unchanged refreshes and category-local deletion passed\n");
     return 0;
 }

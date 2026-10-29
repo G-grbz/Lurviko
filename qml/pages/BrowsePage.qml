@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: page
     property string initialLocation: ""
+    property var initialSession: null
     // Only the visual chrome is hosted above the sidebar. Tab history, models
     // and file actions still belong to this page and its existing panes.
     property Item headerHost: null
@@ -17,9 +18,7 @@ Item {
     readonly property real toolbarPopupHeight: Math.max(180, Math.min(620,
         page.height - (page.headerHost ? 6 : page.headerHeight + 6) - commandBar.height - 10))
 
-    readonly property color navigationColor: page.isAdminLocation(page.visibleLocation)
-        ? (AppTheme.dark ? "#3A2A18" : "#FFF0D8")
-        : AppTheme.useQtTheme
+    readonly property color navigationColor: AppTheme.useQtTheme
             ? (AppTheme.translucentWindow ? AppTheme.tint(AppTheme.surfaceRaised, 0.14) : AppTheme.workspace)
             : AppTheme.mix(AppTheme.workspace, AppTheme.surface, 0.55)
 
@@ -50,11 +49,6 @@ Item {
     property var toolbarPressedMenu: null
     property bool toolbarPressedMenuWasOpen: false
 
-    Settings {
-        id: tabBehaviorSettings
-        category: "TabBehavior"
-        property bool activateNewTabs: true
-    }
     onCurrentTabChanged: Qt.callLater(page.ensureActiveTabVisible)
     readonly property string visibleLocation: activePane && activePane.currentLocation !== undefined
                                               ? activePane.currentLocation : initialLocation
@@ -105,6 +99,10 @@ Item {
             "pendingRevealUrl": pendingRevealUrl ? String(pendingRevealUrl) : "",
             "revealAnchorUrl": pendingRevealUrl ? String(pendingRevealUrl) : ""
         }
+    }
+
+    function sessionSnapshot() {
+        return {version: 1, locations: tabs.map(function(tab) { return tab.location }), activeIndex: currentTab}
     }
 
     function withSearchState(tab, state) {
@@ -297,7 +295,8 @@ Item {
                 // is a no-op. A target tab without search still needs its normal
                 // directory model back after the outgoing search was detached.
                 if (sameLocation && !(tab.searchVisible && String(tab.searchQuery || "").trim().length))
-                    leftPane.refreshDirectory()
+                    // Restore the cached category snapshot, not a disk reindex.
+                    leftPane.directory.refresh()
                 const restoredSearch = leftPane.restoreSearchState(tab, false)
                 if (!restoredSearch && !pendingRevealUrl.length && !revealAnchorUrl.length)
                     leftPane.restorePendingTabScroll()
@@ -371,7 +370,7 @@ Item {
 
     function addTab(location, activateOverride) {
         const target = location && location.length ? location : leftPane.currentLocation
-        const activate = activateOverride !== undefined ? !!activateOverride : tabBehaviorSettings.activateNewTabs
+        const activate = activateOverride !== undefined ? !!activateOverride : BrowserSession.activateNewTabs
         var next = tabs.slice()
         next.push(makeTab(target))
         tabs = next
@@ -408,7 +407,7 @@ Item {
     }
 
     function revealInNewTab(location, itemUrl) {
-        const activate = tabBehaviorSettings.activateNewTabs
+        const activate = BrowserSession.activateNewTabs
         var next = tabs.slice()
         next.push(makeTab(location, itemUrl))
         tabs = next
@@ -637,7 +636,9 @@ Item {
 
     Component.onCompleted: {
         const start = initialLocation.length ? initialLocation : StandardPaths.writableLocation(StandardPaths.HomeLocation)
-        tabs = [makeTab(start)]
+        const restored = BrowserSession.normalize(initialSession)
+        tabs = restored ? restored.locations.map(function(location) { return page.makeTab(location) }) : [makeTab(start)]
+        if (restored) currentTab = restored.activeIndex
         sidebarLocationChanged(start)
     }
 
@@ -975,8 +976,22 @@ Item {
         GMenuItem {
             text: lang.language === "tr" ? "Yeni sekmeye otomatik geç" : "Switch to newly opened tab"
             checkable: true
-            checked: tabBehaviorSettings.activateNewTabs
-            onTriggered: tabBehaviorSettings.activateNewTabs = !tabBehaviorSettings.activateNewTabs
+            checked: BrowserSession.activateNewTabs
+            onTriggered: BrowserSession.setActivateNewTabs(!BrowserSession.activateNewTabs)
+        }
+        GMenuItem {
+            objectName: "resumeSessionMenuItem"
+            text: lang.t("resume_previous_session")
+            checkable: true
+            checked: BrowserSession.resumeSession
+            onTriggered: BrowserSession.setResumeSession(!BrowserSession.resumeSession)
+        }
+        GMenuItem {
+            objectName: "warnOnMultipleTabsMenuItem"
+            text: lang.t("warn_closing_multiple_tabs")
+            checkable: true
+            checked: BrowserSession.warnOnMultipleTabs
+            onTriggered: BrowserSession.setWarnOnMultipleTabs(!BrowserSession.warnOnMultipleTabs)
         }
         GMenuSeparator {}
         GMenuItem {
@@ -1166,7 +1181,7 @@ Item {
             id: tabsBar
             objectName: "browserTabsBar"
             Layout.fillWidth: true
-            implicitHeight: Math.max(44, AppTheme.typographySize("menu", 11) + 22)
+            implicitHeight: Math.max(40, AppTheme.typographySize("menu", 11) + 18)
             color: "transparent"
             RowLayout {
                 id: tabStrip
@@ -1315,8 +1330,8 @@ Item {
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: 26
-                                    anchors.rightMargin: 16
-                                    anchors.topMargin: 8
+                                    anchors.rightMargin: 26
+                                    anchors.topMargin: 4
                                     anchors.bottomMargin: 0
                                     spacing: 6
                                     Rectangle {
@@ -1363,8 +1378,8 @@ Item {
                                     anchors.bottom: parent.bottom
                                     anchors.right: parent.right
                                     // Keep the selection hit area outside the close button
-                                    // (16 px inset + 22 px button) in the curved body.
-                                    anchors.rightMargin: page.tabs.length > 1 ? 38 : 0
+                                    // (26 px inset + 22 px button) in the curved body.
+                                    anchors.rightMargin: page.tabs.length > 1 ? 48 : 0
                                     acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
@@ -1389,13 +1404,15 @@ Item {
     
                 GButton {
                     id: newTabButton
+                    objectName: "browserNewTabButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
                     display: AbstractButton.IconOnly
                     icon.source: AppTheme.icon("plus.svg")
-                    icon.width: 16; icon.height: 16
-                    implicitWidth: 34; implicitHeight: 34
-                    Layout.alignment: Qt.AlignBottom
+                    icon.width: 14; icon.height: 14
+                    implicitWidth: 28; implicitHeight: 28
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.topMargin: 4
                     GToolTip {
                         text: lang.t("new_tab")
                     }
@@ -1471,18 +1488,18 @@ Item {
                 }
                 Repeater {
                     model: [
-                        {key: "cut", icon: "edit-cut.svg", systemIcon: "edit-cut", label: lang.t("cut")},
-                        {key: "copy", icon: "edit-copy.svg", systemIcon: "edit-copy", label: lang.t("copy")},
-                        {key: "paste", icon: "edit-paste.svg", systemIcon: "edit-paste", label: lang.t("paste")},
-                        {key: "rename", icon: "edit-rename.svg", systemIcon: "edit-rename", label: lang.t("rename")},
-                        {key: "trash", icon: "delete.svg", systemIcon: "user-trash", label: lang.t("trash")},
-                        {key: "properties", icon: "properties.svg", systemIcon: "document-properties", label: lang.t("properties")}
+                        {key: "cut", icon: "edit-cut.svg", label: lang.t("cut")},
+                        {key: "copy", icon: "edit-copy.svg", label: lang.t("copy")},
+                        {key: "paste", icon: "edit-paste.svg", label: lang.t("paste")},
+                        {key: "rename", icon: "edit-rename.svg", label: lang.t("rename")},
+                        {key: "trash", icon: "delete.svg", label: lang.t("trash")},
+                        {key: "properties", icon: "properties.svg", label: lang.t("properties")}
                     ]
                     delegate: GToolButton {
                         required property var modelData
                         objectName: "command_" + modelData.key
                         implicitWidth: 34; implicitHeight: commandControls.controlHeight
-                        icon.source: AppTheme.useSystemIcons ? AppTheme.systemIcon(modelData.systemIcon) : AppTheme.icon(modelData.icon)
+                        icon.source: AppTheme.icon(modelData.icon)
                         icon.width: 18; icon.height: 18
                         enabled: modelData.key === "paste" ? page.activePane.canPasteHere
                                  : page.activePane.selectedCount > 0

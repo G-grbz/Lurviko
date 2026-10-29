@@ -47,6 +47,7 @@ ApplicationWindow {
     property bool windowStateReady: false
     property string lastExternalRevealKey: ""
     property double lastExternalRevealTime: 0
+    property bool tabCloseApproved: false
 
     Settings {
         id: windowSettings
@@ -115,10 +116,11 @@ ApplicationWindow {
     property var appCloudIntegrationPreferences: cloudIntegrationPreferences
 
     Shortcut {
+        objectName: "quitApplicationShortcut"
         sequences: KeyboardShortcuts.bindings["quit"]
         enabled: !KeyboardShortcuts.editorOpen
         context: Qt.ApplicationShortcut
-        onActivated: Qt.quit()
+        onActivated: root.close()
     }
     property int modeBeforeFullScreen: Window.Windowed
     // Media viewers temporarily own F11 while open so the application-level
@@ -278,6 +280,17 @@ ApplicationWindow {
             root.visibility = Window.Windowed
         }
         windowStateReady = true
+        // Explicit file-manager/command-line requests take precedence over a
+        // saved session. Restoration runs before the first visible frame.
+        if (!launchLocation.length && !fileManagerActivation) {
+            const session = BrowserSession.load()
+            if (session) {
+                homeForwardLocation = session.locations[session.activeIndex]
+                stack.replace(browseComponent, {
+                    initialLocation: homeForwardLocation, initialSession: session
+                }, StackView.Immediate)
+            }
+        }
     }
 
     onVisibilityChanged: function(newVisibility) {
@@ -295,6 +308,16 @@ ApplicationWindow {
     }
 
     onClosing: function(close) {
+        const current = stack.currentItem
+        const tabCount = current && current.tabs !== undefined ? current.tabs.length : 0
+        if (!tabCloseApproved && BrowserSession.warnOnMultipleTabs && tabCount > 1) {
+            close.accepted = false
+            if (!closeTabsPopup.visible) closeTabsPopup.open()
+            return
+        }
+        tabCloseApproved = false
+        BrowserSession.save(current && typeof current.sessionSnapshot === "function"
+            ? current.sessionSnapshot() : null)
         // Persist the stable mode before Plasma/Qt starts hiding the window.
         // This avoids a close transition accidentally replacing Maximized or
         // FullScreen with Windowed.
@@ -306,10 +329,98 @@ ApplicationWindow {
         }
 
         // Do not keep a hidden single-instance process alive after the main
-        // window is closed.  A future `lurviko` launch must create a fresh
-        // process and therefore start from the normal Discover page.
+        // window is closed. A future launch restores the opted-in session,
+        // or starts from Discover when that preference is disabled.
         close.accepted = true
         Qt.callLater(function() { Qt.quit() })
+    }
+
+    function resolveTabClose(accepted) {
+        if (rememberTabCloseChoice.checked)
+            BrowserSession.setWarnOnMultipleTabs(false)
+        closeTabsPopup.close()
+        if (accepted) {
+            tabCloseApproved = true
+            root.close()
+        }
+    }
+
+    GModalPopup {
+        id: closeTabsPopup
+        objectName: "closeTabsPopup"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(460, root.width - 48)
+        height: closeTabsContent.implicitHeight + topPadding + bottomPadding
+        closePolicy: Popup.CloseOnEscape
+        onOpened: rememberTabCloseChoice.checked = false
+        background: GModalSurface { sourceItem: mainShell }
+        contentItem: ColumnLayout {
+            id: closeTabsContent
+            spacing: 14
+            GText {
+                Layout.fillWidth: true
+                text: lang.t("close_tabs_title")
+                typographyRole: "subtitle"
+                basePixelSize: 18
+                baseBold: true
+                baseColor: AppTheme.text
+                wrapMode: Text.WordWrap
+            }
+            GText {
+                Layout.fillWidth: true
+                text: lang.t("close_tabs_message").arg(stack.currentItem && stack.currentItem.tabs !== undefined
+                    ? stack.currentItem.tabs.length : 0)
+                basePixelSize: 13
+                baseColor: AppTheme.textMuted
+                wrapMode: Text.WordWrap
+            }
+            GCheckBox {
+                id: rememberTabCloseChoice
+                objectName: "rememberTabCloseChoice"
+                text: lang.t("dont_ask_again")
+                tristate: false
+            }
+            GText {
+                Layout.fillWidth: true
+                text: lang.t("tab_warning_preferences_hint")
+                basePixelSize: 11
+                baseColor: AppTheme.textMuted
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                GModalButton {
+                    objectName: "closeTabsNoButton"
+                    text: lang.t("confirm_no")
+                    onClicked: root.resolveTabClose(false)
+                }
+                GModalButton {
+                    objectName: "closeTabsYesButton"
+                    text: lang.t("confirm_yes")
+                    primary: true
+                    onClicked: root.resolveTabClose(true)
+                }
+            }
+        }
+    }
+
+    function pushBrowser(location) {
+        // The shared header changes the workspace's available height. Settle
+        // that layout in one frame instead of resizing an outgoing home page
+        // while it is still visible in a slide transition.
+        const current = stack.currentItem
+        const operation = current && current.headerHeight !== undefined
+            ? StackView.PushTransition : StackView.Immediate
+        stack.push(browseComponent, { initialLocation: location }, operation)
+    }
+
+    function popPage(target) {
+        const current = stack.currentItem
+        const sameChrome = !!(current && current.headerHeight !== undefined)
+            === !!(target && target.headerHeight !== undefined)
+        stack.pop(target, sameChrome ? StackView.PopTransition : StackView.Immediate)
     }
 
     function browse(location) {
@@ -323,7 +434,7 @@ ApplicationWindow {
             return
         }
         homeForwardLocation = location
-        stack.push(browseComponent, { initialLocation: location })
+        pushBrowser(location)
     }
 
     function openInNewTab(location) {
@@ -337,7 +448,7 @@ ApplicationWindow {
             return
         }
         homeForwardLocation = location
-        stack.push(browseComponent, { initialLocation: location })
+        pushBrowser(location)
     }
 
     function handleExternalOpen(location) {
@@ -347,7 +458,7 @@ ApplicationWindow {
         if (waitingForExternalLocation) {
             waitingForExternalLocation = false
             homeForwardLocation = location
-            stack.replace(browseComponent, { initialLocation: location })
+            stack.replace(browseComponent, { initialLocation: location }, StackView.Immediate)
             return
         }
         const current = stack.currentItem
@@ -392,7 +503,7 @@ ApplicationWindow {
         if (waitingForExternalLocation) {
             waitingForExternalLocation = false
             homeForwardLocation = location
-            stack.replace(browseComponent, { initialLocation: location })
+            stack.replace(browseComponent, { initialLocation: location }, StackView.Immediate)
             Qt.callLater(function() {
                 const startupPage = stack.currentItem
                 if (startupPage && startupPage.activePane)
@@ -405,7 +516,7 @@ ApplicationWindow {
             current.revealInNewTab(location, itemUrl)
             return
         }
-        stack.push(browseComponent, { initialLocation: location })
+        pushBrowser(location)
         Qt.callLater(function() {
             const browsePage = stack.currentItem
             if (browsePage && browsePage.activePane)
@@ -423,7 +534,7 @@ ApplicationWindow {
             current.activePane.startSearch(q, true)
             return
         }
-        stack.push(browseComponent, { initialLocation: home })
+        pushBrowser(home)
         Qt.callLater(function() {
             const page = stack.currentItem
             if (page && page.activePane && typeof page.activePane.startSearch === "function")
@@ -443,7 +554,7 @@ ApplicationWindow {
         const location = "category:/" + key
         sidebarLocation = location
         homeForwardLocation = location
-        stack.push(browseComponent, { initialLocation: location })
+        pushBrowser(location)
     }
 
     function showHome() {
@@ -456,9 +567,9 @@ ApplicationWindow {
         }
         waitingForExternalLocation = false
         if (stack.depth > 1)
-            stack.pop(null)
+            popPage(stack.get(0))
         else if (current && typeof current.currentTabLocation === "function")
-            stack.replace(homeComponent)
+            stack.replace(homeComponent, StackView.Immediate)
     }
 
     function homeForward() {
@@ -489,6 +600,7 @@ ApplicationWindow {
         id: mainShell
         anchors.fill: parent
         anchors.margins: AppTheme.shellMargin
+        anchors.topMargin: browserChromeHost.visible ? 4 : AppTheme.shellMargin
         spacing: 0
         Item {
             id: browserChromeHost
@@ -547,6 +659,7 @@ ApplicationWindow {
 
                 StackView {
                     id: stack
+                    objectName: "pageStack"
                     anchors.fill: parent
                     anchors.margins: browserChromeHost.visible ? 0 : 1
                     clip: true
@@ -716,7 +829,7 @@ ApplicationWindow {
             root.raise()
             root.requestActivate()
         }
-        function onQuitRequested() { Qt.quit() }
+        function onQuitRequested() { root.close() }
     }
 
     Connections {
@@ -858,7 +971,7 @@ ApplicationWindow {
             onCloseRequested: {
                 root.sidebarLocation = ""
                 if (stack.depth > 1)
-                    stack.pop()
+                    root.popPage(stack.get(stack.depth - 2))
                 else
                     stack.replace(homeComponent)
             }
@@ -918,7 +1031,7 @@ ApplicationWindow {
                 // page underneath this BrowsePage.
                 if (stack.depth > 1) {
                     root.sidebarLocation = ""
-                    stack.pop()
+                    root.popPage(stack.get(stack.depth - 2))
                 }
             }
             onSidebarLocationChanged: function(location) { root.sidebarLocation = location }

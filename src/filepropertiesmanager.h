@@ -185,4 +185,6 @@ private:
     bool m_calculating = false;
     int m_generation = 0;
     std::shared_ptr<std::atomic_bool> m_statsCancelled;
+    std::shared_ptr<std::atomic_int> m_statsDemand;
+    std::shared_ptr<std::atomic_int> m_waitingStatsDemand;
 };

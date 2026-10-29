@@ -11,7 +11,9 @@ python3 tests/test-source-uninstall.py
 python3 tests/run-security-tests.py
 python3 tests/run-memory-tests.py
 python3 tests/run-history-tests.py
+python3 tests/run-index-tests.py
 python3 tests/run-category-selection-tests.py
+python3 tests/run-browser-session-tests.py
 python3 tests/run-columns-tests.py
 python3 tests/run-search-tests.py
 python3 tests/run-git-tests.py
@@ -37,6 +39,10 @@ xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QSG_RHI_BACKEND=opengl \
     LURVIKO_APPEARANCE_QPA=xcb LURVIKO_APPEARANCE_BACKEND=rhi \
     LURVIKO_APPEARANCE_SCALES=1,1.5 \
     python3 tests/run-desktop-appearance-tests.py
+# Keep tab outlines smooth at fractional scales on the real shape renderer.
+xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QSG_RHI_BACKEND=opengl \
+    LURVIKO_QML_TEST_QPA=xcb LURVIKO_QML_TEST_BACKEND=rhi \
+    LURVIKO_QML_TEST_FILE=tst_FluidTabs.qml python3 tests/run-qml-tests.py
 # Exercise real effect/mask lifetimes: the software Qt Quick backend skips them.
 xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QSG_RHI_BACKEND=opengl \
     LURVIKO_QML_TEST_QPA=xcb LURVIKO_QML_TEST_BACKEND=rhi \

@@ -449,10 +449,8 @@ QVariantList ContentIndexModel::filesForCategory(const QString &key) const
 
 int ContentIndexModel::countForCategory(const QString &key) const
 {
-    if (m_scanProgressVisible && m_scanRunning && m_activeSubtree.isEmpty() && !m_liveCounts.isEmpty()) {
-        if (m_activeCategory.isEmpty() || m_activeCategory == key)
-            return m_liveCounts.value(key, 0);
-    }
+    // Cards and category snapshots share the last committed index. Per-root
+    // scan progress is incomplete and must never replace these counts.
     return m_counts.value(key, 0);
 }
 
@@ -1304,7 +1302,6 @@ void ContentIndexModel::startFullScan(bool showProgress)
     m_scanRunning = true;
     m_activeSubtree.clear();
     m_activeCategory.clear();
-    m_liveCounts.clear();
     m_scanProcessedDirectories = 0;
     m_scanVisitedEntries = 0;
     m_scanMatchedFiles = 0;
@@ -1374,11 +1371,11 @@ void ContentIndexModel::startFullScan(bool showProgress)
                                                                                              int pendingDirectories,
                                                                                              int visitedEntries,
                                                                                              int matchedFiles,
-                                                                                             const QHash<QString, int> &counts) {
+                                                                                             const QHash<QString, int> &) {
                 if (!self)
                     return;
                 QMetaObject::invokeMethod(self, [self, generation, completedRoots, scanRoots, processedDirectories,
-                                                 pendingDirectories, visitedEntries, matchedFiles, counts] {
+                                                 pendingDirectories, visitedEntries, matchedFiles] {
                     if (!self || self->m_scanGeneration != generation || !self->m_scanRunning
                             || !self->m_activeSubtree.isEmpty() || !self->m_activeCategory.isEmpty())
                         return;
@@ -1386,10 +1383,7 @@ void ContentIndexModel::startFullScan(bool showProgress)
                     self->m_scanPendingDirectories = pendingDirectories + qMax(0, int(scanRoots.size()) - completedRoots - 1);
                     self->m_scanVisitedEntries = qMax(self->m_scanVisitedEntries, visitedEntries);
                     self->m_scanMatchedFiles = qMax(self->m_scanMatchedFiles, matchedFiles);
-                    self->m_liveCounts = counts;
                     emit self->scanProgressChanged();
-                    if (self->m_scanProgressVisible && !self->m_categories.isEmpty())
-                        emit self->dataChanged(self->index(0), self->index(self->m_categories.size() - 1), {CountRole});
                 }, Qt::QueuedConnection);
             };
             mergeResult(aggregate, ContentIndexModel::scanTree(rootPath, enabledHidden, categoryRoots,
@@ -1415,7 +1409,6 @@ void ContentIndexModel::startCategoryScan(const QString &category, bool showProg
     m_scanRunning = true;
     m_activeSubtree.clear();
     m_activeCategory = key;
-    m_liveCounts.clear();
     m_scanProcessedDirectories = 0;
     m_scanVisitedEntries = 0;
     m_scanMatchedFiles = 0;
@@ -1486,11 +1479,11 @@ void ContentIndexModel::startCategoryScan(const QString &category, bool showProg
                                                                                                   int pendingDirectories,
                                                                                                   int visitedEntries,
                                                                                                   int matchedFiles,
-                                                                                                  const QHash<QString, int> &counts) {
+                                                                                                  const QHash<QString, int> &) {
                 if (!self)
                     return;
                 QMetaObject::invokeMethod(self, [self, generation, key, completedRoots, scanRoots, processedDirectories,
-                                                 pendingDirectories, visitedEntries, matchedFiles, counts] {
+                                                 pendingDirectories, visitedEntries, matchedFiles] {
                     if (!self || self->m_scanGeneration != generation || !self->m_scanRunning
                             || self->m_activeCategory != key)
                         return;
@@ -1498,7 +1491,6 @@ void ContentIndexModel::startCategoryScan(const QString &category, bool showProg
                     self->m_scanPendingDirectories = pendingDirectories + qMax(0, int(scanRoots.size()) - completedRoots - 1);
                     self->m_scanVisitedEntries = visitedEntries;
                     self->m_scanMatchedFiles = matchedFiles;
-                    self->m_liveCounts = counts;
                     emit self->scanProgressChanged();
                 }, Qt::QueuedConnection);
             };
@@ -1603,7 +1595,6 @@ void ContentIndexModel::applyFullScan(const ScanResult &result)
         m_files = result.files;
         m_counts = result.counts;
     }
-    m_liveCounts.clear();
     m_scanProcessedDirectories = result.directories.size();
     m_scanPendingDirectories = 0;
     m_scanVisitedEntries = qMax(m_scanVisitedEntries, m_files.size());
@@ -1654,7 +1645,6 @@ void ContentIndexModel::applyCategoryScan(const QString &category, const ScanRes
     // discard a perfectly valid cache after a rules-only change.
     m_saveDebounce.start();
 
-    m_liveCounts.clear();
     m_scanProcessedDirectories = result.directories.size();
     m_scanPendingDirectories = 0;
     m_scanMatchedFiles = result.files.size();

@@ -39,4 +39,4 @@ with tempfile.TemporaryDirectory(prefix="lurviko-category-selection-") as tempor
     command = [str(root / "category-selection-tests")]
     if os.environ.get("LURVIKO_CATEGORY_GDB") == "1":
         command = ["gdb", "-batch", "-ex", "run", "-ex", "bt", "--args", *command]
-    subprocess.run(command, env=environment, check=True, timeout=90)
+    subprocess.run(["dbus-run-session", "--", *command], env=environment, check=True, timeout=90)

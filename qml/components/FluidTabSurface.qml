@@ -16,7 +16,9 @@ Item {
     readonly property bool selectionAnimating: selectionTween.running
     // Native Window/Base brushes can be almost identical. Use the desktop's
     // own highlight for selection instead of relying on a 4%/14% alpha change.
-    readonly property color activeColor: AppTheme.useQtTheme && !administrator
+    readonly property color activeColor: administrator
+        ? (AppTheme.dark ? "#3A2A18" : "#FFF0D8")
+        : AppTheme.useQtTheme
         ? AppTheme.tint(AppTheme.mix(AppTheme.surfaceRaised, AppTheme.accent, 0.14),
                         AppTheme.translucentWindow ? 0.62 : 1)
         : navigationColor
@@ -38,44 +40,57 @@ Item {
         NumberAnimation { id: selectionTween; duration: 110; easing.type: Easing.OutCubic }
     }
     readonly property real wing: Math.min(18, width / 6)
-    readonly property real corner: Math.min(14, height / 3)
+    readonly property real corner: Math.min(8, (height - capTop) / 3)
     // Selection never changes geometry or the text's vertical origin.
-    readonly property real capTop: 8
+    readonly property real capTop: 4
     readonly property real base: height
-    readonly property real lowerRadius: wing
-    // Sloped cubic shoulders meet in a narrow V between overlapping tabs.
-    // There is no vertical side wall or bottom outline joining neighbouring tabs.
+    readonly property real lowerRadius: Math.min(6, (height - capTop) / 4)
+    readonly property real sideInset: Math.min(6, wing / 3)
+    readonly property real sideHeight: base - lowerRadius - capTop - corner
+    readonly property real tangentRise: Math.min(corner, lowerRadius, sideHeight / 2) * 0.55
+    readonly property real tangentRun: sideHeight > 0 ? sideInset * tangentRise / sideHeight : 0
+    // Straight shoulders join small rounded corners with matching tangents.
+    // Mirroring the same points keeps both sides smooth at fractional scales.
     component Contour: ShapePath {
         property bool closeBottom: false
         startX: 0
         startY: surface.base
         PathCubic {
-            x: surface.wing; y: surface.capTop + 8
-            control1X: surface.wing * 0.67; control1Y: surface.base
-            control2X: surface.wing * 0.56; control2Y: surface.capTop + 18
+            x: surface.wing - surface.sideInset; y: surface.base - surface.lowerRadius
+            control1X: (surface.wing - surface.sideInset) / 2; control1Y: surface.base
+            control2X: surface.wing - surface.sideInset - surface.tangentRun
+            control2Y: surface.base - surface.lowerRadius + surface.tangentRise
         }
+        PathLine { x: surface.wing; y: surface.capTop + surface.corner }
         PathCubic {
             x: surface.wing + surface.corner; y: surface.capTop
-            control1X: surface.wing + 2; control1Y: surface.capTop + 2
-            control2X: surface.wing + surface.corner * 0.55; control2Y: surface.capTop
+            control1X: surface.wing + surface.tangentRun
+            control1Y: surface.capTop + surface.corner - surface.tangentRise
+            control2X: surface.wing + surface.corner / 2; control2Y: surface.capTop
         }
         PathLine { x: surface.width - surface.wing - surface.corner; y: surface.capTop }
         PathCubic {
-            x: surface.width - surface.wing; y: surface.capTop + 8
-            control1X: surface.width - surface.wing - surface.corner * 0.55; control1Y: surface.capTop
-            control2X: surface.width - surface.wing - 2; control2Y: surface.capTop + 2
+            x: surface.width - surface.wing; y: surface.capTop + surface.corner
+            control1X: surface.width - surface.wing - surface.corner / 2; control1Y: surface.capTop
+            control2X: surface.width - surface.wing - surface.tangentRun
+            control2Y: surface.capTop + surface.corner - surface.tangentRise
         }
+        PathLine { x: surface.width - surface.wing + surface.sideInset; y: surface.base - surface.lowerRadius }
         PathCubic {
             x: surface.width; y: surface.base
-            control1X: surface.width - surface.wing * 0.56; control1Y: surface.capTop + 18
-            control2X: surface.width - surface.wing * 0.67; control2Y: surface.base
+            control1X: surface.width - surface.wing + surface.sideInset + surface.tangentRun
+            control1Y: surface.base - surface.lowerRadius + surface.tangentRise
+            control2X: surface.width - (surface.wing - surface.sideInset) / 2; control2Y: surface.base
         }
         PathLine { x: closeBottom ? 0 : surface.width; y: surface.base }
     }
 
     Shape {
         anchors.fill: parent
-        preferredRendererType: Shape.GeometryRenderer
+        // Native curve antialiasing needs no layer, blur texture or MSAA.
+        // Qt's software backend automatically uses its raster fallback.
+        preferredRendererType: Shape.CurveRenderer
+        antialiasing: true
         Contour {
             fillColor: surface.fillColor
             strokeColor: "transparent"

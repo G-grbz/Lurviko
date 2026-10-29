@@ -14,6 +14,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QHash>
 
 #include <cerrno>
 #include <cstdio>
@@ -36,6 +37,13 @@ struct FolderStats {
     int files = 0;
     int folders = 0;
     QVariantMap children;
+};
+
+struct ChildStats {
+    qint64 bytes = 0;
+    int files = 0;
+    int folders = 0;
+    bool directory = false;
 };
 
 QString localPathFromInput(const QString &value, const QString &baseDirectory)
@@ -107,6 +115,10 @@ void FilePropertiesManager::cancelInspection()
 {
     ++m_generation;
     disconnect(m_statsConnection);
+    if (m_waitingStatsDemand) {
+        m_waitingStatsDemand->fetch_sub(1, std::memory_order_relaxed);
+        m_waitingStatsDemand.reset();
+    }
     m_statsReady = false;
     m_childStats.clear();
     if (m_statsCancelled) m_statsCancelled->store(true);
@@ -123,6 +135,12 @@ bool FilePropertiesManager::reuseStatsOrWait(const QStringList &paths, bool sele
     for (const auto &path : paths)
         if (path != source->m_path && QFileInfo(path).absolutePath() != source->m_path) return false;
     if (source->calculating()) {
+        // Properties joins the footer's existing scan with foreground priority.
+        // Closing the consumer releases that demand without cancelling its owner.
+        if (!m_backgroundStats && source->m_statsDemand) {
+            m_waitingStatsDemand = source->m_statsDemand;
+            m_waitingStatsDemand->fetch_add(1, std::memory_order_relaxed);
+        }
         setCalculating(true);
         m_statsConnection = connect(source, &FilePropertiesManager::calculatingChanged, this,
             [this, paths, selection, generation] {
@@ -162,6 +180,7 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     }
     cancelInspection();
     m_statsCancelled = std::make_shared<std::atomic_bool>(false);
+    m_statsDemand = std::make_shared<std::atomic_int>(0);
     const auto cancelled = m_statsCancelled;
     const int generation = m_generation;
     const QUrl url = QUrl::fromUserInput(urlOrPath);
@@ -243,35 +262,46 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     });
     const QString root = m_path;
     const bool background = m_backgroundStats;
-    watcher->setFuture(QtConcurrent::run([root, cancelled, background]() {
+    const auto demand = m_statsDemand;
+    watcher->setFuture(QtConcurrent::run([root, cancelled, background, demand]() {
         FolderStats stats;
+        QHash<QString, ChildStats> children;
         QElapsedTimer budget; budget.start();
-        const QDir rootDirectory(root);
+        const qsizetype prefixLength = root.size() + (root.endsWith(QLatin1Char('/')) ? 0 : 1);
         QDirIterator it(root,
                         QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
                         QDirIterator::Subdirectories);
         while (!cancelled->load() && it.hasNext()) {
             it.next();
             const QFileInfo item = it.fileInfo();
-            const QString relative = rootDirectory.relativeFilePath(item.absoluteFilePath());
-            const QString topName = relative.section(QLatin1Char('/'), 0, 0);
-            const QString topPath = rootDirectory.filePath(topName);
-            auto child = stats.children.value(topPath).toMap();
-            const bool topLevel = !relative.contains(QLatin1Char('/'));
-            if (topLevel) child.insert("directory", item.isDir() && !item.isSymLink());
+            // Iterator paths already share the absolute root prefix. Avoid
+            // relative-path normalization and QVariantMap copies for every file.
+            const QString path = it.filePath();
+            const qsizetype slash = path.indexOf(QLatin1Char('/'), prefixLength);
+            const bool topLevel = slash < 0;
+            auto &child = children[topLevel ? path : path.left(slash)];
+            if (topLevel) child.directory = item.isDir() && !item.isSymLink();
             if (!item.isSymLink()) {
                 if (item.isDir()) {
                     ++stats.folders;
-                    child.insert("folders", child.value("folders").toInt() + 1);
+                    ++child.folders;
                 } else if (item.isFile()) {
-                    ++stats.files; stats.bytes += item.size();
-                    child.insert("files", child.value("files").toInt() + 1);
-                    child.insert("bytes", child.value("bytes").toLongLong() + item.size());
+                    const auto bytes = item.size();
+                    ++stats.files; stats.bytes += bytes;
+                    ++child.files; child.bytes += bytes;
                 }
             }
-            stats.children.insert(topPath, child);
-            if (background && budget.elapsed() >= 8) { QThread::msleep(8); budget.restart(); }
+            // Automatic totals get ~5% of one core, rather than the old 50%.
+            // A visible Properties consumer temporarily removes this throttle.
+            if (background && demand->load(std::memory_order_relaxed) == 0 && budget.elapsed() >= 2) {
+                QThread::msleep(38);
+                budget.restart();
+            }
         }
+        if (cancelled->load()) return FolderStats{};
+        for (auto child = children.constBegin(); child != children.constEnd(); ++child)
+            stats.children.insert(child.key(), QVariantMap{{"bytes", child->bytes}, {"files", child->files},
+                {"folders", child->folders}, {"directory", child->directory}});
         return stats;
     }));
 }
@@ -290,6 +320,7 @@ void FilePropertiesManager::inspectSelection(const QStringList &urls)
     if (selection.size() == 1) { inspect(urls.first()); return; }
     cancelInspection();
     m_statsCancelled = std::make_shared<std::atomic_bool>(false);
+    m_statsDemand = std::make_shared<std::atomic_int>(0);
     const auto cancelled = m_statsCancelled;
     const int generation = m_generation;
     m_selection = selection;

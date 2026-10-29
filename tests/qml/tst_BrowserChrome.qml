@@ -131,6 +131,46 @@ Item {
                     if (row.children[i].objectName === "browserTab" + index) return row.children[i]
                 return null
             }
+            function test_tab_buttons_are_centered_and_inside_the_contour() {
+                const savedTabs = page.tabs
+                const savedCurrent = page.currentTab
+                try {
+                    page.tabs = [page.makeTab(String(fileArtworkFixtureUrl)), page.makeTab(String(fileArtworkFixtureUrl))]
+                    page.switchToTab(0, true)
+                    wait(80)
+                    const tab = visualTab(0)
+                    const surface = findChild(tab, "fluidTabSurface")
+                    const close = findChild(tab, "browserTabClose")
+                    const plus = findChild(page, "browserNewTabButton")
+                    verify(plus.width <= 28 && plus.height <= 28)
+                    const faceCenter = tab.mapToItem(window.contentItem, 0, (surface.capTop + tab.height) / 2)
+                    fuzzyCompare(plus.mapToItem(window.contentItem, 0, plus.height / 2).y, faceCenter.y, 0.5)
+                    mouseMove(close, close.width / 2, close.height / 2)
+                    verify(close.mapToItem(tab, close.width, close.height / 2).x <= tab.width - surface.wing - 4,
+                        "Close hover stays inside the curved right border")
+                } finally {
+                    page.tabs = savedTabs
+                    page.switchToTab(savedCurrent, true)
+                }
+            }
+            function test_view_session_preferences_are_shared_and_reversible() {
+                const savedResume = BrowserSession.resumeSession
+                const savedWarn = BrowserSession.warnOnMultipleTabs
+                try {
+                    const resume = findChild(page, "resumeSessionMenuItem")
+                    const warn = findChild(page, "warnOnMultipleTabsMenuItem")
+                    verify(resume.checkable && warn.checkable)
+                    resume.triggered()
+                    compare(BrowserSession.resumeSession, !savedResume)
+                    compare(resume.checked, !savedResume)
+                    warn.triggered()
+                    compare(BrowserSession.warnOnMultipleTabs, !savedWarn)
+                    compare(warn.checked, !savedWarn)
+                } finally {
+                    BrowserSession.setResumeSession(savedResume)
+                    BrowserSession.setWarnOnMultipleTabs(savedWarn)
+                }
+            }
             function test_fluid_tabs_join_navigation_and_preserve_switching() {
                 const savedTabs = page.tabs
                 const savedCurrent = page.currentTab
@@ -155,7 +195,7 @@ Item {
                         navigation.mapToItem(window.contentItem, 0, 0).y, 0.1)
                     compare(active.base, active.height)
                     compare(inactive.base, inactive.height)
-                    compare(inactive.lowerRadius, inactive.wing)
+                    verify(inactive.lowerRadius <= 6 && inactive.corner <= 8)
                     compare(inactive.capTop, active.capTop)
                     verify(findChild(active, "fluidTabGlow") === null,
                         "Tabs must not allocate glow effects or offscreen textures")
@@ -256,15 +296,18 @@ Item {
             function test_command_icons_use_editable_bundled_artwork() {
                 const savedIcons = AppTheme.useSystemIcons
                 try {
-                    AppTheme.setSystemIcons(false)
-                    for (const key of ["cut", "copy", "paste", "rename", "trash", "properties"]) {
-                        const button = findChild(page, "command_" + key)
-                        verify(String(button.icon.source).startsWith("qrc:"))
-                        verify(!String(button.icon.source).startsWith("image://systemicon/"))
+                    const artwork = {cut: "edit-cut.svg", copy: "edit-copy.svg", paste: "edit-paste.svg",
+                        rename: "edit-rename.svg", trash: "delete.svg", properties: "properties.svg"}
+                    for (const mode of [false, true]) {
+                        AppTheme.setSystemIcons(mode)
+                        for (const key in artwork) {
+                            const button = findChild(page, "command_" + key)
+                            compare(String(button.icon.source), AppTheme.icon(artwork[key]))
+                            verify(!String(button.icon.source).startsWith("image://systemicon/"))
+                        }
+                        if (!mode)
+                            verify(String(findChild(page, "browserRefreshButton").icon.source).endsWith("/refresh.svg"))
                     }
-                    verify(String(findChild(page, "browserRefreshButton").icon.source).endsWith("/refresh.svg"))
-                    AppTheme.setSystemIcons(true)
-                    verify(String(findChild(page, "command_copy").icon.source).startsWith("image://systemicon/"))
                 } finally { AppTheme.setSystemIcons(savedIcons) }
             }
             function test_discover_has_no_browser_header() {

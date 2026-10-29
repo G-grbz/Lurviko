@@ -31,8 +31,11 @@ static void pause(int ms)
 static void verifyNativeBlurRegion(QWindow *window, bool enabled)
 {
 #if QT_CONFIG(xcb)
+    // Qt's offscreen plugin can expose this interface with a null Display.
+    // X11 properties are only meaningful on the actual xcb platform.
+    if (QGuiApplication::platformName() != QLatin1String("xcb")) return;
     const auto native = qGuiApp->nativeInterface<QNativeInterface::QX11Application>();
-    if (!native) return;
+    require(native && native->display(), "xcb platform exposes a live native display");
     auto *display = native->display();
     const Atom atom = XInternAtom(display, "_KDE_NET_WM_BLUR_BEHIND_REGION", False);
     Atom type; int format; unsigned long count, remaining; unsigned char *data = nullptr;
@@ -126,6 +129,9 @@ int main(int argc, char **argv)
     pause(250);
     auto *chrome = root->findChild<QQuickItem *>("browserChromeHost");
     require(chrome && !chrome->isVisible(), "Discover starts without browser tabs or navigation chrome");
+    auto *pageStack = root->findChild<QQuickItem *>("pageStack");
+    require(pageStack, "production navigation stack exists");
+    auto *homePage = qobject_cast<QQuickItem *>(pageStack->property("currentItem").value<QObject *>());
     auto *theme = engine.singletonInstance<QObject *>(qmlTypeId("Lurviko.App", 1, 0, "AppTheme"));
     require(theme, "application theme available");
     if (startCustom) {
@@ -140,6 +146,10 @@ int main(int argc, char **argv)
     verifyPixels(window, nativeBackground);
     // Exercise the actual browser's menu, not a transparent rectangle fixture.
     require(QMetaObject::invokeMethod(root, "browse", Q_ARG(QVariant, QDir::homePath())), "browse action invoked");
+    require(!pageStack->property("busy").toBool(),
+            "leaving Discover settles the header layout without animating the outgoing page");
+    pause(20);
+    require(homePage && !homePage->isVisible(), "Discover is hidden before the browser layout is presented");
     pause(250);
     require(chrome->isVisible() && chrome->height() >= 76,
             "browser chrome appears above the workspace on first navigation");
@@ -169,6 +179,8 @@ int main(int argc, char **argv)
     };
     findTab(findTab, tabs);
     require(tabSurface && tabSurface->property("selected").toBool(), "actual native active tab found");
+    require(tabSurface->mapToScene(QPointF()).y() + tabSurface->property("capTop").toReal() <= 8,
+            "tab faces start close to the top without excess header padding");
     const QColor tabFill = tabSurface->property("fillColor").value<QColor>();
     require(tabFill.alphaF() > 0.5 && tabFill.alphaF() < 0.8,
             "native active tabs have a stronger theme tint while retaining compositor translucency");
@@ -192,8 +204,12 @@ int main(int argc, char **argv)
     require(visibleHeaders == 1, "only the current page header is visible during a stack transition");
     pause(220);
     require(QMetaObject::invokeMethod(root, "showHome"), "Discover navigation returns home");
+    require(!pageStack->property("busy").toBool(),
+            "returning to Discover changes chrome in one layout, without a resized outgoing browser");
     pause(200);
     require(!chrome->isVisible(), "Discover hides the shared header after browser navigation");
+    require(homePage->isVisible() && homePage->opacity() == 1 && qAbs(homePage->x()) < 1,
+            "Discover returns fully visible at its final position");
     require(QMetaObject::invokeMethod(root, "browse", Q_ARG(QVariant, QDir::homePath())), "browser reopens");
     pause(250);
     auto *menu = root->findChild<QObject *>("toolbarViewMenu");

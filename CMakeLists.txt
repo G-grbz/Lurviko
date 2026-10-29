@@ -80,6 +80,7 @@ qt_standard_project_setup(REQUIRES 6.9)
 qt_policy(SET QTP0004 NEW)
 
 set_source_files_properties(qml/AppTheme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/BrowserSession.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_executable(lurviko
     src/main.cpp
@@ -242,6 +243,7 @@ qt_add_qml_module(lurviko
         qml/GText.qml
         qml/components/TypographyDialog.qml
         qml/AppTheme.qml
+        qml/BrowserSession.qml
         qml/FolderArtwork.js
         qml/GButton.qml
         qml/GToolButton.qml
