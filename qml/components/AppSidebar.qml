@@ -16,6 +16,7 @@ Rectangle {
     // instance in its hover popup; models and file actions are not duplicated.
     property string sectionFilter: ""
     property bool drawerPresentation: false
+    property bool unifiedSurface: false
     // Reuse the same language/theme/player controls in the permanent rail.
     property Item controlsHost: null
     readonly property real controlsHeight: footerControls.implicitHeight
@@ -309,8 +310,8 @@ Rectangle {
         sidebarFolderPropertiesPopup.open()
     }
 
-    radius: AppTheme.panelRadius
-    color: drawerPresentation ? "transparent" : AppTheme.sidebar
+    radius: unifiedSurface ? 0 : AppTheme.panelRadius
+    color: drawerPresentation || unifiedSurface ? "transparent" : AppTheme.sidebar
     // The sidebar is a floating surface now; its own fill/radius already
     // separates it from the workspace.  Do not draw an outer stroke here:
     // a Rectangle border is all-or-nothing and masking only the right edge
@@ -397,10 +398,28 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 16
-        anchors.topMargin: 12
-        anchors.rightMargin: 4
-        spacing: 14
+        anchors.margins: 12
+        anchors.topMargin: 6
+        anchors.leftMargin: 12
+        anchors.rightMargin: 12
+        spacing: 12
+
+        SidebarItem {
+            objectName: "sidebarExploreItem"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.max(38, implicitHeight)
+            visible: !sidebar.drawerPresentation
+            title: lang.t("dashboard")
+            iconSource: sidebar.sidebarItemIcon(sidebar.systemItems[0])
+            active: sidebar.currentLocation.length === 0
+            propertiesEnabled: true
+            propertiesText: lang.t("properties")
+            onInteractionChanged: function(active) {
+                sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+            }
+            onClicked: sidebar.homeRequested()
+            onPropertiesRequested: sidebar.openSidebarFolderProperties(sidebar.systemItems[0])
+        }
 
         ScrollView {
             id: navScroll
@@ -468,7 +487,7 @@ Rectangle {
                     }
 
                     Repeater {
-                        model: sidebar.systemItems
+                        model: sidebar.systemItems.filter(function(item) { return !item.dashboard })
                         delegate: SidebarItem {
                         onInteractionChanged: function(active) {
                             sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))

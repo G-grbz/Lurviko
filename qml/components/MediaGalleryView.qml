@@ -1177,6 +1177,7 @@ Item {
 
     GModalPopup {
         id: imageSettingsPopup
+        objectName: "imageSettingsPopup"
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(580, Math.max(400, root.width - 40))
@@ -1358,6 +1359,7 @@ Item {
 
     GModalPopup {
         id: tmdbSettingsPopup
+        objectName: "tmdbSettingsPopup"
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(620, Math.max(420, root.width - 40))

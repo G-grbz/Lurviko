@@ -2,6 +2,8 @@
 #include <QDir>
 #include <QFile>
 #include <QTemporaryFile>
+#include <QTemporaryDir>
+#include <memory>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -14,12 +16,19 @@
 class ArchiveOutput
 {
 public:
-    ArchiveOutput(const QString &directory, const QString &base, const QString &extension)
+    ArchiveOutput(const QString &directory, const QString &base, const QString &extension,
+                  bool privateDirectory = false)
         : m_directory(directory), m_base(base), m_extension(extension),
           m_file(QDir(directory).filePath(".lurviko-archive-XXXXXX" + extension))
-    { if (m_file.open()) m_file.close(); }
-    QString path() const { return m_file.fileName(); }
-    bool valid() const { return !path().isEmpty() && QFile::exists(path()); }
+    {
+        // 7-Zip requires a non-existing output. Reserve a private 0700 sibling
+        // directory instead of unlinking the exclusively-created staging file.
+        if (privateDirectory)
+            m_private = std::make_unique<QTemporaryDir>(QDir(directory).filePath(".lurviko-archive-XXXXXX"));
+        else if (m_file.open()) m_file.close();
+    }
+    QString path() const { return m_private ? QDir(m_private->path()).filePath("archive" + m_extension) : m_file.fileName(); }
+    bool valid() const { return m_private ? m_private->isValid() : !path().isEmpty() && QFile::exists(path()); }
     QString publish(QString *error) {
         for (int index = 0; index < 10000; ++index) {
             const QString name = index == 0 ? m_base + m_extension
@@ -47,4 +56,5 @@ public:
 private:
     QString m_directory, m_base, m_extension;
     QTemporaryFile m_file;
+    std::unique_ptr<QTemporaryDir> m_private;
 };

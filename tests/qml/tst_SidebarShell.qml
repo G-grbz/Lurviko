@@ -289,7 +289,7 @@ Item {
             const places = badge("places")
             mouseMove(places, places.width / 2, places.height / 2)
             tryCompare(shell.sectionPopup, "opened", true)
-            verify(!findChild(shell.panel, "sidebarSystemItem_dashboard").visible)
+            verify(!findChild(shell.panel, "sidebarExploreItem").visible)
             mouseClick(places, places.width / 2, places.height / 2)
             compare(navigations.count, 1)
             compare(navigations.signalArguments[0][0], shell.panel.homePath)
@@ -300,8 +300,8 @@ Item {
             mouseMove(places, places.width / 2, places.height / 2)
             tryCompare(shell.sectionPopup, "opened", true)
         }
-        function test_discover_is_a_separate_top_action_only_in_collapsed_mode() {
-            const dashboard = findChild(shell.panel, "sidebarSystemItem_dashboard")
+        function test_discover_is_a_separate_action_in_full_and_collapsed_modes() {
+            const dashboard = findChild(shell.panel, "sidebarExploreItem")
             verify(dashboard.visible)
             collapse()
             const discover = badge("dashboard")

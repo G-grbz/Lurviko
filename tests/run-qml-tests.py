@@ -140,6 +140,12 @@ public slots:
         }
         QApplication::setPalette(palette);
     }
+    void setFlatSystemThemeTestAppearance(bool dark) {
+        setSystemThemeTestAppearance(dark, true);
+        QPalette palette = QApplication::palette();
+        palette.setColor(QPalette::Base, palette.color(QPalette::Window));
+        QApplication::setPalette(palette);
+    }
     void restoreSystemThemeTestAppearance() {
         QApplication::setStyle(QStyleFactory::create(savedStyle));
         QApplication::setPalette(savedPalette);

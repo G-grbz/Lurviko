@@ -258,6 +258,8 @@ qt_add_qml_module(lurviko
         qml/GPopupSurface.qml
         qml/GOverlaySurface.qml
         qml/GViewerIcon.qml
+        qml/components/FluidTabSurface.qml
+        qml/components/EncryptedArchiveDialog.qml
         qml/components/SidebarShell.qml
         qml/components/AppSidebar.qml
         qml/components/SidebarItem.qml

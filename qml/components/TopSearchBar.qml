@@ -10,6 +10,14 @@ Item {
     property alias query: search.text
     implicitHeight: AppTheme.controlHeight
 
+    TextEditMenu {
+        id: textMenu
+        objectName: "homeSearchTextEditMenu"
+        parent: bar
+        editor: search
+        langManager: bar.lang
+    }
+
     function submit() {
         const q = search.text.trim()
         if (q.length)
@@ -43,6 +51,8 @@ Item {
             }
             GTextField {
                 id: search
+                objectName: "homeSearchField"
+                persistentSelection: true
                 Layout.fillWidth: true
                 placeholderText: lang.language === "tr" ? "Ana dizinde ara…" : "Search your home…"
                 background: null
@@ -57,6 +67,25 @@ Item {
                         searchDebounce.stop()
                 }
                 onAccepted: { searchDebounce.stop(); bar.submit() }
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.RightButton
+                    cursorShape: Qt.IBeamCursor
+                    onPressed: function(mouse) {
+                        search.forceActiveFocus()
+                        const window = bar.ApplicationWindow.window
+                        const bounds = window ? window.contentItem : bar
+                        textMenu.positioningBounds = bounds
+                        const point = search.mapToItem(bounds, mouse.x, mouse.y)
+                        const target = bounds.mapToItem(bar,
+                            Math.max(8, Math.min(bounds.width - textMenu.implicitWidth - 8, point.x)),
+                            Math.max(8, Math.min(bounds.height - textMenu.implicitHeight - 8, point.y)))
+                        textMenu.x = target.x
+                        textMenu.y = target.y
+                        textMenu.open()
+                        mouse.accepted = true
+                    }
+                }
             }
         }
     }

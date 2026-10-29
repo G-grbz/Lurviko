@@ -92,7 +92,7 @@ ApplicationWindow {
     QtObject {id: prefs}
     QtObject {id: cloud}
     QtObject {id: library; property var tracks: fixtureTracks; function setItems(items) {} }
-    QtObject {id: player; property var libraryManager: library; property bool visible: false; property var playlists: []; property string currentUrl: ""}
+    QtObject {id: player; property var libraryManager: library; property bool visible: false; property var playlists: []; property string currentUrl: ""; property bool backgroundPlayback: true; property int queueLimit: 50}
     BrowsePage {
         objectName: "page"; anchors.fill: parent; lang: language
         contentIndexModel: categoryIndex; musicPlayer: player; favoritesModel: favorites; quickAccessModel: quickAccess
@@ -123,6 +123,26 @@ ApplicationWindow {
         auto toolbar = pane->findChild<QObject *>("categorySelectionToolbar");
         auto actions = pane->findChild<QObject *>("categorySelectionActions");
         require(toolbar && toolbar->property("visible").toBool() && actions && actions->property("enabled").toBool(), "toolbar actions enabled");
+        auto tools = qobject_cast<QQuickItem *>(toolbar);
+        auto host = page->findChild<QQuickItem *>("categoryToolsHost");
+        auto commands = page->findChild<QQuickItem *>("browserCommandBar");
+        auto settingsButton = pane->findChild<QObject *>("categorySettingsButton");
+        require(tools && host && tools->parentItem() == host && settingsButton,
+                "category selection, actions and settings reuse the main command row");
+        require(tools->mapToScene(QPointF()).y() >= commands->mapToScene(QPointF()).y()
+                    && tools->mapToScene(QPointF()).y() + tools->height()
+                        <= commands->mapToScene(QPointF()).y() + commands->height(),
+                "category tools fit inside the compact command row");
+        require(!pane->findChild<QObject *>("musicSettingsButton") && !pane->findChild<QObject *>("localMediaSettingsButton"),
+                "old category header settings controls are absent");
+        const QString popupName = key == "images" ? "imageSettingsPopup"
+                                : key == "videos" ? "tmdbSettingsPopup" : "musicCategorySettings";
+        require(QMetaObject::invokeMethod(settingsButton, "clicked"), "category settings action invoked");
+        auto popup = pane->findChild<QObject *>(popupName);
+        require(popup && until([&] { return popup->property("visible").toBool(); }),
+                "toolbar opens the existing settings modal for this category");
+        require(QMetaObject::invokeMethod(popup, "close"), "category settings close");
+        require(until([&] { return !popup->property("visible").toBool(); }), "category settings actually close");
         require(QMetaObject::invokeMethod(actions, "clicked"), "open real selection actions");
         auto menu = pane->findChild<QObject *>("itemContextMenu");
         require(until([&] { return menu->property("opened").toBool(); }), "real batch menu opens");

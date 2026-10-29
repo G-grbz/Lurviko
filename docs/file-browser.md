@@ -4,6 +4,28 @@ Use the upper-right **View** menu to choose **Grid**, **List** or **Columns**.
 The preference is saved. The default shortcuts are Ctrl+1, Ctrl+2 and Ctrl+3;
 they can be changed in the keyboard shortcuts dialog.
 
+## Navigation layout
+
+Folder and category pages show tabs across the top of the window, followed by
+Back, Forward, Up, Refresh, recent locations and the address/search controls.
+The file command row sits below, beside the sidebar's separate **Explore**
+shortcut. The active tab has concave cubic corners that meet the navigation
+surface without a dividing bottom edge. Inactive tabs use the same concave
+sloping profile, meeting in narrow V-shaped gaps. The active tab overlaps its
+neighbours with a thin outline along the top and sides, leaving the bottom
+open. A brief 110 ms color transition highlights selection without blur,
+offscreen textures or continuous animation. Inactive tabs
+blend toward the header background. Labels keep the same position and font
+weight when selection changes. Navigation, sidebar and file workspace share one continuous
+background. Compact controls retain padding inside their row backgrounds. **Explore** stays outside the
+Places section, including when the sidebar is collapsed. The main Explore page keeps its own home search and does
+not show the browser tab or address rows.
+
+In split view, the shared address row follows the active pane. Existing tab
+history, tab scrolling, directory views and shortcuts remain available. Selected
+text in the address field, browser search or home search stays selected when
+opening its context menu, so Copy and Cut apply to that selection.
+
 ## Directory size
 
 Local directory footers show the recursive logical file size beside the item
@@ -37,7 +59,9 @@ not start episode requests.
 
 Explore categories provide **Select all / Deselect all** and **Actions** controls.
 The same toggle on the right of a date header affects only that day's items;
-other selected dates remain selected. Card checkboxes select individual files
+other selected dates remain selected. The category's Select all, selected count,
+Actions and Settings controls share the main file command row. They use the
+existing indexed entries and settings dialogs. Card checkboxes select individual files
 without opening them. In Music, album, artist and playlist checkboxes select
 those collections' underlying tracks; repeated tracks are counted once.
 
@@ -69,6 +93,12 @@ rules remain controlled by KWin. Fully opaque styles remain opaque. Lurviko
 keeps its own control layout and does not reproduce a style's SVG textures or
 widget shapes. Qt palette/style changes delivered to the application are
 applied live; styles that only load settings at startup require a restart.
+
+In Qt mode the active tab uses the desktop highlight color for its translucent
+fill and top/side outline, so selection remains visible even when the native
+Window and Base colors are identical. The compositor blur request specifies
+the complete client rectangle, including the tab strip, and follows window
+resizes in logical pixels. Tabs do not allocate a separate blur texture.
 Qt mode also applies to photo/video controls and photo hover cards. Music and
 video hover previews retain their artwork, dark backgrounds and light text
 independently of the Qt theme. In custom
@@ -251,3 +281,23 @@ Lurviko or Qt palette. Semantic colors, icon glyphs, monospaced technical fields
 and subtitles' dedicated styling retain their own purpose. Large custom fonts
 can reduce the number of visible rows. With Qt theme enabled, the settings
 dialog uses the same native backdrop surface as other dialogs.
+
+### Encrypted archives
+
+The **Compress → Create encrypted archive…** action accepts a password and
+confirmation. It supports 7z (AES-256, including encrypted file names) and
+ZIP with AES-256 (file names remain visible; a compatible extractor is needed).
+The 7-Zip ZIP writer accepts at most 99 printable ASCII password characters;
+choose 7z for Turkish or other Unicode characters. This is checked before the
+job starts. See the upstream [ZIP password validation](https://github.com/ip7z/7zip/blob/main/CPP/7zip/Archive/Zip/ZipHandlerOut.cpp)
+and [AES password limit](https://github.com/ip7z/7zip/blob/main/CPP/7zip/Crypto/WzAes.h).
+Use a strong password and keep it safe: forgotten archive passwords cannot be
+recovered by Lurviko. 7-Zip must be installed.
+
+Passwords are passed through the child process's standard-input pipe, never
+command arguments, environment variables or password files. The dialog clears
+its fields on cancellation and submission. Encrypted output is staged in a
+private sibling directory and published without replacing existing files only
+after a successful tool exit; cancellation removes the incomplete staging
+output and preserves the sources. The existing KIO/in-app progress and
+pause/cancel controls are reused. Mixed-parent selections retain relative paths.

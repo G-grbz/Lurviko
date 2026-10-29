@@ -466,97 +466,132 @@ ApplicationWindow {
             browse(homeForwardLocation)
     }
 
-    RowLayout {
-        id: shellLayout
+    // One background continues from navigation through the sidebar and files.
+    // Qt translucency is painted once; embedded panels stay transparent.
+    Rectangle {
+        id: unifiedBrowserSurface
+        objectName: "unifiedBrowserSurface"
+        visible: browserChromeHost.visible
+        x: AppTheme.sidebarAutoHide ? 0 : mainShell.x
+        y: mainShell.y + (stack.currentItem && stack.currentItem.tabStripHeight !== undefined
+            ? stack.currentItem.tabStripHeight : 0)
+        width: mainShell.width + (AppTheme.sidebarAutoHide ? mainShell.x : 0)
+        height: Math.max(0, mainShell.y + mainShell.height - y)
+        topLeftRadius: AppTheme.sidebarAutoHide ? 0 : 12
+        topRightRadius: 12
+        bottomLeftRadius: AppTheme.sidebarAutoHide ? 0 : AppTheme.panelRadius
+        bottomRightRadius: AppTheme.panelRadius
+        color: stack.currentItem && stack.currentItem.navigationColor !== undefined
+            ? stack.currentItem.navigationColor : AppTheme.workspace
+    }
+
+    ColumnLayout {
+        id: mainShell
         anchors.fill: parent
         anchors.margins: AppTheme.shellMargin
-        anchors.leftMargin: AppTheme.sidebarAutoHide ? 0 : AppTheme.shellMargin
-        spacing: 4
-
-        SidebarShell {
-            id: appSidebar
-            Layout.preferredWidth: implicitWidth
-            Layout.minimumWidth: implicitWidth
-            Layout.maximumWidth: implicitWidth
-            Layout.fillHeight: true
-            lang: lang
-            favoritesModel: favoritesModel
-            storageModel: storageModel
-            musicPlayer: globalMusicPlayer
-            // Read the location from the panel that is actually on screen.
-            // A freshly constructed BrowserPane starts at Home for one frame;
-            // keeping a separate cached value made that transient path stick.
-            currentLocation: {
-                const currentPage = stack ? stack.currentItem : null
-                return currentPage && currentPage.visibleLocation !== undefined
-                        ? currentPage.visibleLocation : ""
-            }
-            onHomeRequested: root.showHome()
-            onLocationRequested: function(location) { root.browse(location) }
-            onLocationNewTabRequested: function(location) { root.openInNewTab(location) }
-            onFolderIconChanged: function(path) {
-                const current = stack.currentItem
-                if (current && current.activePane && typeof current.activePane.refreshDirectory === "function")
-                    current.activePane.refreshDirectory()
-            }
+        spacing: 0
+        Item {
+            id: browserChromeHost
+            objectName: "browserChromeHost"
+            Layout.fillWidth: true
+            Layout.preferredHeight: stack.currentItem && stack.currentItem.headerHeight !== undefined
+                ? stack.currentItem.headerHeight : 0
+            visible: stack.currentItem && stack.currentItem.headerHeight !== undefined
         }
-
-        Rectangle {
-            id: workspaceShell
+        RowLayout {
+            id: shellLayout
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: AppTheme.panelRadius
-            color: AppTheme.workspace
-            border.color: AppTheme.border
-            border.width: 1
-            clip: true
+            Layout.leftMargin: AppTheme.sidebarAutoHide ? -AppTheme.shellMargin : 0
+            spacing: browserChromeHost.visible ? 0 : 4
 
-            StackView {
-                id: stack
-                anchors.fill: parent
-                anchors.margins: 1
-                clip: true
-                initialItem: root.launchLocation.length > 0
-                             ? browseComponent
-                             : (root.waitingForExternalLocation ? externalWaitComponent : homeComponent)
-    
-                pushEnter: Transition {
-                    ParallelAnimation {
-                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 170 }
-                        NumberAnimation { property: "x"; from: 20; to: 0; duration: 170; easing.type: Easing.OutCubic }
-                    }
+            SidebarShell {
+                id: appSidebar
+                unifiedSurface: browserChromeHost.visible
+                Layout.preferredWidth: implicitWidth
+                Layout.minimumWidth: implicitWidth
+                Layout.maximumWidth: implicitWidth
+                Layout.fillHeight: true
+                lang: lang
+                favoritesModel: favoritesModel
+                storageModel: storageModel
+                musicPlayer: globalMusicPlayer
+                // Read the location from the panel that is actually on screen.
+                // A freshly constructed BrowserPane starts at Home for one frame;
+                // keeping a separate cached value made that transient path stick.
+                currentLocation: {
+                    const currentPage = stack ? stack.currentItem : null
+                    return currentPage && currentPage.visibleLocation !== undefined
+                            ? currentPage.visibleLocation : ""
                 }
-                pushExit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0.88; duration: 120 } }
-                popEnter: Transition { NumberAnimation { property: "opacity"; from: 0.88; to: 1; duration: 140 } }
-                popExit: Transition {
-                    ParallelAnimation {
-                        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150 }
-                        NumberAnimation { property: "x"; from: 0; to: 20; duration: 150 }
-                    }
+                onHomeRequested: root.showHome()
+                onLocationRequested: function(location) { root.browse(location) }
+                onLocationNewTabRequested: function(location) { root.openInNewTab(location) }
+                onFolderIconChanged: function(path) {
+                    const current = stack.currentItem
+                    if (current && current.activePane && typeof current.activePane.refreshDirectory === "function")
+                        current.activePane.refreshDirectory()
                 }
             }
 
-            Loader {
-                id: embeddedMusicLoader
-                z: 400
-                anchors.fill: parent
-                anchors.margins: 1
-                active: root.musicExpanded && root.sidebarLocation === "category:/music"
-                        && globalMusicPlayer.opened
-                sourceComponent: MusicExpandedView {
-                    width: embeddedMusicLoader.width
-                    height: embeddedMusicLoader.height
-                    player: globalMusicPlayer
-                    lang: root.appLang
-                    backdropSource: stack
-                    sideTab: root.embeddedMusicSideTab
-                    showRemainingTime: root.embeddedMusicRemainingTime
-                    onSideTabChanged: root.embeddedMusicSideTab = sideTab
-                    onShowRemainingTimeChanged: root.embeddedMusicRemainingTime = showRemainingTime
-                    onCloseRequested: root.musicExpanded = false
-                    onMinimizeRequested: root.minimizeExpandedMusic()
-                    onDetachRequested: root.openDetachedMusic()
-                    onAttachRequested: root.openExpandedMusic()
+            Rectangle {
+                id: workspaceShell
+                objectName: "workspaceShell"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: browserChromeHost.visible ? 0 : AppTheme.panelRadius
+                color: browserChromeHost.visible ? "transparent" : AppTheme.workspace
+                border.color: AppTheme.border
+                border.width: browserChromeHost.visible ? 0 : 1
+                clip: true
+
+                StackView {
+                    id: stack
+                    anchors.fill: parent
+                    anchors.margins: browserChromeHost.visible ? 0 : 1
+                    clip: true
+                    initialItem: root.launchLocation.length > 0
+                                 ? browseComponent
+                                 : (root.waitingForExternalLocation ? externalWaitComponent : homeComponent)
+    
+                    pushEnter: Transition {
+                        ParallelAnimation {
+                            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 170 }
+                            NumberAnimation { property: "x"; from: 20; to: 0; duration: 170; easing.type: Easing.OutCubic }
+                        }
+                    }
+                    pushExit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0.88; duration: 120 } }
+                    popEnter: Transition { NumberAnimation { property: "opacity"; from: 0.88; to: 1; duration: 140 } }
+                    popExit: Transition {
+                        ParallelAnimation {
+                            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150 }
+                            NumberAnimation { property: "x"; from: 0; to: 20; duration: 150 }
+                        }
+                    }
+                }
+
+                Loader {
+                    id: embeddedMusicLoader
+                    z: 400
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    active: root.musicExpanded && root.sidebarLocation === "category:/music"
+                            && globalMusicPlayer.opened
+                    sourceComponent: MusicExpandedView {
+                        width: embeddedMusicLoader.width
+                        height: embeddedMusicLoader.height
+                        player: globalMusicPlayer
+                        lang: root.appLang
+                        backdropSource: stack
+                        sideTab: root.embeddedMusicSideTab
+                        showRemainingTime: root.embeddedMusicRemainingTime
+                        onSideTabChanged: root.embeddedMusicSideTab = sideTab
+                        onShowRemainingTimeChanged: root.embeddedMusicRemainingTime = showRemainingTime
+                        onCloseRequested: root.musicExpanded = false
+                        onMinimizeRequested: root.minimizeExpandedMusic()
+                        onDetachRequested: root.openDetachedMusic()
+                        onAttachRequested: root.openExpandedMusic()
+                    }
                 }
             }
         }
@@ -861,6 +896,7 @@ ApplicationWindow {
     Component {
         id: browseComponent
         BrowsePage {
+            headerHost: browserChromeHost
             initialLocation: root.homeForwardLocation
             lang: root.appLang
             contentIndexModel: root.appContentIndex

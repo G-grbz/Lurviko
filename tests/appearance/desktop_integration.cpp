@@ -12,7 +12,13 @@
 #include <QEventLoop>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include "backend_test_types.h"
+#include <QtGui/qguiapplication_platform.h>
+#if QT_CONFIG(xcb)
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#endif
 
 static void require(bool ok, const char *message)
 {
@@ -21,6 +27,33 @@ static void require(bool ok, const char *message)
 static void pause(int ms)
 {
     QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec();
+}
+static void verifyNativeBlurRegion(QWindow *window, bool enabled)
+{
+#if QT_CONFIG(xcb)
+    const auto native = qGuiApp->nativeInterface<QNativeInterface::QX11Application>();
+    if (!native) return;
+    auto *display = native->display();
+    const Atom atom = XInternAtom(display, "_KDE_NET_WM_BLUR_BEHIND_REGION", False);
+    Atom type; int format; unsigned long count, remaining; unsigned char *data = nullptr;
+    XSync(display, False);
+    require(XGetWindowProperty(display, window->winId(), atom, 0, 4096, False, XA_CARDINAL,
+                &type, &format, &count, &remaining, &data) == Success, "native blur property readable");
+    if (enabled) {
+        require(type == XA_CARDINAL && format == 32 && count == 4 && remaining == 0,
+                "KWin receives an explicit client rectangle instead of an empty whole-window sentinel");
+        const auto values = reinterpret_cast<unsigned long *>(data);
+        require(values[0] == 0 && values[1] == 0
+                && values[2] == static_cast<unsigned long>(std::ceil(window->width() * qGuiApp->devicePixelRatio()))
+                && values[3] == static_cast<unsigned long>(std::ceil(window->height() * qGuiApp->devicePixelRatio())),
+                "native blur region covers the tab strip and complete client area at the current scale");
+    } else {
+        require(type == None, "native blur property is removed when Qt theme is disabled");
+    }
+    if (data) XFree(data);
+#else
+    Q_UNUSED(window); Q_UNUSED(enabled);
+#endif
 }
 static QColor panelReference(QColor content, QColor base, QColor tint)
 {
@@ -91,6 +124,8 @@ int main(int argc, char **argv)
     auto *window = qobject_cast<QQuickWindow *>(root);
     require(window, "production application window exists");
     pause(250);
+    auto *chrome = root->findChild<QQuickItem *>("browserChromeHost");
+    require(chrome && !chrome->isVisible(), "Discover starts without browser tabs or navigation chrome");
     auto *theme = engine.singletonInstance<QObject *>(qmlTypeId("Lurviko.App", 1, 0, "AppTheme"));
     require(theme, "application theme available");
     if (startCustom) {
@@ -105,6 +140,61 @@ int main(int argc, char **argv)
     verifyPixels(window, nativeBackground);
     // Exercise the actual browser's menu, not a transparent rectangle fixture.
     require(QMetaObject::invokeMethod(root, "browse", Q_ARG(QVariant, QDir::homePath())), "browse action invoked");
+    pause(250);
+    require(chrome->isVisible() && chrome->height() >= 76,
+            "browser chrome appears above the workspace on first navigation");
+    auto *unified = root->findChild<QQuickItem *>("unifiedBrowserSurface");
+    auto *workspace = root->findChild<QQuickItem *>("workspaceShell");
+    auto *sidebarPanel = root->findChild<QQuickItem *>("sidebarSharedPanel");
+    require(unified && unified->isVisible() && workspace && sidebarPanel,
+            "production browser has one shared navigation/sidebar/workspace surface");
+    require(workspace->property("color").value<QColor>().alpha() == 0
+                && sidebarPanel->property("color").value<QColor>().alpha() == 0,
+            "embedded sidebar and workspace do not paint disconnected panels");
+    auto *tabs = root->findChild<QQuickItem *>("browserTabsBar");
+    auto *navigation = root->findChild<QQuickItem *>("browserNavigationHost");
+    auto *commands = root->findChild<QQuickItem *>("browserCommandBar");
+    require(tabs && navigation && commands && tabs->isVisible() && navigation->isVisible(),
+            "production browser has visible tabs, navigation and commands");
+    require(qAbs(unified->mapToScene(QPointF()).y() - navigation->mapToScene(QPointF()).y()) < 1,
+            "common background starts exactly at the tab/navigation join");
+    require(qAbs(tabs->width() - chrome->width()) < 1,
+            "tabs span both sidebar and workspace");
+    require(commands->mapToScene(QPointF()).y() >= navigation->mapToScene(QPointF()).y() + navigation->height(),
+            "file commands sit below the full-width navigation row");
+    QQuickItem *tabSurface = nullptr;
+    const auto findTab = [&](const auto &self, QQuickItem *item) -> void {
+        if (item->objectName() == QLatin1String("fluidTabSurface")) tabSurface = item;
+        for (auto *child : item->childItems()) self(self, child);
+    };
+    findTab(findTab, tabs);
+    require(tabSurface && tabSurface->property("selected").toBool(), "actual native active tab found");
+    const QColor tabFill = tabSurface->property("fillColor").value<QColor>();
+    require(tabFill.alphaF() > 0.5 && tabFill.alphaF() < 0.8,
+            "native active tabs have a stronger theme tint while retaining compositor translucency");
+    require(tabSurface->property("outlineColor").value<QColor>().alphaF() > 0.6,
+            "native active tab is distinguished by the desktop highlight outline");
+    auto *effects = root->findChild<DesktopWindowEffects *>();
+    require(effects && effects->window() == window && effects->enabled(), "KWin blur is requested for the complete native window including tabs");
+    require(!tabSurface->findChild<QObject *>("fluidTabGlow"), "native tabs do not allocate a separate blur effect");
+    verifyNativeBlurRegion(window, true);
+    const auto originalSize = window->size();
+    window->resize(originalSize + QSize(32, 16)); pause(60);
+    verifyNativeBlurRegion(window, true);
+    window->resize(originalSize); pause(60);
+    require(QMetaObject::invokeMethod(root, "openContentCategory", Q_ARG(QVariant, QStringLiteral("archives")),
+                Q_ARG(QVariant, QStringLiteral("Archives")), Q_ARG(QVariant, QStringLiteral("archive.svg"))),
+            "category navigation opens the same browser chrome");
+    pause(30);
+    int visibleHeaders = 0;
+    for (auto *header : root->findChildren<QQuickItem *>("browserHeader"))
+        visibleHeaders += header->isVisible();
+    require(visibleHeaders == 1, "only the current page header is visible during a stack transition");
+    pause(220);
+    require(QMetaObject::invokeMethod(root, "showHome"), "Discover navigation returns home");
+    pause(200);
+    require(!chrome->isVisible(), "Discover hides the shared header after browser navigation");
+    require(QMetaObject::invokeMethod(root, "browse", Q_ARG(QVariant, QDir::homePath())), "browser reopens");
     pause(250);
     auto *menu = root->findChild<QObject *>("toolbarViewMenu");
     require(menu && QMetaObject::invokeMethod(menu, "open"), "actual View menu opens");
@@ -291,8 +381,10 @@ Item {
     require(QMetaObject::invokeMethod(theme, "setQtTheme", Q_ARG(QVariant, false)), "custom theme restored");
     pause(100);
     verifyPixels(window, QColor("#e9edf4"));
+    verifyNativeBlurRegion(window, false);
     require(QMetaObject::invokeMethod(theme, "setQtTheme", Q_ARG(QVariant, true)), "native theme enabled live");
     pause(100);
     verifyPixels(window, nativeBackground);
+    verifyNativeBlurRegion(window, true);
     std::fprintf(stderr, "PASS: real Main and detached native backdrop pixels, translucent cards, soft borders and live switching\n");
 }

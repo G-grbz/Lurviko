@@ -5,6 +5,7 @@
 #include "vaultsecurity.h"
 #include "vaultrecovery.h"
 #include "archivearguments.h"
+#include "archiveoutput.h"
 #include "archivelisting.h"
 #include "iconreference.h"
 #include "fileaccesssecurity.h"
@@ -17,6 +18,36 @@
 class SecurityTests : public QObject {
     Q_OBJECT
 private slots:
+    void encryptedArchiveOutputIsPrivateAndNeverOverwrites() {
+        QTemporaryDir fixture;
+        QString staging;
+        {
+            ArchiveOutput output(fixture.path(), "kept", ".7z", true);
+            QVERIFY(output.valid());
+            staging = QFileInfo(output.path()).absolutePath();
+            struct stat st = {};
+            QVERIFY(::lstat(QFile::encodeName(staging).constData(), &st) == 0);
+            QVERIFY(S_ISDIR(st.st_mode)); QCOMPARE(st.st_mode & 0777, mode_t(0700));
+            QVERIFY(!QFileInfo::exists(output.path()));
+            QFile existing(fixture.filePath("kept.7z")); QVERIFY(existing.open(QIODevice::WriteOnly));
+            existing.write("original"); existing.close();
+            QFile generated(output.path()); QVERIFY(generated.open(QIODevice::WriteOnly));
+            generated.write("encrypted output"); generated.close();
+            QString error;
+            QCOMPARE(output.publish(&error), fixture.filePath("kept (1).7z"));
+            QVERIFY(existing.open(QIODevice::ReadOnly)); QCOMPARE(existing.readAll(), QByteArray("original"));
+        }
+        QVERIFY(!QFileInfo::exists(staging));
+        QVERIFY(QFileInfo::exists(fixture.filePath("kept (1).7z")));
+        {
+            ArchiveOutput cancelled(fixture.path(), "cancelled", ".zip", true);
+            staging = QFileInfo(cancelled.path()).absolutePath();
+            QFile incomplete(cancelled.path()); QVERIFY(incomplete.open(QIODevice::WriteOnly));
+            incomplete.write("unfinished"); incomplete.close();
+        }
+        QVERIFY(!QFileInfo::exists(staging));
+        QVERIFY(!QFileInfo::exists(fixture.filePath("cancelled.zip")));
+    }
     void archiveListingStreamsRecords() {
         QTemporaryDir fixture;
         const QString name = QString::fromUtf8("şarkı.svg");

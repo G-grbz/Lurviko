@@ -11,6 +11,19 @@ import Lurviko.App
 Rectangle {
     id: root
     property string initialLocation: ""
+    property bool unifiedSurface: false
+    property Item navigationHost: null
+    readonly property real navigationControlHeight: root.navigationHost
+        ? Math.max(30, AppTheme.typographySize("menu", 11) + 10) : 38
+    property bool navigationVisible: true
+    property Item categoryToolsHost: null
+    property bool categoryToolsVisible: true
+    readonly property real categoryToolsWidth: categorySelectionTools.implicitWidth
+    readonly property bool categorySelectionAvailable: isCategoryLocation
+        && !(categoryKey === "videos" && dlnaViewActive)
+    readonly property bool canPasteHere: !isCategoryLocation && !isTrashLocation
+        && !root.isCloudUrl(directory.location) && fileOps.canPaste
+
     property alias currentLocation: millerNavigation.location
     readonly property var directory: millerNavigation.activeDirectory || baseDirectory
     property string viewMode: paneSettings.viewMode
@@ -275,8 +288,9 @@ Rectangle {
                                                     || !root.hostWindow.activeVideoViewer.visible)
 
     focus: true
-    color: AppTheme.viewBackground
-    radius: 16
+    color: unifiedSurface ? "transparent" : AppTheme.viewBackground
+    radius: unifiedSurface ? 0 : 16
+    border.width: unifiedSurface ? 0 : 1
     border.color: AppTheme.border
 
     function normalizedLocalPath(value) {
@@ -485,9 +499,15 @@ Rectangle {
         closeContextMenus()
         textEditContextMenu.close()
         textEditTarget = editor
-        const p = item.mapToItem(root, x, y)
-        textEditContextMenu.x = Math.max(8, Math.min(root.width - textEditContextMenu.implicitWidth - 8, p.x))
-        textEditContextMenu.y = Math.max(8, Math.min(root.height - textEditContextMenu.implicitHeight - 8, p.y))
+        const bounds = root.navigationHost && editor === locationField && root.hostWindow
+                     ? root.hostWindow.contentItem : root
+        textEditContextMenu.positioningBounds = bounds
+        const p = item.mapToItem(bounds, x, y)
+        const target = bounds.mapToItem(textEditContextMenu.parent,
+            Math.max(8, Math.min(bounds.width - textEditContextMenu.implicitWidth - 8, p.x)),
+            Math.max(8, Math.min(bounds.height - textEditContextMenu.implicitHeight - 8, p.y)))
+        textEditContextMenu.x = target.x
+        textEditContextMenu.y = target.y
         textEditContextMenu.open()
     }
 
@@ -726,11 +746,9 @@ Rectangle {
             return
         root.quickAccessModel.pruneRecentLocations()
         Qt.callLater(function() {
-            const point = recentLocationsButton.parent.mapToItem(root,
-                recentLocationsButton.x, recentLocationsButton.y + recentLocationsButton.height + 6)
-            recentLocationsMenu.x = Math.max(8, Math.min(root.width - recentLocationsMenu.implicitWidth - 8,
-                                    point.x + recentLocationsButton.width - recentLocationsMenu.implicitWidth))
-            recentLocationsMenu.y = point.y
+            root.positionMenu(recentLocationsMenu, recentLocationsButton,
+                recentLocationsButton.width - recentLocationsMenu.implicitWidth,
+                recentLocationsButton.height + 6)
             recentLocationsMenu.requestOpen()
         })
     }
@@ -1565,6 +1583,12 @@ Rectangle {
         if (!categoryUrlsSelected(urls)) setSelectedUrls(urls, -1, -1)
         if (root.selectedCount) root.showContextMenu(itemContextMenu, source, x, y)
     }
+    function openCategorySettings() {
+        if (root.mediaGalleryCategory) {
+            if (mediaGalleryLoader.item) mediaGalleryLoader.item.openSettings()
+        } else if (root.isCategoryLocation) categorySettingsPopup.open()
+    }
+
     function openCategoryActions(source) {
         if (root.selectedCount) root.showContextMenu(itemContextMenu, source, 0, source.height)
     }
@@ -3225,11 +3249,28 @@ Rectangle {
         setSelectedUrls(next, primary, primary)
     }
 
+    function menuPoint(menu, item, x, y) {
+        let bounds = root
+        // Header items can live above/beside the pane. Constrain those menus
+        // to the window, rather than clamping them into the file viewport.
+        for (let ancestor = item; ancestor; ancestor = ancestor.parent) {
+            if (((ancestor === navigationBar && root.navigationHost)
+                    || (ancestor === categorySelectionTools && root.categoryToolsHost)) && root.hostWindow) {
+                bounds = root.hostWindow.contentItem
+                break
+            }
+        }
+        menu.positioningBounds = bounds
+        const point = item.mapToItem(bounds, x, y)
+        return bounds.mapToItem(menu.parent,
+            Math.max(8, Math.min(bounds.width - menu.implicitWidth - 8, point.x)),
+            Math.max(8, Math.min(bounds.height - menu.implicitHeight - 8, point.y)))
+    }
+
     function positionMenu(menu, item, x, y) {
-        menu.positioningBounds = root
-        const p = item.mapToItem(root, x, y)
-        menu.x = Math.max(8, Math.min(root.width - menu.implicitWidth - 8, p.x))
-        menu.y = Math.max(8, Math.min(root.height - menu.implicitHeight - 8, p.y))
+        const point = menuPoint(menu, item, x, y)
+        menu.x = point.x
+        menu.y = point.y
     }
 
     function shortcutSuffix(action) {
@@ -3253,15 +3294,14 @@ Rectangle {
     }
 
     function showContextMenu(menu, item, x, y) {
-        menu.positioningBounds = root
         contextReopenTimer.stop()
         pendingContextMenu = null
         if (menu === backgroundContextMenu) {
             directoryMenuOpener = null
         }
-        const p = item.mapToItem(root, x, y)
-        const targetX = Math.max(8, Math.min(root.width - menu.implicitWidth - 8, p.x))
-        const targetY = Math.max(8, Math.min(root.height - menu.implicitHeight - 8, p.y))
+        const point = menuPoint(menu, item, x, y)
+        const targetX = point.x
+        const targetY = point.y
         const hadOpenMenu = itemContextMenu.visible || backgroundContextMenu.visible
                             || breadcrumbContextMenu.visible || applicationServiceMenu.visible || compressMenu.visible
                             || shareMenu.visible || fileActionsMenu.visible || openWithMenu.visible || sortMenu.visible
@@ -3848,12 +3888,21 @@ Rectangle {
     ColumnLayout {
         id: browserContent
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 10
+        anchors.margins: 8
+        spacing: 6
 
         RowLayout {
+            id: navigationBar
+            objectName: "paneNavigationBar"
+            parent: root.navigationHost || browserContent
+            anchors.fill: root.navigationHost ? parent : null
+            anchors.leftMargin: root.navigationHost ? 12 : 0
+            anchors.rightMargin: root.navigationHost ? 12 : 0
+            anchors.topMargin: root.navigationHost ? 4 : 0
+            anchors.bottomMargin: root.navigationHost ? 4 : 0
+            visible: root.navigationVisible
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 6
 
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -3862,8 +3911,9 @@ Rectangle {
                 icon.source: AppTheme.icon("nav-back.svg")
                 icon.width: 16; icon.height: 16
                 enabled: root.effectiveBackNavigationEnabled
-                implicitWidth: 34
-                implicitHeight: 38
+                implicitWidth: 32
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 onClicked: root.handleBackNavigation()
                 background: Rectangle { radius: 9; color: parent.hovered ? AppTheme.surfaceHover : AppTheme.surface; border.color: AppTheme.border; opacity: parent.enabled ? 1 : 0.48 }
             }
@@ -3875,8 +3925,9 @@ Rectangle {
                 icon.source: AppTheme.icon("nav-forward.svg")
                 icon.width: 16; icon.height: 16
                 enabled: root.effectiveForwardNavigationEnabled
-                implicitWidth: 34
-                implicitHeight: 38
+                implicitWidth: 32
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 onClicked: root.handleForwardNavigation()
                 background: Rectangle { radius: 9; color: parent.hovered ? AppTheme.surfaceHover : AppTheme.surface; border.color: AppTheme.border; opacity: parent.enabled ? 1 : 0.48 }
             }
@@ -3887,17 +3938,30 @@ Rectangle {
                 display: AbstractButton.IconOnly
                 icon.source: AppTheme.icon("nav-up.svg")
                 icon.width: 16; icon.height: 16
-                implicitWidth: 34
-                implicitHeight: 38
+                implicitWidth: 32
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 onClicked: root.handleUpNavigation()
                 background: Rectangle { radius: 10; color: parent.hovered ? AppTheme.surfaceHover : AppTheme.surface; border.color: AppTheme.border }
+            }
+
+            GToolButton {
+                objectName: "browserRefreshButton"
+                implicitWidth: 32; implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
+                icon.source: AppTheme.useSystemIcons ? AppTheme.systemIcon("view-refresh") : AppTheme.icon("refresh.svg")
+                icon.width: 18; icon.height: 18
+                Accessible.name: lang.t("refresh")
+                onClicked: root.refreshDirectory()
+                GToolTip { text: lang.t("refresh") + root.shortcutSuffix("refresh") }
             }
 
             GButton {
                 id: recentLocationsButton
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                implicitWidth: 34
-                implicitHeight: 38
+                implicitWidth: 32
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 enabled: root.quickAccessModel !== null
                 onClicked: root.openRecentLocationsMenu()
                 GToolTip {
@@ -3920,7 +3984,7 @@ Rectangle {
             Rectangle {
                 id: locationBar
                 Layout.fillWidth: true
-                Layout.preferredHeight: 38
+                Layout.preferredHeight: root.navigationControlHeight
                 radius: 10
                 color: AppTheme.surface
                 border.color: root.locationEditMode && locationField.activeFocus ? AppTheme.accent : AppTheme.border
@@ -3981,7 +4045,7 @@ Rectangle {
 
                                 Rectangle {
                                     id: crumbChip
-                                    height: 28
+                                    height: Math.min(24, locationBar.height - 4)
                                     width: Math.max(28, crumbLabel.implicitWidth + 16)
                                     anchors.verticalCenter: parent.verticalCenter
                                     radius: 7
@@ -4032,6 +4096,8 @@ Rectangle {
 
                 GTextField {
                     id: locationField
+                    objectName: "browserLocationField"
+                    persistentSelection: true
                     anchors.fill: parent
                     visible: root.locationEditMode
                     z: 2
@@ -4062,7 +4128,7 @@ Rectangle {
                     onActiveFocusChanged: {
                         if (activeFocus)
                             root.updateLocationCompletions()
-                        else if (root.locationEditMode)
+                        else if (root.locationEditMode && root.textEditTarget !== locationField)
                             root.leaveLocationEdit()
                     }
                     Keys.onPressed: function(event) {
@@ -4112,8 +4178,9 @@ Rectangle {
                 id: searchButton
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 text: ""
-                implicitWidth: 34
-                implicitHeight: 38
+                implicitWidth: 32
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 GToolTip {
                     text: (lang.language === "tr" ? "Ara" : "Search") + root.shortcutSuffix("find")
                 }
@@ -4134,7 +4201,7 @@ Rectangle {
 
             Rectangle {
                 Layout.preferredWidth: 210
-                Layout.preferredHeight: 38
+                Layout.preferredHeight: root.navigationControlHeight
                 radius: 10
                 color: AppTheme.surface
                 border.color: AppTheme.border
@@ -4147,7 +4214,7 @@ Rectangle {
                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                         text: "−"
                         implicitWidth: 26
-                        implicitHeight: 28
+                        implicitHeight: 24
                         onClicked: root.adjustIconSize(-8)
                         background: Rectangle { radius: 7; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
                     }
@@ -4206,7 +4273,7 @@ Rectangle {
                         icon.source: AppTheme.icon("plus.svg")
                         icon.width: 16; icon.height: 16
                         implicitWidth: 30
-                        implicitHeight: 30
+                        implicitHeight: 24
                         onClicked: root.adjustIconSize(8)
                         background: Rectangle { radius: 7; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
                     }
@@ -4218,7 +4285,8 @@ Rectangle {
                 visible: root.isCloudUrl(directory.location)
                 text: "⇧"
                 implicitWidth: 38
-                implicitHeight: 38
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 GToolTip {
                     text: lang.language === "tr" ? "Dosya yükle" : "Upload file"
                 }
@@ -4230,7 +4298,8 @@ Rectangle {
                 id: emptyTrashButton
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 visible: root.isTrashLocation
-                implicitHeight: 38
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 implicitWidth: emptyTrashContent.implicitWidth + 24
                 onClicked: confirmEmptyTrashDialog.open()
                 GToolTip {
@@ -4260,14 +4329,15 @@ Rectangle {
 
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                visible: !root.isCategoryLocation && !root.isTrashLocation
+                visible: !root.navigationHost && !root.isCategoryLocation && !root.isTrashLocation
                 text: ""
                 display: AbstractButton.IconOnly
                 icon.source: AppTheme.icon("plus.svg")
                 icon.width: 16; icon.height: 16
                 enabled: visible
                 implicitWidth: 38
-                implicitHeight: 38
+                implicitHeight: root.navigationControlHeight
+                topPadding: 4; bottomPadding: 4
                 GToolTip {
                     text: lang.t("new_folder")
                 }
@@ -4325,12 +4395,13 @@ Rectangle {
 
         Popup {
             id: locationCompletionPopup
-            parent: root
-            x: locationBar.mapToItem(root, 0, 0).x
-            y: locationBar.mapToItem(root, 0, 0).y + locationBar.height + 4
+            parent: root.navigationHost || root
+            x: locationBar.mapToItem(parent, 0, 0).x
+            y: locationBar.mapToItem(parent, 0, 0).y + locationBar.height + 4
             width: locationBar.width
             height: Math.min(230, Math.max(0, locationCompletionList.contentHeight) + 8)
-            visible: locationField.activeFocus && root.locationCompletions.length > 0
+            visible: root.visible && root.navigationVisible && locationField.activeFocus
+                     && !textEditContextMenu.visible && root.locationCompletions.length > 0
             modal: false
             focus: false
             closePolicy: Popup.NoAutoClose
@@ -4407,6 +4478,8 @@ Rectangle {
 
                 GTextField {
                     id: searchInput
+                    objectName: "browserSearchField"
+                    persistentSelection: true
                     Layout.fillWidth: true
                     Layout.preferredHeight: 34
                     placeholderText: root.localSearchMode
@@ -4555,13 +4628,18 @@ Rectangle {
         }
 
         RowLayout {
+            id: categorySelectionTools
             objectName: "categorySelectionToolbar"
-            visible: root.isCategoryLocation && !(root.categoryKey === "videos" && root.dlnaViewActive)
+            parent: root.categoryToolsHost || browserContent
+            anchors.fill: root.categoryToolsHost ? parent : null
+            visible: root.isCategoryLocation && root.categoryToolsVisible
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 34 : 0
-            spacing: 8
+            Layout.preferredHeight: visible ? 32 : 0
+            spacing: 6
+            readonly property real controlHeight: root.categoryToolsHost ? root.categoryToolsHost.height : 30
             GButton {
                 objectName: "categorySelectAll"
+                visible: root.categorySelectionAvailable
                 readonly property var scopeUrls: root.categorySelectionUrls()
                 readonly property bool allSelected: {
                     const revision = root.selectionRevision
@@ -4569,21 +4647,33 @@ Rectangle {
                 }
                 text: lang.t(allSelected ? "deselect_all" : "select_all")
                 enabled: scopeUrls.length > 0
-                implicitHeight: 30
+                implicitHeight: categorySelectionTools.controlHeight
+                topPadding: 3; bottomPadding: 3
                 onClicked: root.toggleCategoryUrls(scopeUrls)
             }
             GText {
-                Layout.fillWidth: true
+                visible: root.categorySelectionAvailable
                 text: root.selectedCount + (lang.language === "tr" ? " öğe seçili" : " selected")
                 baseColor: AppTheme.textMuted
                 basePixelSize: 11
             }
             GButton {
                 objectName: "categorySelectionActions"
+                visible: root.categorySelectionAvailable
                 text: lang.language === "tr" ? "Eylemler" : "Actions"
-                implicitHeight: 30
+                implicitHeight: categorySelectionTools.controlHeight
+                topPadding: 3; bottomPadding: 3
                 enabled: root.selectedCount > 0
                 onClicked: root.openCategoryActions(this)
+            }
+            GToolButton {
+                objectName: "categorySettingsButton"
+                implicitWidth: 30; implicitHeight: categorySelectionTools.controlHeight
+                icon.source: AppTheme.icon("settings.svg")
+                icon.width: 16; icon.height: 16
+                Accessible.name: lang.language === "tr" ? "Kategori ayarları" : "Category settings"
+                GToolTip { text: parent.Accessible.name }
+                onClicked: root.openCategorySettings()
             }
         }
 
@@ -5823,6 +5913,7 @@ Rectangle {
                     active: root.visible && root.mediaGalleryCategory
                     sourceComponent: Component {
                         ColumnLayout {
+                            function openSettings() { mediaGalleryView.openSettings() }
                             function prepareForResize() {
                                 if (!root.dlnaViewActive)
                                     mediaGalleryView.prepareForResize()
@@ -5841,15 +5932,15 @@ Rectangle {
                             Rectangle {
                                 id: mediaSourceHeader
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 70
-                                radius: 14
+                                Layout.preferredHeight: 56
+                                radius: 12
                                 color: AppTheme.surface
                                 border.color: AppTheme.border
 
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: 14
-                                    anchors.rightMargin: 62
+                                    anchors.rightMargin: 14
                                     spacing: 12
 
                                     Rectangle {
@@ -6082,28 +6173,7 @@ Rectangle {
 
                                 }
 
-                                GToolButton {
-                                    id: localMediaSettingsButton
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 12
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 38
-                                    height: 38
-                                    icon.source: AppTheme.icon("settings.svg")
-                                    icon.width: 16
-                                    icon.height: 16
-                                    onClicked: mediaGalleryView.openSettings()
-                                    background: Rectangle {
-                                        radius: 10
-                                        color: localMediaSettingsButton.hovered ? AppTheme.accentSoft : AppTheme.surfaceRaised
-                                        border.width: 1
-                                        border.color: localMediaSettingsButton.hovered ? AppTheme.accentBorder : AppTheme.border
-                                    }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: root.categoryKey === "videos"
-                                                  ? (lang.language === "tr" ? "Video Ayarları" : "Video Settings")
-                                                  : (lang.language === "tr" ? "Resim Ayarları" : "Image Settings")
-                                }
+
                             }
 
                             MediaGalleryView {
@@ -6169,7 +6239,7 @@ Rectangle {
                     anchors.top: parent.top
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    height: visible ? (root.categoryKey === "music" ? 42 + musicTabs.implicitHeight + 44 : 52) : 0
+                    height: visible ? (root.categoryKey === "music" ? 34 + musicTabs.implicitHeight + 40 : 42) : 0
                     radius: 12
                     color: AppTheme.surface
                     border.color: AppTheme.border
@@ -6180,8 +6250,8 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.leftMargin: 14
-                        anchors.rightMargin: 56
-                        height: root.categoryKey === "music" ? 42 : 50
+                        anchors.rightMargin: 14
+                        height: root.categoryKey === "music" ? 34 : 40
                         spacing: 10
                         Rectangle {
                             Layout.preferredWidth: 34
@@ -6228,29 +6298,7 @@ Rectangle {
                         }
                     }
 
-                    GToolButton {
-                        id: musicSettingsButton
-                        anchors.right: parent.right
-                        anchors.rightMargin: 10
-                        anchors.top: parent.top
-                        anchors.topMargin: root.categoryKey === "music" ? 4 : 8
-                        width: 36
-                        height: 36
-                        icon.source: AppTheme.icon("settings.svg")
-                        icon.width: 16
-                        icon.height: 16
-                        onClicked: categorySettingsPopup.open()
-                        background: Rectangle {
-                            radius: 9
-                            color: musicSettingsButton.hovered ? AppTheme.accentSoft : AppTheme.surfaceRaised
-                            border.width: 1
-                            border.color: musicSettingsButton.hovered ? AppTheme.accentBorder : AppTheme.border
-                        }
-                        ToolTip.visible: hovered && root.categoryKey !== "music"
-                        ToolTip.text: (root.contentIndexModel
-                                       ? root.contentIndexModel.titleForCategory(root.categoryKey, lang.language)
-                                       : root.categoryKey) + (lang.language === "tr" ? " Ayarları" : " Settings")
-                    }
+
 
                     Flow {
                         id: musicTabs
@@ -6300,7 +6348,7 @@ Rectangle {
                         anchors.bottom: parent.bottom
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
-                        height: 41
+                        height: 37
                         spacing: 6
 
                         GTextField {
@@ -7119,7 +7167,8 @@ Rectangle {
 
     TextEditMenu {
         id: textEditContextMenu
-        parent: root
+        objectName: "browserTextEditMenu"
+        parent: root.textEditTarget === locationField && root.navigationHost ? root.navigationHost : root
         editor: root.textEditTarget
         langManager: lang
         onClosed: {
@@ -7539,6 +7588,11 @@ Rectangle {
                      && sourceUrls.length === root.selectedCount
             GMenuItem { text: "Zip"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "zip") }
             GMenuItem { text: "7z"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "7z") }
+            GMenuItem {
+                objectName: "compressEncryptedAction"
+                text: lang.t("compress_encrypted")
+                onTriggered: encryptedArchiveDialog.openFor(compressMenu.sourceUrls)
+            }
             GMenuSeparator {}
             GMenuItem { text: "Tar"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar") }
             GMenuItem { text: "Tar.gz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.gz") }
@@ -9238,6 +9292,14 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    EncryptedArchiveDialog {
+        id: encryptedArchiveDialog
+        lang: root.lang
+        onCreateRequested: function(urls, format, password) {
+            fileOps.compressEncryptedItems(urls, format, password)
         }
     }
 

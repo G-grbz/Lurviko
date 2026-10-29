@@ -190,10 +190,18 @@ void DesktopWindowEffects::update()
     if (platform != QLatin1String("xcb") && !platform.startsWith(QLatin1String("wayland")))
         return;
     QRegion region;
-    if (m_enabled && m_cornerRadius > 0 && !m_window->size().isEmpty()) {
-        QPainterPath path;
-        path.addRoundedRect(QRectF(QPointF(), m_window->size()), m_cornerRadius, m_cornerRadius);
-        region = QRegion(path.toFillPolygon().toPolygon());
+    if (m_enabled) {
+        if (m_window->size().isEmpty()) return;
+        // Send bounded logical client coordinates, including the tab strip.
+        // An empty "whole window" region becomes an enormous rectangle on
+        // ext-background-effect; avoid that sentinel for native/custom effects.
+        if (m_cornerRadius > 0) {
+            QPainterPath path;
+            path.addRoundedRect(QRectF(QPointF(), m_window->size()), m_cornerRadius, m_cornerRadius);
+            region = QRegion(path.toFillPolygon().toPolygon());
+        } else {
+            region = QRegion(QRect(QPoint(), m_window->size()));
+        }
     }
     KWindowEffects::enableBlurBehind(m_window, m_enabled, region);
 }

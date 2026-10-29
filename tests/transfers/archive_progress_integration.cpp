@@ -9,6 +9,7 @@
 #include <KJob>
 #include <cstdio>
 #include <functional>
+#include <unistd.h>
 #include "backend_test_types.h"
 
 static void require(bool ok, const char *message) {
@@ -132,5 +133,109 @@ int main(int argc, char **argv) {
     operations.extractArchive(QUrl::fromLocalFile(invalidArchive).toString(), outputUrl, false);
     require(until([&] { return finished; }) && !success && !message.isEmpty(), "listing errors are reported without extracting");
     require(recovered.open(QIODevice::ReadOnly) && recovered.readAll() == "unchanged", "failed inspection preserves existing files");
+    recovered.close();
+
+    const QString secret = QString::fromUtf8("Uzun şifre ; $(test) 123!");
+    const QString secure = root + "/secure";
+    require(QDir().mkpath(secure + "/empty") && QDir().mkpath(secure + "/nested"), "encrypted fixture created");
+    for (const QString &name : {QString(".hidden"), QString("nested/--help"), QString("literal[1]*.txt")}) {
+        QFile file(secure + "/" + name); require(file.open(QIODevice::WriteOnly), "encrypted input opens");
+        file.write("private payload");
+    }
+    QFile outside(root + "/outside-secret.txt"); require(outside.open(QIODevice::WriteOnly), "outside fixture opens");
+    outside.write("must not be followed"); outside.close();
+    require(::symlink("../outside-secret.txt", QFile::encodeName(secure + "/link").constData()) == 0,
+            "encrypted symlink fixture created");
+    const auto fileUrl = [](const QString &path) { return QUrl::fromLocalFile(path).toString(); };
+    auto tool = [&](const QStringList &arguments, const QString &password) {
+        list.start("7z", arguments);
+        require(list.waitForStarted(), "7zip validation starts");
+        list.write(password.toUtf8() + '\n'); list.closeWriteChannel();
+        require(list.waitForFinished(), "7zip validation finishes");
+        return list.exitCode();
+    };
+    for (const QString &format : {QString("zip"), QString("7z")}) {
+        const QString activePassword = format == "zip" ? QString("Long ASCII ; $(test) 123!") : secret;
+        finished = false; success = false;
+        operations.compressEncryptedItems({fileUrl(secure)}, format, activePassword);
+        auto *child = operations.findChildren<QProcess *>().last();
+        bool inspected = false;
+        QObject::connect(child, &QProcess::started, &app, [&, child] {
+            require(child->arguments().contains("-p") && !child->arguments().join(' ').contains(activePassword),
+                    "password is supplied using a bare -p, never in argv");
+            QFile cmd(QStringLiteral("/proc/%1/cmdline").arg(child->processId()));
+            require(cmd.open(QIODevice::ReadOnly) && !cmd.readAll().contains(activePassword.toUtf8()),
+                    "real child command line contains no password");
+            QFile environment(QStringLiteral("/proc/%1/environ").arg(child->processId()));
+            require(environment.open(QIODevice::ReadOnly) && !environment.readAll().contains(activePassword.toUtf8()),
+                    "real child environment contains no password");
+            const QString staging = QFileInfo(child->arguments().at(child->arguments().indexOf("--") - 1)).absolutePath();
+            require((QFileInfo(staging).permissions() & (QFile::ReadGroup | QFile::WriteGroup | QFile::ExeGroup
+                    | QFile::ReadOther | QFile::WriteOther | QFile::ExeOther)) == 0, "staging directory is private");
+            inspected = true;
+        });
+        const bool completed = until([&] { return finished; });
+        if (!completed || !success || !inspected)
+            std::fprintf(stderr, "ENCRYPTION: format=%s completed=%d success=%d inspected=%d error=%s\n",
+                         qPrintable(format), completed, success, inspected, qPrintable(message));
+        require(completed && success && inspected, "encrypted compression succeeds");
+        const QString encrypted = secure + "." + format;
+        require(QFileInfo::exists(encrypted), "encrypted archive published");
+        require(tool({"t", "-bso2", encrypted}, "wrong password") != 0, "wrong password cannot validate archive");
+        require(tool({"t", "-bso2", encrypted}, activePassword) == 0, "correct password opens archive (including Unicode for 7z)");
+        require(tool({"x", "-so", "-bso2", encrypted, "--", "secure/nested/--help"}, activePassword) == 0
+                && list.readAllStandardOutput() == "private payload", "encrypted contents recover byte for byte");
+        require(tool({"x", "-so", "-bso2", encrypted, "--", "secure/link"}, activePassword) == 0
+                && list.readAllStandardOutput() == "../outside-secret.txt", "symlink is archived as a link without reading its target");
+        require(tool({"l", "-slt", encrypted}, "") == (format == "zip" ? 0 : 2),
+                "7z hides names while ZIP names remain listable");
+        if (format == "zip") require(list.readAllStandardOutput().contains("AES-256"), "ZIP uses AES-256 rather than ZipCrypto");
+        require(!operations.operations().last().toMap().value("detail").toString().contains(activePassword),
+                "progress never contains a password");
+        require(operations.operations().last().toMap().value("totalItems").toULongLong() == 7,
+                "encrypted final counters include hidden files and empty folders");
+    }
+    // A name collision must create a new archive and preserve the old one.
+    QFile originalArchive(secure + ".zip"); require(originalArchive.open(QIODevice::ReadOnly), "original encrypted ZIP opens");
+    const QByteArray originalBytes = originalArchive.readAll(); originalArchive.close();
+    finished = false;
+    operations.compressEncryptedItems({fileUrl(secure)}, "zip", "Long ASCII ; $(test) 123!");
+    require(until([&] { return finished; }) && success && QFileInfo::exists(secure + " (1).zip"), "collision creates a new name");
+    require(originalArchive.open(QIODevice::ReadOnly) && originalArchive.readAll() == originalBytes, "existing archive remains unchanged");
+    originalArchive.close();
+    require(QDir().mkpath(root + "/other"), "mixed-parent fixture created");
+    QFile sameName(root + "/other/--help"); require(sameName.open(QIODevice::WriteOnly), "mixed-parent file opens");
+    sameName.write("second parent"); sameName.close();
+    finished = false;
+    operations.compressEncryptedItems({fileUrl(secure + "/nested/--help"), fileUrl(sameName.fileName())}, "7z", secret);
+    const bool mixedDone = until([&] { return finished; });
+    if (!mixedDone || !success) std::fprintf(stderr, "MIXED: %s\n", qPrintable(message));
+    require(mixedDone && success, "encrypted mixed-parent selection succeeds");
+    const QString mixedArchive = secure + "/nested/Archive.7z";
+    for (const QString &member : {QString("secure/nested/--help"), QString("other/--help")}) {
+        require(tool({"x", "-so", "-bso2", mixedArchive, "--", member}, secret) == 0
+                && list.readAllStandardOutput() == (member.startsWith("other/") ? "second parent" : "private payload"),
+                "equal mixed-parent basenames keep distinct relative paths");
+    }
+    for (const QString &invalid : {QString(), QString("line\nbreak"), QString("line\rbreak"), QString(1100, 'a'), QString(100, 'a'), secret}) {
+        finished = false;
+        const int count = operations.operations().size();
+        operations.compressEncryptedItems({fileUrl(secure)}, "zip", invalid);
+        require(finished && !success && operations.operations().size() == count, "invalid password fails before launching a process");
+    }
+    finished = false;
+    operations.compressEncryptedItems({fileUrl(secure)}, "tar", secret);
+    require(finished && !success, "unsupported encryption cannot silently create a plaintext archive");
+    // Keep encrypted cancellation on the same native/in-app control path.
+    finished = false;
+    operations.compressEncryptedItems({fileUrl(source)}, "zip", "Long ASCII ; $(test) 123!");
+    const int encryptedCancelId = operations.operations().last().toMap().value("id").toInt();
+    require(until([&] { return operations.operations().last().toMap().value("processedBytes").toULongLong() > 0 || finished; })
+            && !finished, "encrypted cancel fixture is writing");
+    require(operations.toggleOperationPause(encryptedCancelId), "encrypted job pauses");
+    require(operations.cancelOperation(encryptedCancelId), "paused encrypted job cancels");
+    require(until([&] { return finished; }) && !success && !QFileInfo::exists(source + ".zip"), "cancelled encrypted output is not published");
+    require(QDir(root).entryList({".lurviko-archive-*"}, QDir::AllEntries | QDir::Hidden).isEmpty(), "encrypted staging is removed after completion/cancellation");
+    require(QFileInfo(source + "/Büyük öğe.bin").size() == 96LL * 1024 * 1024, "encrypted cancellation preserves inputs");
     std::fprintf(stderr, "PASS: localized native and integrated archive progress, live counts/bytes/speed, pause/resume, valid archives and cancellation\n");
 }

@@ -12,6 +12,7 @@ Item {
     required property var storageModel
     property var musicPlayer: null
     property string currentLocation: ""
+    property bool unifiedSurface: false
     readonly property bool collapsed: AppTheme.sidebarAutoHide
     readonly property bool iconOnly: AppTheme.sidebarRailMode === "icon"
     readonly property bool titleOnly: AppTheme.sidebarRailMode === "title"
@@ -174,7 +175,7 @@ Item {
         bottomLeftRadius: 0
         topRightRadius: AppTheme.radiusSmall
         bottomRightRadius: AppTheme.radiusSmall
-        color: AppTheme.sidebar
+        color: shell.unifiedSurface ? "transparent" : AppTheme.sidebar
     }
     Item {
         id: navigationArea
@@ -357,6 +358,7 @@ Item {
         visible: !shell.collapsed || sectionPopup.visible
         sectionFilter: shell.collapsed ? shell.activeSection : ""
         drawerPresentation: shell.collapsed
+        unifiedSurface: shell.unifiedSurface && !shell.collapsed
         controlsHost: shell.collapsed ? railControlsHost : null
         lang: shell.lang
         favoritesModel: shell.favoritesModel

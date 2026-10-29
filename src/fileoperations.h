@@ -92,6 +92,7 @@ public:
     Q_INVOKABLE void moveMany(const QStringList &sourceUrls, const QString &destinationLocation);
     Q_INVOKABLE void compressItem(const QString &sourceUrl, const QString &format);
     Q_INVOKABLE void compressItems(const QStringList &sourceUrls, const QString &format);
+    Q_INVOKABLE void compressEncryptedItems(const QStringList &sourceUrls, const QString &format, const QString &password);
     Q_INVOKABLE void extractArchive(const QString &sourceUrl,
                                     const QString &destinationLocation,
                                     bool createSubfolder = false);
@@ -149,6 +150,7 @@ private:
     void startOperationDismissTimer(int id);
     void configureProgressJob(class KJob *job, bool needsManualRegistration = false);
     void refreshClipboardCache();
+    void startArchiveCompression(const QStringList &sourceUrls, const QString &format, const QString &password);
     void setClipboardCache(const QList<QUrl> &urls, bool cut);
     void startArchiveExtraction(const QString &sourceUrl,
                                 const QString &destinationLocation,

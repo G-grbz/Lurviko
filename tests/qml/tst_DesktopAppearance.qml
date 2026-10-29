@@ -110,6 +110,53 @@ Item {
                     tryCompare(menu, "visible", false)
                 }
             }
+            function test_native_tab_selection_data() {
+                return [{tag: "light", dark: false}, {tag: "dark", dark: true}]
+            }
+            function test_native_tab_selection(data) {
+                const savedTabs = page.tabs
+                const savedCurrent = page.currentTab
+                try {
+                    inputTestHelper.setFlatSystemThemeTestAppearance(data.dark)
+                    AppTheme.setQtTheme(true)
+                    AppTheme.desktopAppearance.refresh()
+                    const location = String(fileArtworkFixtureUrl)
+                    page.tabs = [page.makeTab(location), page.makeTab(location + "/Mor")]
+                    page.switchToTab(0, true)
+                    verify(inputTestHelper.settleQmlCreations(page))
+                    wait(150)
+                    const row = findChild(page, "browserTabRow")
+                    let first, second
+                    for (let child of row.children) {
+                        if (child.objectName === "browserTab0") first = child
+                        if (child.objectName === "browserTab1") second = child
+                    }
+                    const active = findChild(first, "fluidTabSurface")
+                    const passive = findChild(second, "fluidTabSurface")
+                    verify(active !== null && passive !== null)
+                    verify(active.fillColor.a > passive.fillColor.a + 0.4,
+                        "Active native tabs must be distinguishable when Base and Window are identical")
+                    verify(active.fillColor.a < 0.8, "Native tabs retain a translucent fill")
+                    verify(active.outlineColor.a > passive.outlineColor.a + 0.4)
+                    const image = grabImage(active)
+                    const rgbDifference = Math.abs(image.red(80, 20) - Math.round(passive.fillColor.r * 255))
+                        + Math.abs(image.green(80, 20) - Math.round(passive.fillColor.g * 255))
+                        + Math.abs(image.blue(80, 20) - Math.round(passive.fillColor.b * 255))
+                    verify(rgbDifference >= 10, "The active tab must paint the desktop highlight tint")
+                    verify(findChild(active, "fluidTabGlow") === null)
+                    grabImage(appearanceWindow.contentItem).save("/tmp/lurviko-native-tabs-" + data.tag + ".png")
+                    mouseClick(second, 45, 22)
+                    compare(page.currentTab, 1)
+                    tryCompare(passive, "selectionProgress", 1)
+                    tryCompare(passive, "selectionAnimating", false)
+                    tryCompare(active, "selectionProgress", 0)
+                    verify(passive.fillColor.a > active.fillColor.a + 0.4)
+                    verify(passive.outlineColor.a > active.outlineColor.a + 0.4)
+                } finally {
+                    page.tabs = savedTabs
+                    page.switchToTab(savedCurrent, true)
+                }
+            }
             function test_modals_and_toast_have_native_backing() {
                 inputTestHelper.setTransparentSystemThemeTestAppearance()
                 AppTheme.setQtTheme(true)

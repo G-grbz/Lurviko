@@ -9,6 +9,20 @@ import "../components"
 Item {
     id: page
     property string initialLocation: ""
+    // Only the visual chrome is hosted above the sidebar. Tab history, models
+    // and file actions still belong to this page and its existing panes.
+    property Item headerHost: null
+    readonly property real tabStripHeight: tabsBar.implicitHeight
+    readonly property real headerHeight: tabsBar.implicitHeight + browserHeader.spacing + navigationSlot.implicitHeight
+    readonly property real toolbarPopupHeight: Math.max(180, Math.min(620,
+        page.height - (page.headerHost ? 6 : page.headerHeight + 6) - commandBar.height - 10))
+
+    readonly property color navigationColor: page.isAdminLocation(page.visibleLocation)
+        ? (AppTheme.dark ? "#3A2A18" : "#FFF0D8")
+        : AppTheme.useQtTheme
+            ? (AppTheme.translucentWindow ? AppTheme.tint(AppTheme.surfaceRaised, 0.14) : AppTheme.workspace)
+            : AppTheme.mix(AppTheme.workspace, AppTheme.surface, 0.55)
+
     required property var lang
     required property var contentIndexModel
     required property var musicPlayer
@@ -717,8 +731,8 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: Math.max(0, AppTheme.panelRadius - 1)
-        color: AppTheme.workspace
+        radius: page.headerHost ? 0 : Math.max(0, AppTheme.panelRadius - 1)
+        color: page.headerHost ? "transparent" : AppTheme.workspace
         antialiasing: true
     }
 
@@ -730,7 +744,7 @@ Item {
         id: hiddenFilesMenu
         positioningBounds: page
         parent: page
-        maximumPopupHeight: Math.max(180, Math.min(620, page.height - 24))
+        maximumPopupHeight: page.toolbarPopupHeight
         closePolicy: Popup.CloseOnEscape
         GMenuItem {
             text: lang.t("show_hidden")
@@ -778,7 +792,7 @@ Item {
         positioningBounds: page
         objectName: "toolbarViewMenu"
         parent: page
-        maximumPopupHeight: Math.max(180, Math.min(620, page.height - 24))
+        maximumPopupHeight: page.toolbarPopupHeight
         closePolicy: Popup.CloseOnEscape
         Item {
             objectName: "sidebarAutoHideSetting"
@@ -1138,23 +1152,29 @@ Item {
     }
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 20
-        spacing: 12
+        id: browserHeader
+        objectName: "browserHeader"
+        parent: page.headerHost || page
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: page.headerHeight
+        visible: page.visible && (!page.StackView.view || page.StackView.view.currentItem === page)
+        spacing: 0
 
         Rectangle {
-            id: commandBar
+            id: tabsBar
+            objectName: "browserTabsBar"
             Layout.fillWidth: true
-            Layout.preferredHeight: 52
-            radius: AppTheme.commandRadius
-            color: AppTheme.commandBar
-            border.color: AppTheme.border
-            border.width: 1
-
+            implicitHeight: Math.max(44, AppTheme.typographySize("menu", 11) + 22)
+            color: "transparent"
             RowLayout {
+                id: tabStrip
                 anchors.fill: parent
-                anchors.margins: 8
-                spacing: 6
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                anchors.topMargin: 0
+                spacing: 2
                 GButton {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
@@ -1162,6 +1182,7 @@ Item {
                     icon.source: AppTheme.icon("nav-back.svg")
                     icon.width: 16; icon.height: 16
                     implicitWidth: 32; implicitHeight: 34
+                    visible: tabRow.width > tabScrollView.width
                     enabled: tabScrollView.contentItem && tabScrollView.contentItem.contentX > 0.5
                     onClicked: { page.dismissActivePaneTransientUi(); page.scrollTabsBy(-220) }
                     GToolTip { text: lang.language === "tr" ? "Sekmeleri sola kaydır" : "Scroll tabs left" }
@@ -1175,6 +1196,7 @@ Item {
                     icon.source: AppTheme.icon("nav-forward.svg")
                     icon.width: 16; icon.height: 16
                     implicitWidth: 32; implicitHeight: 34
+                    visible: tabRow.width > tabScrollView.width
                     enabled: tabScrollView.contentItem
                              && tabScrollView.contentItem.contentX < Math.max(0, tabScrollView.contentItem.contentWidth - tabScrollView.contentItem.width) - 0.5
                     onClicked: { page.dismissActivePaneTransientUi(); page.scrollTabsBy(220) }
@@ -1185,9 +1207,11 @@ Item {
                 ScrollView {
                     id: tabScrollView
                     objectName: "browserTabScrollView"
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 36
-                    contentHeight: 36
+                    Layout.preferredWidth: Math.min(tabRow.width, Math.max(0, tabStrip.width - 112))
+                    Layout.fillWidth: false
+                    Layout.preferredHeight: tabsBar.implicitHeight
+                    contentHeight: tabsBar.implicitHeight
+                    Layout.alignment: Qt.AlignBottom
                     onWidthChanged: Qt.callLater(page.ensureActiveTabVisible)
                     ScrollBar.vertical.policy: ScrollBar.AlwaysOff
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -1200,39 +1224,36 @@ Item {
                         id: tabRow
                         objectName: "browserTabRow"
                         onWidthChanged: Qt.callLater(page.ensureActiveTabVisible)
-                        spacing: 6
+                        spacing: -18
                         Repeater {
                             id: tabRepeater
-                            model: page.tabs
-                            delegate: Rectangle {
+                            // Saved scroll/search state changes must not recreate every
+                            // tab, interrupting selection animations and pointer targets.
+                            model: page.tabs.length
+                            delegate: Item {
                                 id: tabDelegate
                                 objectName: "browserTab" + index
                                 required property int index
-                                required property var modelData
+                                readonly property var tabData: page.tabs[index]
                                 property bool suppressClickAfterDrag: false
                                 property int dragStartIndex: -1
                                 readonly property bool dragging: tabDrag.active
                                 readonly property bool dragTarget: page.tabDragTarget === index && page.tabDragFrom !== index
-                                width: 160
-                                height: 34
-                                radius: 11
-                                readonly property bool administratorTab: page.isAdminLocation(modelData.location)
-                                color: dragTarget
-                                       ? AppTheme.accentSoft
-                                       : (administratorTab
-                                          ? (index === page.currentTab
-                                             ? (AppTheme.dark ? "#3A2A18" : "#FFF0D8")
-                                             : (AppTheme.dark ? "#2A2118" : "#FFF8ED"))
-                                          : (index === page.currentTab ? AppTheme.surface : AppTheme.surfaceRaised))
-                                border.width: dragTarget ? 2 : (administratorTab ? 1.5 : 1)
-                                border.color: dragTarget
-                                              ? AppTheme.accent
-                                              : (administratorTab
-                                                 ? AppTheme.warning
-                                                 : (index === page.currentTab ? AppTheme.borderStrong : "transparent"))
+                                width: 208
+                                height: tabsBar.implicitHeight
+                                readonly property bool administratorTab: page.isAdminLocation(tabData.location)
+                                FluidTabSurface {
+                                    objectName: "fluidTabSurface"
+                                    anchors.fill: parent
+                                    selected: index === page.currentTab
+                                    hovered: tabMouse.containsMouse
+                                    dropTarget: tabDelegate.dragTarget
+                                    administrator: tabDelegate.administratorTab
+                                    navigationColor: page.navigationColor
+                                }
                                 scale: dragging ? 0.96 : 1.0
                                 opacity: dragging ? 0.78 : 1.0
-                                z: dragging ? 20 : 0
+                                z: dragging ? 20 : (index === page.currentTab ? 10 : 1)
                                 transform: Translate {
                                     x: tabDelegate.dragging ? tabDrag.translation.x : 0
                                 }
@@ -1293,8 +1314,10 @@ Item {
     
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 12
-                                    anchors.rightMargin: 7
+                                    anchors.leftMargin: 26
+                                    anchors.rightMargin: 16
+                                    anchors.topMargin: 8
+                                    anchors.bottomMargin: 0
                                     spacing: 6
                                     Rectangle {
                                         visible: parent.parent.administratorTab
@@ -1311,32 +1334,37 @@ Item {
                                         }
                                     }
                                     GText {
+                                        objectName: "browserTabTitle"
                                         Layout.fillWidth: true
-                                        text: page.titleFor(modelData.location)
+                                        text: page.titleFor(tabData.location)
                                         baseColor: AppTheme.text
                                         elide: Text.ElideRight
                                         basePixelSize: 11
-                                        baseBold: index === page.currentTab
+                                        baseFontWeight: Font.Medium
                                     }
                                     GToolButton {
                                         HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                        objectName: "browserTabClose"
                                         visible: page.tabs.length > 1
                                         text: ""
                                         display: AbstractButton.IconOnly
                                         icon.source: AppTheme.icon("close-ui.svg")
-                                        icon.width: 16; icon.height: 16
-                                        implicitWidth: 28; implicitHeight: 28
+                                        icon.width: 12; icon.height: 12
+                                        implicitWidth: 22; implicitHeight: 22
                                         onPressed: page.dismissActivePaneTransientUi()
                                         onClicked: page.closeTab(index)
-                                        background: Rectangle { radius: 8; color: parent.hovered ? AppTheme.border : "transparent" }
+                                        background: Rectangle { radius: 6; color: parent.hovered ? AppTheme.border : "transparent" }
                                     }
                                 }
                                 MouseArea {
+                                    id: tabMouse
                                     anchors.left: parent.left
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
                                     anchors.right: parent.right
-                                    anchors.rightMargin: 30
+                                    // Keep the selection hit area outside the close button
+                                    // (16 px inset + 22 px button) in the curved body.
+                                    anchors.rightMargin: page.tabs.length > 1 ? 38 : 0
                                     acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
@@ -1360,10 +1388,122 @@ Item {
                 }
     
                 GButton {
+                    id: newTabButton
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    text: ""
+                    display: AbstractButton.IconOnly
+                    icon.source: AppTheme.icon("plus.svg")
+                    icon.width: 16; icon.height: 16
+                    implicitWidth: 34; implicitHeight: 34
+                    Layout.alignment: Qt.AlignBottom
+                    GToolTip {
+                        text: lang.t("new_tab")
+                    }
+                    onClicked: { page.dismissActivePaneTransientUi(); page.addTab(page.activePane.currentLocation, true) }
+                    background: Rectangle {
+                        radius: height / 2
+                        color: parent.hovered ? AppTheme.surfaceHover : AppTheme.mix(AppTheme.background, AppTheme.surfaceRaised, 0.35)
+                    }
+                }
+                Item { Layout.fillWidth: true }
+            }
+        }
+        Item {
+            id: navigationSlot
+            objectName: "browserNavigationHost"
+            Layout.fillWidth: true
+            implicitHeight: Math.max(42, AppTheme.typographySize("menu", 11) + 18)
+            Rectangle {
+                objectName: "browserNavigationSurface"
+                anchors.fill: parent
+                topLeftRadius: 12
+                topRightRadius: 12
+                bottomLeftRadius: 0
+                bottomRightRadius: 0
+                color: page.navigationColor
+                visible: page.headerHost === null
+            }
+        }
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.leftMargin: 8
+        anchors.rightMargin: 8
+        anchors.topMargin: page.headerHost ? 6 : page.headerHeight + 6
+        anchors.bottomMargin: 8
+        spacing: 6
+
+        Rectangle {
+            id: commandBar
+            objectName: "browserCommandBar"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.max(38, commandControls.controlHeight + 8)
+            radius: 9
+            color: AppTheme.commandBar
+            border.color: AppTheme.border
+            border.width: 1
+
+            RowLayout {
+                id: commandControls
+                objectName: "browserCommandControls"
+                readonly property real controlHeight: Math.max(28, AppTheme.typographySize("menu", 11) + 10)
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                anchors.topMargin: 4
+                anchors.bottomMargin: 4
+                spacing: 4
+                GButton {
+                    objectName: "commandNewFolder"
+                    topPadding: 4; bottomPadding: 4
+                    text: lang.t("new_folder")
+                    icon.source: AppTheme.icon("plus.svg")
+                    icon.width: 16; icon.height: 16
+                    implicitHeight: commandControls.controlHeight
+                    visible: !page.activePane.isCategoryLocation && !page.activePane.isTrashLocation
+                    onClicked: page.activePane.showNewFolderDialog()
+                    background: Rectangle { radius: 7; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
+                }
+                Rectangle {
+                    visible: !page.activePane.isCategoryLocation && !page.activePane.isTrashLocation
+                    Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: AppTheme.border
+                }
+                Repeater {
+                    model: [
+                        {key: "cut", icon: "edit-cut.svg", systemIcon: "edit-cut", label: lang.t("cut")},
+                        {key: "copy", icon: "edit-copy.svg", systemIcon: "edit-copy", label: lang.t("copy")},
+                        {key: "paste", icon: "edit-paste.svg", systemIcon: "edit-paste", label: lang.t("paste")},
+                        {key: "rename", icon: "edit-rename.svg", systemIcon: "edit-rename", label: lang.t("rename")},
+                        {key: "trash", icon: "delete.svg", systemIcon: "user-trash", label: lang.t("trash")},
+                        {key: "properties", icon: "properties.svg", systemIcon: "document-properties", label: lang.t("properties")}
+                    ]
+                    delegate: GToolButton {
+                        required property var modelData
+                        objectName: "command_" + modelData.key
+                        implicitWidth: 34; implicitHeight: commandControls.controlHeight
+                        icon.source: AppTheme.useSystemIcons ? AppTheme.systemIcon(modelData.systemIcon) : AppTheme.icon(modelData.icon)
+                        icon.width: 18; icon.height: 18
+                        enabled: modelData.key === "paste" ? page.activePane.canPasteHere
+                                 : page.activePane.selectedCount > 0
+                        Accessible.name: modelData.label
+                        GToolTip { text: parent.modelData.label + page.activePane.shortcutSuffix(parent.modelData.key) }
+                        onClicked: page.runShortcutAction(modelData.key)
+                    }
+                }
+                Item {
+                    id: categoryToolsSlot
+                    objectName: "categoryToolsHost"
+                    visible: page.activePane.isCategoryLocation
+                    Layout.preferredWidth: visible ? page.activePane.categoryToolsWidth : 0
+                    Layout.preferredHeight: commandControls.controlHeight
+                }
+                Item { Layout.fillWidth: true }
+                GButton {
                     id: wheelSpeedButton
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: "↕ " + AppTheme.wheelScrollStep
-                    implicitWidth: 72; implicitHeight: 34
+                    implicitWidth: 72; implicitHeight: commandControls.controlHeight
                     topPadding: 4; bottomPadding: 4
                     basePixelSize: 12
                     GToolTip { text: lang.t("wheel_speed") }
@@ -1377,24 +1517,10 @@ Item {
                 }
     
                 GButton {
-                    id: newTabButton
-                    HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    text: ""
-                    display: AbstractButton.IconOnly
-                    icon.source: AppTheme.icon("plus.svg")
-                    icon.width: 16; icon.height: 16
-                    implicitWidth: 34; implicitHeight: 34
-                    GToolTip {
-                        text: lang.t("new_tab")
-                    }
-                    onClicked: { page.dismissActivePaneTransientUi(); page.addTab(page.activePane.currentLocation, true) }
-                    background: Rectangle { radius: 11; color: parent.hovered ? AppTheme.surfaceHover : "transparent"; border.color: "transparent" }
-                }
-                GButton {
                     id: splitButton
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
-                    implicitWidth: 34; implicitHeight: 34
+                    implicitWidth: 34; implicitHeight: commandControls.controlHeight
                     GToolTip {
                         text: page.splitEnabled ? lang.t("close_split") : lang.t("split_view")
                     }
@@ -1423,7 +1549,7 @@ Item {
                     objectName: "hiddenFilesButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
-                    implicitWidth: 34; implicitHeight: 34
+                    implicitWidth: 34; implicitHeight: commandControls.controlHeight
                     GToolTip {
                         text: lang.t("show_hidden")
                     }
@@ -1449,7 +1575,7 @@ Item {
                     objectName: "viewButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
-                    implicitWidth: 34; implicitHeight: 34
+                    implicitWidth: 34; implicitHeight: commandControls.controlHeight
                     GToolTip {
                         text: lang.t("view")
                     }
@@ -1487,7 +1613,7 @@ Item {
                     property bool menuWasOpenOnPress: false
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: "⋯"
-                    implicitWidth: 34; implicitHeight: 34
+                    implicitWidth: 34; implicitHeight: commandControls.controlHeight
                     topPadding: 4; bottomPadding: 4
                     basePixelSize: 14
                     GToolTip {
@@ -1522,8 +1648,14 @@ Item {
 
             BrowserPane {
                 id: leftPane
+                objectName: "browserLeftPane"
                 SplitView.fillWidth: true
                 SplitView.minimumWidth: 340
+                unifiedSurface: page.headerHost !== null
+                categoryToolsHost: categoryToolsSlot
+                categoryToolsVisible: page.activePane === leftPane
+                navigationHost: navigationSlot
+                navigationVisible: page.activePane === leftPane
                 initialLocation: page.initialLocation
                 lang: page.lang
                 contentIndexModel: page.contentIndexModel
@@ -1575,6 +1707,12 @@ Item {
         id: rightPaneComponent
         BrowserPane {
                 id: rightPane
+                objectName: "browserRightPane"
+                unifiedSurface: page.headerHost !== null
+                categoryToolsHost: categoryToolsSlot
+                categoryToolsVisible: page.activePane === rightPane
+                navigationHost: navigationSlot
+                navigationVisible: page.activePane === rightPane
                 initialLocation: page.initialLocation
                 lang: page.lang
                 contentIndexModel: page.contentIndexModel

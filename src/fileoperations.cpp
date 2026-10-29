@@ -35,6 +35,7 @@
 #include <QtConcurrent>
 #include <memory>
 #include <atomic>
+#include <algorithm>
 #include <utility>
 #include <signal.h>
 #include <cerrno>
@@ -42,6 +43,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <openssl/crypto.h>
 
 #include <KIO/CopyJob>
 #include <KIO/BatchRenameJob>
@@ -89,8 +91,11 @@ public:
         setCapabilities(KJob::Killable | KJob::Suspendable);
     }
 
-    void trackCompression(const QStringList &sources, const QString &destination, const QString &displayDestination)
+    void trackCompression(const QStringList &sources, const QString &destination, const QString &displayDestination,
+                          bool sevenZip = false)
     {
+        m_sevenZip = sevenZip;
+        if (sevenZip) m_stagingDirectory = QFileInfo(destination).absolutePath();
         m_destination = destination;
         m_displayDestination = displayDestination;
         setProgressUnit(KJob::Items);
@@ -98,7 +103,8 @@ public:
         const auto cancelled = m_cancelScan;
         auto *watcher = new QFutureWatcher<qulonglong>(this);
         connect(watcher, &QFutureWatcher<qulonglong>::finished, this, [this, watcher] {
-            m_totalEntries = watcher->result(); watcher->deleteLater();
+            if (!m_toolCountAvailable) m_totalEntries = watcher->result();
+            watcher->deleteLater();
             if (m_done) return;
             setTotalAmount(KJob::Items, m_totalEntries);
             publishProgress();
@@ -126,7 +132,7 @@ public:
             // SIGUSR1 is bsdtar's documented progress signal. Check the actual
             // handler first: never send it during exec/loader initialization.
             QFile status(QStringLiteral("/proc/%1/status").arg(m_process->processId()));
-            if (status.open(QIODevice::ReadOnly)) {
+            if (!m_sevenZip && status.open(QIODevice::ReadOnly)) {
                 const auto lines = status.readAll().split('\n');
                 for (const auto &line : lines) {
                     if (!line.startsWith("SigCgt:")) continue;
@@ -163,7 +169,9 @@ public:
         return m_errors.trimmed();
     }
 
-    void setPublishedArchive(const QString &path) { m_destination = path; m_displayDestination = path; }
+    void setPublishedArchive(const QString &path) {
+        m_destination = path; m_displayDestination = path; m_stagingDirectory.clear();
+    }
 
     void complete(bool success, const QString &error = QString())
     {
@@ -177,9 +185,9 @@ public:
                 sampleOutput();
                 // Successful verbose records are the actual archive entries,
                 // including when sources changed while the scan was running.
-                m_totalEntries = m_seenEntries;
-                setTotalAmount(KJob::Items, m_seenEntries);
-                setProcessedAmount(KJob::Items, m_seenEntries);
+                if (!m_sevenZip) m_totalEntries = m_seenEntries;
+                setTotalAmount(KJob::Items, m_totalEntries);
+                setProcessedAmount(KJob::Items, m_totalEntries);
                 publishDescription();
             }
             setPercent(100);
@@ -231,6 +239,29 @@ private:
     void parseLine(const QByteArray &raw)
     {
         const QString line = QString::fromLocal8Bit(raw).trimmed();
+        if (m_sevenZip) {
+            // -bb1/-bsp0 produces bounded newline records, without terminal
+            // control sequences or password echo. Use the tool's real scan
+            // counts (including empty directories) for final progress.
+            static const QRegularExpression counts(QStringLiteral("^Add new data to archive: (?:(\\d+) folders?, )?(?:(\\d+) files?)(?:,|$)"));
+            static const QRegularExpression folders(QStringLiteral("^Add new data to archive: (\\d+) folders?(?:,|$)"));
+            if (const auto match = counts.match(line); match.hasMatch()) {
+                m_toolCountAvailable = true;
+                m_totalEntries = match.captured(1).toULongLong() + match.captured(2).toULongLong();
+                setTotalAmount(KJob::Items, m_totalEntries);
+            } else if (const auto match = folders.match(line); match.hasMatch()) {
+                m_toolCountAvailable = true;
+                m_totalEntries = match.captured(1).toULongLong();
+                setTotalAmount(KJob::Items, m_totalEntries);
+            } else if (line.startsWith(QStringLiteral("+ "))) {
+                ++m_seenEntries; m_currentFile = line.mid(2);
+            }
+            // Keep diagnostics for a nonzero exit, never treat them as a
+            // success signal. The exit status still controls publication.
+            m_errors = (m_errors + line + QLatin1Char('\n')).right(8192);
+            publishProgress();
+            return;
+        }
         static const QRegularExpression report(QStringLiteral("^In: ([0-9]+) files, [0-9]+ bytes; Out: ([0-9]+) bytes, compression [0-9]+%$"));
         static const QRegularExpression current(QStringLiteral("^Current: (.*) \\(([0-9]+)/([0-9]+) bytes\\)$"));
         if (line.startsWith(QStringLiteral("a "))) {
@@ -247,7 +278,15 @@ private:
     }
     void sampleOutput()
     {
-        const auto written = qulonglong(qMax<qint64>(0, QFileInfo(m_destination).size()));
+        auto written = qulonglong(qMax<qint64>(0, QFileInfo(m_destination).size()));
+        if (!m_stagingDirectory.isEmpty()) {
+            // 7-Zip writes a temporary sibling and renames it only at the end.
+            // Sample just our private directory, never the user's destination
+            // tree, so speed/bytes and cancellation work before publication.
+            written = 0;
+            const auto files = QDir(m_stagingDirectory).entryInfoList(QDir::Files | QDir::Hidden | QDir::NoSymLinks);
+            for (const auto &file : files) written += qulonglong(qMax<qint64>(0, file.size()));
+        }
         const qint64 now = m_clock.elapsed(), elapsed = now - m_lastSampleTime;
         setProcessedAmount(KJob::Bytes, written); // Compressed output, not input bytes.
         if (elapsed > 0) emitSpeed(static_cast<unsigned long>((written >= m_lastWritten ? written - m_lastWritten : 0) * 1000 / elapsed));
@@ -279,7 +318,7 @@ private:
     QPointer<QProcess> m_process;
     QString m_executable;
     QStringList m_arguments;
-    QString m_title, m_detail, m_destination, m_displayDestination, m_currentFile, m_errors;
+    QString m_title, m_detail, m_destination, m_displayDestination, m_stagingDirectory, m_currentFile, m_errors;
     QByteArray m_buffer;
     QTimer *m_timer = nullptr;
     QElapsedTimer m_clock;
@@ -287,6 +326,8 @@ private:
     qulonglong m_lastWritten = 0, m_totalEntries = 0, m_seenEntries = 0, m_reportEntries = 0;
     double m_currentFraction = 0;
     bool m_done = false;
+    bool m_sevenZip = false;
+    bool m_toolCountAvailable = false;
     std::shared_ptr<std::atomic_bool> m_cancelScan;
 };
 
@@ -1772,6 +1813,36 @@ void FileOperations::compressItem(const QString &sourceUrl, const QString &forma
 
 void FileOperations::compressItems(const QStringList &sourceUrls, const QString &format)
 {
+    startArchiveCompression(sourceUrls, format, {});
+}
+
+void FileOperations::compressEncryptedItems(const QStringList &sourceUrls, const QString &format, const QString &password)
+{
+    if (password.isEmpty() || password.contains(QLatin1Char('\n')) || password.contains(QLatin1Char('\r'))
+        || password.contains(QChar::Null) || password.toUtf8().size() > 1024) {
+        const QString error = securityMessage("Enter a non-empty password without line breaks (maximum 1024 UTF-8 bytes).",
+                                              "Satır sonu içermeyen bir parola gir (en fazla 1024 UTF-8 bayt).");
+        setLastError(error); emit operationFinished(false, error, false); return;
+    }
+    const QString normalized = format.trimmed().toLower();
+    if (normalized == QStringLiteral("zip") && (password.size() > 99 || std::any_of(password.cbegin(), password.cend(), [](QChar c) {
+            return c.unicode() < 0x20 || c.unicode() > 0x7e;
+        }))) {
+        const QString error = securityMessage("ZIP passwords support up to 99 printable ASCII characters. Choose 7z for Unicode passwords.",
+                                              "ZIP parolası en fazla 99 yazdırılabilir ASCII karakter içerebilir. Türkçe karakterli parolalar için 7z seç.");
+        setLastError(error); emit operationFinished(false, error, false); return;
+    }
+    if (normalized != QStringLiteral("zip") && normalized != QStringLiteral("7z")) {
+        const QString error = securityMessage("Encrypted compression supports ZIP and 7z only.",
+                                              "Şifreli sıkıştırma yalnızca ZIP ve 7z biçimlerini destekler.");
+        setLastError(error); emit operationFinished(false, error, false); return;
+    }
+    startArchiveCompression(sourceUrls, normalized, password);
+}
+
+void FileOperations::startArchiveCompression(const QStringList &sourceUrls, const QString &format, const QString &password)
+{
+    const bool encrypted = !password.isEmpty();
     QList<QFileInfo> sources;
     QSet<QString> seenPaths;
     sources.reserve(sourceUrls.size());
@@ -1779,7 +1850,8 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     for (const QString &sourceUrl : sourceUrls) {
         const QUrl source = toUrl(sourceUrl);
         if (!source.isLocalFile()) {
-            const QString error = QStringLiteral("Compression currently requires local files or folders.");
+            const QString error = securityMessage("Compression currently requires local files or folders.",
+                                                  "Sıkıştırma şu anda yerel dosya veya klasör gerektiriyor.");
             setLastError(error);
             emit operationFinished(false, error, false);
             return;
@@ -1803,9 +1875,12 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     if (sources.isEmpty())
         return;
 
-    const QString executable = QStandardPaths::findExecutable(QStringLiteral("bsdtar"));
+    const QString executable = QStandardPaths::findExecutable(encrypted ? QStringLiteral("7z") : QStringLiteral("bsdtar"));
     if (executable.isEmpty()) {
-        const QString error = QStringLiteral("bsdtar was not found. Install the libarchive package.");
+        const QString error = encrypted
+            ? securityMessage("Encrypted compression requires 7-Zip. Install the 7zip package.",
+                              "Şifreli sıkıştırma için 7-Zip gerekiyor. 7zip paketini yükle.")
+            : QStringLiteral("bsdtar was not found. Install the libarchive package.");
         setLastError(error);
         emit operationFinished(false, error, false);
         return;
@@ -1850,7 +1925,7 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     }
 
     const QString plannedArchivePath = parent.filePath(baseName + extension);
-    auto output = std::make_shared<ArchiveOutput>(parent.absolutePath(), baseName, extension);
+    auto output = std::make_shared<ArchiveOutput>(parent.absolutePath(), baseName, extension, encrypted);
     if (!output->valid()) {
         const QString error = securityMessage("Could not create an archive staging file. Check free space and directory permissions.",
                                               "Geçici arşiv dosyası oluşturulamadı. Boş alanı ve dizin izinlerini kontrol et.");
@@ -1862,10 +1937,20 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     // and the compression filter (gzip/bzip2/xz/zstd) from the filename suffix.
     // This keeps all formats on one code path and preserves the per-source -C
     // handling below for category views containing mixed parent directories.
-    args << QStringLiteral("-a")
+    if (encrypted) {
+        args << QStringLiteral("a") << QStringLiteral("-t") + normalizedFormat
+             << QStringLiteral("-p") << QStringLiteral("-sccUTF-8")
+             << QStringLiteral("-bb1") << QStringLiteral("-bso2") << QStringLiteral("-bsp0")
+             << QStringLiteral("-snl") << QStringLiteral("-spd") << QStringLiteral("-spf")
+             << QStringLiteral("-sse") << QStringLiteral("-mmt=2")
+             << (normalizedFormat == QStringLiteral("zip") ? QStringLiteral("-mem=AES256") : QStringLiteral("-mhe=on"))
+             << QStringLiteral("-w") + QFileInfo(output->path()).absolutePath() << output->path() << QStringLiteral("--");
+    } else {
+        args << QStringLiteral("-a")
          << QStringLiteral("-cf")
          << output->path();
-    args << ArchiveArguments::creationPathOptions();
+        args << ArchiveArguments::creationPathOptions();
+    }
 
     // Preserve relative parent paths for mixed-directory selections. Flattening
     // them would create duplicate archive members for equal basenames.
@@ -1876,10 +1961,14 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
         }
     }
     QStringList sourcePaths;
-    args << QStringLiteral("-v");
+    if (!encrypted) args << QStringLiteral("-v");
     for (const QFileInfo &info : std::as_const(sources)) {
-        args << QStringLiteral("-C") << archiveRoot.absolutePath()
-             << QStringLiteral("./") + archiveRoot.relativeFilePath(info.absoluteFilePath());
+        if (!encrypted) args << QStringLiteral("-C") << archiveRoot.absolutePath();
+        // 7-Zip otherwise flattens explicitly selected files, even from
+        // different parents. -spf preserves these *relative* operands verbatim;
+        // '--' already protects option-like and @listfile names. Do not use
+        // absolute paths or './' member prefixes (Ark/libzip normalization).
+        args << (encrypted ? QString() : QStringLiteral("./")) + archiveRoot.relativeFilePath(info.absoluteFilePath());
         sourcePaths.append(info.absoluteFilePath());
     }
 
@@ -1888,10 +1977,23 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
         : securityMessage("%1 items", "%1 öğe").arg(sources.size());
 
     auto *process = new QProcess(this);
-    process->setWorkingDirectory(parent.absolutePath());
+    process->setWorkingDirectory(archiveRoot.absolutePath());
+    if (encrypted) {
+        // A bare -p asks 7-Zip to read stdin. Never expose a password through
+        // argv, the environment, a list file, progress text or a shell.
+        auto secret = std::shared_ptr<QByteArray>(new QByteArray(password.toUtf8()), [](QByteArray *bytes) {
+            OPENSSL_cleanse(bytes->data(), size_t(bytes->size())); delete bytes;
+        });
+        secret->append('\n');
+        connect(process, &QProcess::started, process, [process, secret] {
+            process->write(*secret);
+            OPENSSL_cleanse(secret->data(), size_t(secret->size())); secret->clear();
+            process->closeWriteChannel();
+        }, Qt::SingleShotConnection);
+    }
     auto *job = new ArchiveProgressJob(process, executable, args, securityMessage("Creating archive", "Arşiv oluşturuluyor"),
                                        detail, this);
-    job->trackCompression(sourcePaths, output->path(), plannedArchivePath);
+    job->trackCompression(sourcePaths, output->path(), plannedArchivePath, encrypted);
     QPointer<ArchiveProgressJob> trackedJob(job);
     const int operationId = startOperation(QStringLiteral("compress"), detail, job, process);
     setOperationAmount(operationId, int(KJob::Items), qulonglong(sources.size()), true);
@@ -1925,10 +2027,14 @@ void FileOperations::compressItems(const QStringList &sourceUrls, const QString 
     });
 
     connect(process, &QProcess::finished, this,
-            [this, process, output, operationId, trackedJob](int exitCode, QProcess::ExitStatus status) {
+            [this, process, output, operationId, trackedJob, encrypted](int exitCode, QProcess::ExitStatus status) {
         const bool cancelled = m_cancelledOperations.remove(operationId);
         bool ok = !cancelled && status == QProcess::NormalExit && exitCode == 0;
         QString publishError, archivePath;
+        if (ok && encrypted && !QFile::setPermissions(output->path(), QFile::ReadOwner | QFile::WriteOwner)) {
+            ok = false;
+            publishError = securityMessage("Could not protect the archive's permissions.", "Arşivin izinleri korunamadı.");
+        }
         if (ok) { archivePath = output->publish(&publishError); ok = !archivePath.isEmpty(); }
         if (ok && trackedJob) trackedJob->setPublishedArchive(archivePath);
         const QString processError = !publishError.isEmpty() ? publishError
