@@ -65,7 +65,8 @@ private:
     };
 
     void rebuild();
-    void collectActions(const QList<QAction *> &actions, const QString &prefix = QString());
+    void collectActions(const QList<QAction *> &actions, const QString &prefix = QString(),
+                        const QString &parentIcon = QString());
     void loadFavorites();
     void saveFavorites() const;
     static QString cleanText(QString text);

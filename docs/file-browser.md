@@ -50,20 +50,30 @@ Their navigation and workspace use the regular light, dark or Qt palette.
 
 Local directory footers show the recursive logical file size beside the item
 count, in IEC units (KiB, MiB, GiB). The calculation includes hidden descendants
-and skips symbolic links. It runs in the background and is cancelled when the
-pane leaves that directory. A short delay avoids scanning locations passed
-through during navigation; transfers take priority over automatic recalculation.
-Automatic scans yield most of the time, using a small budget of roughly 5% of
-one core while work remains. Showing an unchanged pane reuses its ready result.
-Refreshes during a scan are coalesced into a follow-up rather than repeatedly
-cancelling and restarting the tree walk.
+and skips symbolic links. It runs in the background. A short delay avoids
+scanning locations passed through during navigation; transfers take priority
+over automatic recalculation.
+The application shares running scans and completed totals for up to 32 recent
+directories. Leaving a pane detaches its display; returning resumes the same
+scan or immediately shows the cached total. Automatic workers use low priority,
+a CPU-time budget of roughly 10% of one core, and at most two worker threads.
+Waiting on storage does not consume that CPU budget. Refreshes during a scan
+are coalesced rather than repeatedly cancelling and restarting the tree walk.
+During long scans, `≥` marks the size found so far, updated at most twice a
+second. It is replaced by the final total when scanning finishes. A completed
+total remains visible during the delay before a refresh starts.
 
 Properties shares this calculation and its immediate-child subtotals. Selecting
 all visible items therefore reuses the ready result, or waits for the same
 in-flight scan, rather than starting another recursive walk. Hidden items that
 are not selected are excluded from selection totals. Opening Properties gives
 the shared scan foreground priority; closing it releases that priority.
-Results are snapshots; refreshing the directory recalculates its size.
+Results are in-memory snapshots. Lurviko file operations and changes to a
+directory's own modification time invalidate relevant totals; Refresh forces
+recalculation. Completed snapshots expire after five minutes when requested
+again. External changes deep inside a cached tree may therefore require
+Refresh. Subtotals are limited to 4,096 immediate children per cached directory;
+larger subset selections use a normal Properties calculation.
 
 ## Video titles and episodes
 
@@ -129,6 +139,8 @@ fill and top/side outline, so selection remains visible even when the native
 Window and Base colors are identical. The compositor blur request specifies
 the complete client rectangle, including the tab strip, and follows window
 resizes in logical pixels. Tabs do not allocate a separate blur texture.
+Covered lower tab corners are trimmed against the tab in front, so translucent
+fills do not expose a second outline or stack their opacity at the join.
 Qt mode also applies to photo/video controls and photo hover cards. Music and
 video hover previews retain their artwork, dark backgrounds and light text
 independently of the Qt theme. In custom

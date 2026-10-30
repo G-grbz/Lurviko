@@ -231,7 +231,8 @@ void ServiceMenuModel::rebuild()
     emit favoriteEntriesChanged();
 }
 
-void ServiceMenuModel::collectActions(const QList<QAction *> &actions, const QString &prefix)
+void ServiceMenuModel::collectActions(const QList<QAction *> &actions, const QString &prefix,
+                                      const QString &parentIcon)
 {
     for (QAction *action : actions) {
         if (!action || !action->isVisible() || action->isSeparator())
@@ -245,15 +246,17 @@ void ServiceMenuModel::collectActions(const QList<QAction *> &actions, const QSt
         if (identity.contains(QStringLiteral("dolphin"), Qt::CaseInsensitive))
             continue;
 
+        const QString ownIcon = action->icon().name();
+        const QString iconName = ownIcon.isEmpty() ? parentIcon : ownIcon;
         if (QMenu *subMenu = action->menu()) {
             const QString nextPrefix = prefix.isEmpty() ? raw : prefix + QStringLiteral(" › ") + raw;
-            collectActions(subMenu->actions(), nextPrefix);
+            collectActions(subMenu->actions(), nextPrefix, iconName);
             continue;
         }
 
         Entry entry;
         entry.text = prefix.isEmpty() ? raw : prefix + QStringLiteral(" › ") + raw;
-        entry.iconName = action->icon().name();
+        entry.iconName = iconName;
         entry.key = action->objectName() + QStringLiteral("|") + action->data().toString()
                     + QStringLiteral("|") + entry.text;
         entry.action = action;

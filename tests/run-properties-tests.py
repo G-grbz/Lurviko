@@ -48,4 +48,5 @@ with tempfile.TemporaryDirectory(prefix="lurviko-properties-tests-") as temporar
     environment["PATH"] = str(root / "bin") + os.pathsep + os.environ["PATH"]
     if environment["QT_QPA_PLATFORM"] == "offscreen":
         environment["QT_QUICK_BACKEND"] = "software"
-    subprocess.run([str(root / "bin/properties-tests")], env=environment, check=True, timeout=45)
+    # Includes several CPU-budgeted 80,000-file scans and the real dialog flow.
+    subprocess.run([str(root / "bin/properties-tests")], env=environment, check=True, timeout=120)

@@ -67,7 +67,23 @@ MenuItem {
             Layout.preferredWidth: 22
             Layout.preferredHeight: 26
 
+            // Keep application artwork in its original colors. Bundled action
+            // glyphs receive their palette color through AppTheme.icon().
+            CrispIcon {
+                objectName: "menuActionIcon"
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                visible: !control.checkable
+                         && (String(control.icon.source).length > 0 || control.icon.name.length > 0)
+                source: !visible ? "" : String(control.icon.source).length > 0
+                        ? control.icon.source : AppTheme.systemIcon(control.icon.name)
+                opacity: control.enabled ? 1 : 0.4
+                retainWhileLoading: false
+            }
+
             Rectangle {
+                objectName: "menuCheckIndicator"
                 anchors.centerIn: parent
                 width: 20
                 height: 20

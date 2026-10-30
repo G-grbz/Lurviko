@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.4.0 LANGUAGES CXX)
+project(Lurviko VERSION 1.4.1 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -140,6 +140,8 @@ qt_add_executable(lurviko
     src/iconpickermanager.cpp
     src/iconpickermanager.h
     src/filepropertiesmanager.cpp
+    src/directorysizeworker.cpp
+    src/directorysizeworker.h
     src/fileaccesssecurity.cpp
     src/fileaccesssecurity.h
     src/filepropertiesaccess.cpp

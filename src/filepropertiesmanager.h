@@ -102,6 +102,9 @@ public:
     int mixedPermissionMask() const { return m_mixedPermissionMask; }
 
     Q_INVOKABLE void inspect(const QString &urlOrPath);
+    Q_INVOKABLE void inspectCached(const QString &urlOrPath);
+    Q_INVOKABLE bool restoreCachedStats(const QString &urlOrPath);
+    Q_INVOKABLE void invalidateCachedStats(const QString &urlOrPath);
     Q_INVOKABLE void inspectSelection(const QStringList &urls);
     Q_INVOKABLE void cancelInspection();
     Q_INVOKABLE bool setFolderIcon(const QString &iconName);
@@ -136,6 +139,11 @@ private:
     static QString readFolderIcon(const QString &path);
 
     bool reuseStatsOrWait(const QStringList &paths, bool selection, int generation);
+    void inspectInternal(const QString &urlOrPath, bool cached);
+    static FilePropertiesManager *cachedStats(const QString &path, bool lookupOnly = false);
+    QPointer<FilePropertiesManager> m_cachedSource;
+    QMetaObject::Connection m_cachedPropertiesConnection, m_cachedCalculatingConnection;
+    int m_cachedReaders = 0;
     QPointer<FilePropertiesManager> m_statsSource;
     QMetaObject::Connection m_statsConnection;
     bool m_statsReady = false;
@@ -185,6 +193,7 @@ private:
     bool m_calculating = false;
     int m_generation = 0;
     std::shared_ptr<std::atomic_bool> m_statsCancelled;
+    QPointer<QTimer> m_statsProgressTimer;
     std::shared_ptr<std::atomic_int> m_statsDemand;
     std::shared_ptr<std::atomic_int> m_waitingStatsDemand;
 };

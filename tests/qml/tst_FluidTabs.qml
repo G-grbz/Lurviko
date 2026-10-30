@@ -4,7 +4,7 @@ import Lurviko.App
 
 Item {
     id: root
-    width: 720; height: 380
+    width: 1100; height: 380
     Component {
         id: fixtureComponent
         Item {
@@ -21,6 +21,35 @@ Item {
                 transformOrigin: Item.TopLeft
                 selected: true
                 navigationColor: "white"
+            }
+        }
+    }
+    Component {
+        id: overlappingTabsComponent
+        Item {
+            property real zoom: 1
+            property int activeIndex: 1
+            property int hiddenIndex: -1
+            property bool trimOverlap: true
+            width: Math.ceil(632 * zoom); height: Math.ceil(64 * zoom)
+            Rectangle { anchors.fill: parent; color: "#547b96" }
+            Item {
+                width: 632; height: 64
+                scale: parent.zoom; transformOrigin: Item.TopLeft
+                Repeater {
+                    model: 3
+                    FluidTabSurface {
+                        required property int index
+                        x: 12 + index * 190; y: 12
+                        width: 208; height: 40
+                        selected: index === activeIndex
+                        visible: index !== hiddenIndex
+                        z: selected ? 10 : 1
+                        tabOverlap: 18
+                        occludedOnLeft: trimOverlap && index > 0 && activeIndex === index - 1
+                        occludedOnRight: trimOverlap && index < 2 && !selected
+                    }
+                }
             }
         }
     }
@@ -113,6 +142,61 @@ Item {
                 "Administrator tabs keep their warning tint without tinting the navigation surface")
             compare(contour.activeColor, AppTheme.dark ? "#3a2a18" : "#fff0d8")
             compare(contour.outlineColor, AppTheme.warning)
+        }
+        function test_translucent_neighbors_do_not_show_through_the_front_tab_data() {
+            const cases = []
+            for (const dark of [false, true])
+                for (const zoom of [1, 1.5])
+                    for (const pair of [{name: "passive", active: 2, hidden: 0, right: true},
+                                        {name: "active-right", active: 1, hidden: 0, right: true},
+                                        {name: "active-left", active: 1, hidden: 2, right: false}])
+                        cases.push({tag: pair.name + "-" + dark + "-" + zoom,
+                            dark: dark, zoom: zoom, active: pair.active, hidden: pair.hidden, right: pair.right})
+            return cases
+        }
+        function test_translucent_neighbors_do_not_show_through_the_front_tab(data) {
+            inputTestHelper.setSystemThemeTestAppearance(data.dark, true)
+            AppTheme.setQtTheme(true)
+            tryCompare(AppTheme, "translucentWindow", true)
+            const fixture = createTemporaryObject(overlappingTabsComponent, root,
+                {zoom: data.zoom, activeIndex: data.active})
+            verify(waitForRendering(fixture))
+            wait(130)
+            const combined = grabImage(fixture)
+            fixture.hiddenIndex = data.hidden
+            verify(waitForRendering(fixture))
+            const reference = grabImage(fixture)
+            // These pixels are inside the front tab and behind the covered
+            // neighbor's foot. Removing that neighbor must not change them.
+            const scale = combined.width / 632
+            let error = 0
+            for (let offset = 2; offset <= 5; ++offset) {
+                const x = Math.floor((12 + data.hidden * 190 + (data.right ? 208 - offset : offset)) * scale)
+                const y = Math.ceil(52 * scale) - 1
+                for (const channel of ["red", "green", "blue"])
+                    error = Math.max(error, Math.abs(combined[channel](x, y) - reference[channel](x, y)))
+            }
+            if (error > 2) {
+                combined.save("/tmp/lurviko-join-combined-" + data.tag + ".png")
+                reference.save("/tmp/lurviko-join-reference-" + data.tag + ".png")
+            }
+            verify(error <= 2, "Covered border/fill must not bleed through; channel error=" + error)
+            fixture.hiddenIndex = -1
+            fixture.trimOverlap = false
+            verify(waitForRendering(fixture))
+            const untrimmed = grabImage(fixture)
+            let oldError = 0
+            for (let offset = 2; offset <= 5; ++offset) {
+                const x = Math.floor((12 + data.hidden * 190 + (data.right ? 208 - offset : offset)) * scale)
+                const y = Math.ceil(52 * scale) - 1
+                for (const channel of ["red", "green", "blue"])
+                    oldError = Math.max(oldError, Math.abs(untrimmed[channel](x, y) - reference[channel](x, y)))
+            }
+            verify(oldError > 2, "The pixel check must detect the original overlapping paint")
+            fixture.trimOverlap = true
+            verify(waitForRendering(fixture))
+            grabImage(fixture).save("/tmp/lurviko-translucent-tabs-" + data.tag + ".png")
+            inputTestHelper.restoreSystemThemeTestAppearance()
         }
     }
 }

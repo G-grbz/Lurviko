@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 repo = Path(__file__).resolve().parents[1]
-build = repo / "build"
+build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", repo / "build")).resolve()
 with tempfile.TemporaryDirectory(prefix="gfile-search-tests-") as temporary:
     root = Path(temporary)
     main = (repo / "src/main.cpp").read_text()

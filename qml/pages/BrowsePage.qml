@@ -1265,6 +1265,13 @@ Item {
                                     dropTarget: tabDelegate.dragTarget
                                     administrator: tabDelegate.administratorTab
                                     navigationColor: page.navigationColor
+                                    tabOverlap: -tabRow.spacing
+                                    // A translucent front tab cannot hide another
+                                    // tab's paint. Cut only the covered lower wing.
+                                    occludedOnLeft: AppTheme.translucentWindow && page.tabDragFrom < 0
+                                            && index > 0 && page.currentTab === index - 1
+                                    occludedOnRight: AppTheme.translucentWindow && page.tabDragFrom < 0
+                                            && index < page.tabs.length - 1 && !selected
                                 }
                                 scale: dragging ? 0.96 : 1.0
                                 opacity: dragging ? 0.78 : 1.0

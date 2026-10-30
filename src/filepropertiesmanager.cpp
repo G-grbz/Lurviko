@@ -1,4 +1,5 @@
 #include "filepropertiesmanager.h"
+#include "directorysizeworker.h"
 
 #include <QDir>
 #include <QCoreApplication>
@@ -14,7 +15,9 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QTimer>
 #include <QHash>
+#include <QThreadPool>
 
 #include <cerrno>
 #include <cstdio>
@@ -32,19 +35,41 @@ QString securityMessage(const char *english, const char *turkish)
     return QString::fromUtf8(QSettings().value(QStringLiteral("ui/language"), fallback).toString() == QStringLiteral("tr") ? turkish : english);
 }
 
-struct FolderStats {
-    qint64 bytes = 0;
-    int files = 0;
-    int folders = 0;
-    QVariantMap children;
+using FolderStats = DirectorySizeResult;
+
+struct SizeCache : QObject {
+    struct Entry {
+        QPointer<FilePropertiesManager> source;
+        struct stat stamp{};
+        quint64 used = 0;
+        qint64 completed = 0;
+        bool dirty = false;
+    };
+    QHash<QString, Entry> entries;
+    quint64 serial = 0;
+    explicit SizeCache(QObject *parent) : QObject(parent) {}
 };
 
-struct ChildStats {
-    qint64 bytes = 0;
-    int files = 0;
-    int folders = 0;
-    bool directory = false;
-};
+SizeCache *sizeCache()
+{
+    static QPointer<SizeCache> cache;
+    if (!cache) cache = new SizeCache(QCoreApplication::instance());
+    return cache;
+}
+
+QThreadPool *sizePool()
+{
+    // Process-lifetime pool, like decorative image rendering. Cache owners
+    // cancel their workers at shutdown without blocking the GUI on slow I/O.
+    static QThreadPool *pool = [] {
+        auto *pool = new QThreadPool;
+        pool->setMaxThreadCount(2);
+        pool->setThreadPriority(QThread::LowPriority);
+        pool->setExpiryTimeout(1500);
+        return pool;
+    }();
+    return pool;
+}
 
 QString localPathFromInput(const QString &value, const QString &baseDirectory)
 {
@@ -114,6 +139,13 @@ QString FilePropertiesManager::readFolderIcon(const QString &path)
 void FilePropertiesManager::cancelInspection()
 {
     ++m_generation;
+    disconnect(m_cachedPropertiesConnection);
+    disconnect(m_cachedCalculatingConnection);
+    if (m_cachedSource) {
+        --m_cachedSource->m_cachedReaders;
+        m_cachedSource.clear();
+    }
+    if (m_statsProgressTimer) m_statsProgressTimer->stop();
     disconnect(m_statsConnection);
     if (m_waitingStatsDemand) {
         m_waitingStatsDemand->fetch_sub(1, std::memory_order_relaxed);
@@ -173,6 +205,85 @@ bool FilePropertiesManager::reuseStatsOrWait(const QStringList &paths, bool sele
 }
 
 void FilePropertiesManager::inspect(const QString &urlOrPath)
+{
+    inspectInternal(urlOrPath, false);
+}
+
+void FilePropertiesManager::inspectCached(const QString &urlOrPath)
+{
+    inspectInternal(urlOrPath, true);
+}
+
+bool FilePropertiesManager::restoreCachedStats(const QString &urlOrPath)
+{
+    const QUrl url = QUrl::fromUserInput(urlOrPath);
+    if (!url.isLocalFile() || !cachedStats(QDir::cleanPath(url.toLocalFile()), true)) return false;
+    inspectCached(urlOrPath);
+    return true;
+}
+
+void FilePropertiesManager::invalidateCachedStats(const QString &urlOrPath)
+{
+    const QUrl url = QUrl::fromUserInput(urlOrPath);
+    if (!url.isLocalFile()) return;
+    const auto path = QDir::cleanPath(url.toLocalFile());
+    auto *cache = sizeCache();
+    for (auto it = cache->entries.begin(); it != cache->entries.end(); ++it) {
+        const auto root = it.key();
+        if (root == path || path.startsWith(root.endsWith('/') ? root : root + '/')
+                || root.startsWith(path.endsWith('/') ? path : path + '/'))
+            it->dirty = true;
+    }
+}
+
+FilePropertiesManager *FilePropertiesManager::cachedStats(const QString &path, bool lookupOnly)
+{
+    auto *cache = sizeCache();
+    if (lookupOnly && !cache->entries.contains(path)) return nullptr;
+    if (!cache->entries.contains(path) && cache->entries.size() >= 32) {
+        auto oldest = cache->entries.end();
+        for (auto it = cache->entries.begin(); it != cache->entries.end(); ++it) {
+            if (it->source && (it->source->m_cachedReaders > 0
+                    || (it->source->m_statsDemand && it->source->m_statsDemand->load() > 0))) continue;
+            const bool running = it->source && it->source->calculating();
+            const bool oldestRunning = oldest != cache->entries.end() && oldest->source && oldest->source->calculating();
+            if (oldest == cache->entries.end() || (oldestRunning && !running)
+                    || (oldestRunning == running && it->used < oldest->used)) oldest = it;
+        }
+        if (oldest == cache->entries.end()) return nullptr;
+        delete oldest->source.data();
+        cache->entries.erase(oldest);
+    }
+    auto &entry = cache->entries[path];
+    entry.used = ++cache->serial;
+    if (!entry.source) {
+        entry.source = new FilePropertiesManager(cache);
+        entry.source->setObjectName(QStringLiteral("cachedDirectorySize"));
+        entry.source->m_backgroundStats = true;
+        connect(entry.source, &FilePropertiesManager::calculatingChanged, cache, [cache, path] {
+            auto it = cache->entries.find(path);
+            if (it != cache->entries.end() && it->source && it->source->statsReady()) {
+                it->completed = QDateTime::currentMSecsSinceEpoch();
+            }
+        });
+    }
+    struct stat stamp{};
+    ::stat(QFile::encodeName(path).constData(), &stamp);
+    const bool replaced = entry.stamp.st_dev != stamp.st_dev || entry.stamp.st_ino != stamp.st_ino;
+    const bool changed = replaced || entry.stamp.st_mtim.tv_sec != stamp.st_mtim.tv_sec
+            || entry.stamp.st_mtim.tv_nsec != stamp.st_mtim.tv_nsec;
+    const bool expired = entry.completed && QDateTime::currentMSecsSinceEpoch() - entry.completed > 300000;
+    if ((replaced || !entry.source->calculating())
+            && (!entry.source->statsReady() || entry.dirty || changed || expired)) {
+        if (lookupOnly) return nullptr;
+        entry.stamp = stamp;
+        entry.dirty = false;
+        entry.source->inspect(path);
+    }
+    return entry.source;
+}
+
+void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cached)
 {
     if (!m_accessBusy) {
         m_accessError.clear();
@@ -245,9 +356,48 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     }
 
     if (reuseStatsOrWait({m_path}, false, generation)) return;
+    if (cached && m_localFile) {
+        if (auto *source = cachedStats(m_path)) {
+            m_cachedSource = source;
+            ++source->m_cachedReaders;
+            const auto update = [this, source, generation] {
+                if (generation != m_generation) return;
+                m_totalSize = source->m_totalSize;
+                m_fileCount = source->m_fileCount;
+                m_folderCount = source->m_folderCount;
+                m_childStats = source->m_childStats;
+                m_statsReady = source->m_statsReady;
+                m_statsDemand = source->m_statsDemand;
+                setCalculating(source->calculating());
+                emit propertiesChanged();
+            };
+            m_cachedPropertiesConnection = connect(source, &FilePropertiesManager::propertiesChanged, this, update);
+            m_cachedCalculatingConnection = connect(source, &FilePropertiesManager::calculatingChanged, this, update);
+            update();
+            return;
+        }
+    }
     setCalculating(true);
     auto *watcher = new QFutureWatcher<FolderStats>(this);
-    connect(watcher, &QFutureWatcher<FolderStats>::finished, this, [this, watcher, generation]() {
+    // Large trees (notably Home) can take time within the background CPU
+    // budget. Publish a lower bound at most twice a second without queuing
+    // per-file events or allowing Properties to reuse an unfinished snapshot.
+    const auto progress = std::make_shared<DirectorySizeProgress>();
+    auto *progressTimer = new QTimer(watcher);
+    m_statsProgressTimer = progressTimer;
+    progressTimer->setInterval(500);
+    connect(progressTimer, &QTimer::timeout, this, [this, progress, generation] {
+        if (generation != m_generation) return;
+        const auto bytes = progress->bytes.load(std::memory_order_relaxed);
+        const auto files = progress->files.load(std::memory_order_relaxed);
+        const auto folders = progress->folders.load(std::memory_order_relaxed);
+        if (bytes == m_totalSize && files == m_fileCount && folders == m_folderCount) return;
+        m_totalSize = bytes; m_fileCount = files; m_folderCount = folders;
+        emit propertiesChanged();
+    });
+    if (m_backgroundStats) progressTimer->start();
+    connect(watcher, &QFutureWatcher<FolderStats>::finished, this, [this, watcher, progressTimer, generation]() {
+        progressTimer->stop();
         const FolderStats stats = watcher->result();
         watcher->deleteLater();
         if (generation != m_generation)
@@ -263,47 +413,10 @@ void FilePropertiesManager::inspect(const QString &urlOrPath)
     const QString root = m_path;
     const bool background = m_backgroundStats;
     const auto demand = m_statsDemand;
-    watcher->setFuture(QtConcurrent::run([root, cancelled, background, demand]() {
-        FolderStats stats;
-        QHash<QString, ChildStats> children;
-        QElapsedTimer budget; budget.start();
-        const qsizetype prefixLength = root.size() + (root.endsWith(QLatin1Char('/')) ? 0 : 1);
-        QDirIterator it(root,
-                        QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
-                        QDirIterator::Subdirectories);
-        while (!cancelled->load() && it.hasNext()) {
-            it.next();
-            const QFileInfo item = it.fileInfo();
-            // Iterator paths already share the absolute root prefix. Avoid
-            // relative-path normalization and QVariantMap copies for every file.
-            const QString path = it.filePath();
-            const qsizetype slash = path.indexOf(QLatin1Char('/'), prefixLength);
-            const bool topLevel = slash < 0;
-            auto &child = children[topLevel ? path : path.left(slash)];
-            if (topLevel) child.directory = item.isDir() && !item.isSymLink();
-            if (!item.isSymLink()) {
-                if (item.isDir()) {
-                    ++stats.folders;
-                    ++child.folders;
-                } else if (item.isFile()) {
-                    const auto bytes = item.size();
-                    ++stats.files; stats.bytes += bytes;
-                    ++child.files; child.bytes += bytes;
-                }
-            }
-            // Automatic totals get ~5% of one core, rather than the old 50%.
-            // A visible Properties consumer temporarily removes this throttle.
-            if (background && demand->load(std::memory_order_relaxed) == 0 && budget.elapsed() >= 2) {
-                QThread::msleep(38);
-                budget.restart();
-            }
-        }
-        if (cancelled->load()) return FolderStats{};
-        for (auto child = children.constBegin(); child != children.constEnd(); ++child)
-            stats.children.insert(child.key(), QVariantMap{{"bytes", child->bytes}, {"files", child->files},
-                {"folders", child->folders}, {"directory", child->directory}});
-        return stats;
-    }));
+    watcher->setFuture(QtConcurrent::run(background ? sizePool() : QThreadPool::globalInstance(),
+        [root, cancelled, background, demand, progress] {
+            return scanDirectorySize(root, cancelled, demand, progress, background);
+        }));
 }
 
 void FilePropertiesManager::inspectSelection(const QStringList &urls)

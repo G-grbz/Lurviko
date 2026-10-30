@@ -28,7 +28,7 @@ def isolated_directory():
                 time.sleep(0.1 * (2 ** attempt))
 
 repo = Path(__file__).resolve().parents[1]
-build = repo / "build"
+build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", repo / "build")).resolve()
 with isolated_directory() as temporary:
     root = Path(temporary)
     main = (repo / "src/main.cpp").read_text()

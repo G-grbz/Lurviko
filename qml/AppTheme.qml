@@ -594,6 +594,7 @@ QtObject {
         // Explicitly selected UI glyphs only: category artwork and logos keep
         // their original colors. Include the color in the URL for Qt's cache.
         const monochrome = ["history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
+            "edit-cut.svg", "edit-copy.svg", "edit-paste.svg", "edit-rename.svg", "delete.svg", "properties.svg",
             "nav-back.svg", "nav-forward.svg", "nav-up.svg",
             "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "split-view.svg", "split-view-off.svg", "view-layout.svg",
             "music-chevron-up.svg", "music-expand.svg", "music-minimize.svg", "music-playlist.svg",

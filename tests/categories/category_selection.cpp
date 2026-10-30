@@ -17,6 +17,7 @@
 #include <QQuickWindow>
 #include <QTimer>
 #include <cstdio>
+#include <algorithm>
 #include <functional>
 #include "backend_test_types.h"
 
@@ -114,10 +115,24 @@ ApplicationWindow {
     QObject::connect(&index, &ContentIndexModel::scanProgressVisibilityChanged, [&] {
         if (index.scanProgressVisible()) ++explicitScans;
     });
+    // The gallery and music view rebuild their selection scopes on a queued
+    // callback after the asynchronous directory load. Equal item counts alone
+    // can still describe the previous category (each fixture has four files).
+    const auto categoryReady = [&](const QString &key) {
+        if (directory->property("location").toString() != "category:/" + key
+                || directory->property("loading").toBool()) return false;
+        QStringList available = evaluate(pane, "directory.allItemUrls()").toStringList();
+        QStringList scope = evaluate(pane, "categorySelectionUrls()").toStringList();
+        available.sort();
+        scope.sort();
+        const QString prefix = QUrl::fromLocalFile(base + "/" + key + "/").toString();
+        return available.size() == 4 && available == scope
+                && std::all_of(available.cbegin(), available.cend(),
+                               [&](const QString &url) { return url.startsWith(prefix); });
+    };
     for (const auto &key : keys) {
         evaluate(pane, "navigateTo('category:/" + key + "')");
-        const bool ready = until([&] { return !directory->property("loading").toBool() && directory->property("count").toInt() == 4
-            && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; });
+        const bool ready = until([&] { return categoryReady(key); });
         if (!ready) std::fprintf(stderr, "category=%s index=%d location=%s count=%d scope=%d visible=%d\n", qPrintable(key), index.countForCategory(key), qPrintable(directory->property("location").toString()), directory->property("count").toInt(), evaluate(pane, "categorySelectionUrls().length").toInt(), pane->property("visible").toBool());
         require(ready, qPrintable("category has all real URLs: " + key));
         // '+' uses the same location, but must not request a disk reindex or
@@ -126,8 +141,7 @@ ApplicationWindow {
         { QEventLoop loop; QTimer::singleShot(60, &loop, &QEventLoop::quit); loop.exec(); }
         require(until([&] { return !page->property("switchingTabLocation").toBool()
                 && evaluate(page, "currentTab === tabs.length - 1").toBool()
-                && !directory->property("loading").toBool()
-                && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; }),
+                && categoryReady(key); }),
                 "new category tab restores cached entries and settles navigation");
         const auto other = key == "images" ? QStringLiteral("videos") : QStringLiteral("images");
         evaluate(page, "navigateCurrentTab('category:/" + other + "')");
@@ -143,15 +157,16 @@ ApplicationWindow {
                     && !directory->property("loading").toBool(); }), "new category tab supports forward history");
         evaluate(page, "closeTab(currentTab)");
         const bool originalRestored = until([&] { return !page->property("switchingTabLocation").toBool()
-                    && directory->property("location").toString() == "category:/" + key
-                    && !directory->property("loading").toBool()
-                    && evaluate(pane, "categorySelectionUrls().length").toInt() == 4; });
+                    && categoryReady(key); });
         if (!originalRestored) std::fprintf(stderr, "RESTORE: category=%s location=%s loading=%d scope=%d tabs=%s\n",
             qPrintable(key), qPrintable(directory->property("location").toString()), directory->property("loading").toBool(),
             evaluate(pane, "categorySelectionUrls().length").toInt(), qPrintable(evaluate(page, "JSON.stringify(tabs)").toString()));
         require(originalRestored, "closing the duplicate tab restores the original category");
         require(explicitScans == 0, "category tabs and navigation never start an explicit reindex");
-        require(evaluate(pane, "toggleCategoryUrls(categorySelectionUrls()); selectedCount").toInt() == 4, "select entire category");
+        const bool selectedAll = evaluate(pane, "toggleCategoryUrls(categorySelectionUrls()); selectedCount").toInt() == 4;
+        if (!selectedAll) std::fprintf(stderr, "SELECTION: category=%s state=%s\n", qPrintable(key),
+            qPrintable(evaluate(pane, "JSON.stringify({scope:categorySelectionUrls(), available:directory.allItemUrls(), selected:selectedUrls, count:selectedCount})").toString()));
+        require(selectedAll, "select entire category");
         const QStringList selected = pane->property("selectedUrls").toStringList();
         require(selected.size() == 4 && selected[0].startsWith("file:/") && selected.join(',').contains("/second/"), "mixed parent selection stays file based");
         evaluate(pane, "toggleCategoryUrls([selectedUrls[0]])");

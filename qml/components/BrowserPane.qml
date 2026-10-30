@@ -2666,6 +2666,7 @@ Rectangle {
     }
 
     function refreshDirectory() {
+        directoryProperties.invalidateCachedStats(directory.location)
         if (root.isCategoryLocation && root.contentIndexModel)
             root.contentIndexModel.refreshCategory(root.categoryKey)
         else
@@ -3559,11 +3560,13 @@ Rectangle {
             // disappear/reload after each transfer.
         }
         onTransferItemsFinished: function(destinationLocation, resultUrls) {
+            directoryProperties.invalidateCachedStats(destinationLocation)
             if (destinationLocation === directory.location
                     && !root.pendingResultSelection && resultUrls.length > 0)
                 root.armResultSelectionForUrls(resultUrls, destinationLocation)
         }
         onArchiveDropItemsChanged: function(destinationLocation, resultUrls, firstChange) {
+            directoryProperties.invalidateCachedStats(destinationLocation)
             const currentDestination = root.locationsEquivalent(destinationLocation, directory.location)
             const destinationRow = directory.indexOfUrl(destinationLocation)
             if (firstChange && resultUrls.length && (currentDestination || destinationRow >= 0)) {
@@ -3595,6 +3598,7 @@ Rectangle {
             if (!success)
                 root.clearPendingResultSelection()
             if (refreshNeeded) {
+                directoryProperties.invalidateCachedStats(directory.location)
                 if (root.pendingResultSelection)
                     root.pendingResultAwaitRefresh = true
                 directory.requestRefresh()
@@ -3658,9 +3662,16 @@ Rectangle {
             if (directoryProperties.calculating) directoryProperties.cancelInspection()
             return
         }
-        // Keep an in-flight scan; queue at most one follow-up for real refreshes.
-        // Showing an unchanged pane again can reuse its completed snapshot.
+        // Navigation detaches this view, not the shared worker. Restore an
+        // existing result/progress immediately, without another debounce/scan.
         if (directoryProperties.calculating) return
+        if ((!directoryProperties.statsReady
+                || !root.locationsEquivalent(directoryProperties.path, directory.location))
+                && directoryProperties.restoreCachedStats(directory.location)) {
+            directorySizeNeedsRefresh = directoryProperties.calculating
+            directorySizeTimer.stop()
+            return
+        }
         if (!directorySizeNeedsRefresh && directoryProperties.statsReady
                 && root.locationsEquivalent(directoryProperties.path, directory.location)) return
         directorySizeTimer.restart()
@@ -3672,7 +3683,7 @@ Rectangle {
             if (fileOps.ioBusy) { directorySizeTimer.restart(); return }
             if (root.visible && root.currentLocationIsLocal && !directory.searchActive && !directory.loading) {
                 root.directorySizeNeedsRefresh = false
-                directoryProperties.inspect(directory.location)
+                directoryProperties.inspectCached(directory.location)
             }
         }
     }
@@ -6657,15 +6668,21 @@ Rectangle {
                         visible: root.currentLocationIsLocal && !directory.searchActive
                         readonly property bool ready: directoryProperties.statsReady
                                 && root.locationsEquivalent(directoryProperties.path, directory.location)
-                                && !directorySizeTimer.running
-                        text: "· " + (ready ? root.formatTransferBytes(directoryProperties.totalSize) : "…")
+                        readonly property bool partial: !ready && directoryProperties.calculating
+                                && root.locationsEquivalent(directoryProperties.path, directory.location)
+                                && (directoryProperties.fileCount > 0 || directoryProperties.folderCount > 0)
+                        text: "· " + (ready ? root.formatTransferBytes(directoryProperties.totalSize)
+                                          : partial ? "≥ " + root.formatTransferBytes(directoryProperties.totalSize) : "…")
                         baseColor: AppTheme.textMuted
                         basePixelSize: 10
                         HoverHandler { id: directorySizeHover }
                         GToolTip {
                             visible: directorySizeHover.hovered
-                            text: lang.language === "tr" ? "Alt klasörler ve gizli dosyalar dahil toplam boyut; sembolik bağlantılar izlenmez."
-                                                        : "Total size including subfolders and hidden files; symbolic links are not followed."
+                            text: parent.partial
+                                    ? (lang.language === "tr" ? "Hesaplanıyor. Şu ana kadar bulunan boyut gösteriliyor; tarama bitince toplam boyut görünecek."
+                                                             : "Calculating. Showing the size found so far; the final total appears when the scan finishes.")
+                                    : (lang.language === "tr" ? "Alt klasörler ve gizli dosyalar dahil toplam boyut; sembolik bağlantılar izlenmez."
+                                                             : "Total size including subfolders and hidden files; symbolic links are not followed.")
                         }
                     }
                 }
@@ -7199,15 +7216,18 @@ Rectangle {
         id: breadcrumbContextMenu
         parent: root
         GMenuItem {
+            icon.source: AppTheme.icon("viewer-folder.svg")
             text: lang.language === "tr" ? "Aç" : "Open"
             onTriggered: root.navigateTo(root.breadcrumbContextLocation)
         }
         GMenuItem {
+            icon.source: AppTheme.icon("plus.svg")
             text: lang.language === "tr" ? "Yeni sekmede aç" : "Open in New Tab"
             onTriggered: root.requestNewTab(root.breadcrumbContextLocation)
         }
         GMenuSeparator {}
         GMenuItem {
+            icon.source: AppTheme.icon("edit-copy.svg")
             text: lang.language === "tr" ? "Yolu kopyala" : "Copy Path"
             onTriggered: {
                 fileOps.copyLocationToClipboard(root.breadcrumbContextLocation)
@@ -7215,6 +7235,7 @@ Rectangle {
             }
         }
         GMenuItem {
+            icon.name: "utilities-terminal"
             text: lang.language === "tr" ? "Terminali burada aç" : "Open Terminal Here"
             enabled: root.breadcrumbContextLocation.startsWith("/")
                      || root.breadcrumbContextLocation.startsWith("file://")
@@ -7267,6 +7288,7 @@ Rectangle {
         }
 
         GMenuItem {
+            icon.name: "document-open"
             text: lang.t("open"); shortcutAction: "open"
             visible: !root.isCategoryLocation || root.selectedCount <= 1
             enabled: root.selectedCount > 0
@@ -7276,29 +7298,34 @@ Rectangle {
         GMenuItem {
             visible: (directory.searchActive || root.isCategoryLocation) && root.selectedCount === 1
                      && root.selectedUrl.length > 0
+            icon.source: AppTheme.icon("viewer-folder.svg")
             text: lang.language === "tr" ? "Yolu aç" : "Open Containing Folder"
             onTriggered: root.openSelectedContainingFolder(false)
         }
         GMenuItem {
             visible: (directory.searchActive || root.isCategoryLocation) && root.selectedCount === 1
                      && root.selectedUrl.length > 0
+            icon.source: AppTheme.icon("viewer-folder.svg")
             text: lang.language === "tr" ? "Yolu yeni sekmede aç" : "Open Containing Folder in New Tab"
             onTriggered: root.openSelectedContainingFolder(true)
         }
 
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedLinkType.length > 0
+            icon.name: "go-jump"
             text: lang.language === "tr" ? "Hedefi göster" : "Show Target"
             onTriggered: root.showSelectedLinkTarget(false)
         }
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedLinkType.length > 0
+            icon.name: "go-jump"
             text: lang.language === "tr" ? "Hedefi yeni sekmede göster" : "Show Target in New Tab"
             onTriggered: root.showSelectedLinkTarget(true)
         }
 
         GMenuItem {
             objectName: "openFoldersInNewTabAction"
+            icon.source: AppTheme.icon("plus.svg")
             visible: root.selectedFolderUrls().length > 0
             text: lang.language === "tr" ? "Yeni sekmede aç" : "Open in New Tab"
             onTriggered: {
@@ -7311,6 +7338,7 @@ Rectangle {
 
         GMenu {
             id: openWithMenu
+            icon.name: "system-run"
             objectName: "openWithContextMenu"
             title: lang.t("open_with")
             // Do not tie submenu activation to the asynchronously rebuilt app
@@ -7325,6 +7353,7 @@ Rectangle {
                 model: openWithModel.quickApps
                 delegate: GMenuItem {
                     required property var modelData
+                    icon.source: AppTheme.systemIcon(modelData.iconName || "application-x-executable")
                     text: modelData.name + (modelData.isDefault ? (lang.language === "tr" ? "  · Varsayılan" : "  · Default") : "")
                     onTriggered: {
                         root.closeContextMenus()
@@ -7337,6 +7366,7 @@ Rectangle {
 
             GMenuSeparator { visible: openWithModel.quickApps.length > 0 }
             GMenuItem {
+                icon.name: "application-x-executable"
                 text: lang.language === "tr" ? "Daha Fazla…" : "More…"
                 onTriggered: {
                     root.closeContextMenus()
@@ -7351,6 +7381,7 @@ Rectangle {
                      && root.selectedLocalPath.length > 0
                      && !root.selectedUrl.startsWith("admin:")
                      && !root.selectedIsCloud
+            icon.source: AppTheme.icon("root.svg")
             text: lang.t("open_as_administrator")
             onTriggered: {
                 const adminUrl = root.administratorUrlForSelection()
@@ -7361,16 +7392,19 @@ Rectangle {
 
         GMenuItem {
             visible: root.selectedCount === 1 && !root.selectedIsDir && root.selectedIsCloud
+            icon.name: "download"
             text: lang.language === "tr" ? "İndir ve aç" : "Download and open"
             onTriggered: root.cloudManagerFor(root.selectedUrl).downloadAndOpen(root.selectedUrl, root.selectedName, root.selectedMimeType)
         }
         GMenuItem {
             visible: root.selectedCount === 1 && !root.selectedIsDir && root.selectedIsCloud
+            icon.name: "download"
             text: lang.language === "tr" ? "İndir…" : "Download…"
             onTriggered: cloudDownloadFolderDialog.open()
         }
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedIsDir && root.selectedIsCloud
+            icon.source: AppTheme.icon("archive.svg")
             text: lang.language === "tr" ? "ZIP olarak indir…" : "Download as ZIP…"
             onTriggered: cloudDownloadFolderDialog.open()
         }
@@ -7378,6 +7412,7 @@ Rectangle {
         GMenuItem {
             visible: root.selectedCount === 1 && !root.selectedIsDir && root.selectedLocalPath.length > 0
                      && root.isAppImage(root.selectedName, root.selectedMimeType)
+            icon.source: AppTheme.icon("appimage.svg")
             text: lang.language === "tr" ? "Çalıştır" : "Run"
             onTriggered: fileOps.runExecutable(root.selectedUrl)
         }
@@ -7385,26 +7420,31 @@ Rectangle {
         GMenuSeparator {}
 
         GMenuItem {
+            icon.source: AppTheme.icon("edit-cut.svg")
             text: (lang.language === "tr" ? "Kes" : "Cut"); shortcutAction: "cut"
             enabled: root.selectedCount > 0
             onTriggered: root.cutSelection()
         }
         GMenuItem {
+            icon.source: AppTheme.icon("edit-copy.svg")
             text: (lang.language === "tr" ? "Kopyala" : "Copy"); shortcutAction: "copy"
             enabled: root.selectedCount > 0
             onTriggered: root.copySelection()
         }
         GMenu {
             id: copyActionsMenu
+            icon.source: AppTheme.icon("clone.svg")
             title: lang.language === "tr" ? "Kopyalama Eylemleri" : "Copy Actions"
             enabled: root.selectedCount > 0 && root.submenuActivationReady
 
             GMenuItem {
+                icon.name: "insert-link"
                 text: (lang.language === "tr" ? "Symlink Oluştur…" : "Create Symlink…"); shortcutAction: "symlink"
                 enabled: root.selectedCanCreateLink
                 onTriggered: root.showNewSymlinkDialog(true)
             }
             GMenuItem {
+                icon.name: "insert-link"
                 text: (lang.language === "tr" ? "Hardlink Oluştur…" : "Create Hardlink…"); shortcutAction: "hardlink"
                 enabled: root.selectedCanCreateLink && !root.selectedIsDir
                          && root.selectedLinkType !== "symlink"
@@ -7412,6 +7452,7 @@ Rectangle {
             }
             GMenuSeparator {}
             GMenuItem {
+                icon.source: AppTheme.icon("clone.svg")
                 text: lang.t("duplicate"); shortcutAction: "duplicate"
                 enabled: root.selectedCount > 0
                 onTriggered: root.duplicateSelection()
@@ -7419,6 +7460,7 @@ Rectangle {
         }
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedIsDir && !root.selectedIsCloud
+            icon.source: AppTheme.icon("edit-paste.svg")
             text: (lang.language === "tr" ? "Klasöre yapıştır" : "Paste into folder"); shortcutAction: "paste_into"
             enabled: fileOps.canPaste
             onTriggered: root.pasteIntoSelection()
@@ -7434,6 +7476,7 @@ Rectangle {
             model: serviceMenuModel.favoriteEntries
             delegate: GMenuItem {
                 required property var modelData
+                icon.source: AppTheme.systemIcon(modelData.iconName || "system-run")
                 text: "★  " + modelData.label
                 onTriggered: serviceMenuModel.triggerKey(modelData.actionKey)
             }
@@ -7443,6 +7486,7 @@ Rectangle {
 
         GMenuItem {
             objectName: "contextRenameAction"
+            icon.source: AppTheme.icon("edit-rename.svg")
             text: root.selectedCount > 1
                   ? (lang.language === "tr" ? "Toplu yeniden adlandır…" : "Batch rename…")
                   : lang.t("rename")
@@ -7457,6 +7501,7 @@ Rectangle {
 
         GMenu {
             id: shareMenu
+            icon.name: "document-share"
             title: lang.language === "tr" ? "Paylaş" : "Share"
             property var uploadUrls: root.localUploadSelectionUrls()
             property bool hasDirectory: root.shareSelectionContainsDirectory()
@@ -7475,48 +7520,56 @@ Rectangle {
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("google")
+                icon.source: AppTheme.icon("cloud-google.svg")
                 text: lang.language === "tr" ? "Google Drive'a gönder" : "Send to Google Drive"
                 onTriggered: root.googleDrive.uploadPaths(shareMenu.uploadUrls, "gdrive://root")
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("onedrive")
+                icon.source: AppTheme.icon("cloud-onedrive.svg")
                 text: lang.language === "tr" ? "OneDrive'a gönder" : "Send to OneDrive"
                 onTriggered: root.oneDrive.uploadPaths(shareMenu.uploadUrls, "onedrive://root")
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("dropbox")
+                icon.source: AppTheme.icon("cloud-dropbox.svg")
                 text: lang.language === "tr" ? "Dropbox'a gönder" : "Send to Dropbox"
                 onTriggered: root.sendSelectionToConfiguredCloud("dropbox", shareMenu.uploadUrls)
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("nextcloud")
+                icon.source: AppTheme.icon("cloud-nextcloud.svg")
                 text: lang.language === "tr" ? "Nextcloud'a gönder" : "Send to Nextcloud"
                 onTriggered: root.sendSelectionToConfiguredCloud("nextcloud", shareMenu.uploadUrls)
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("owncloud")
+                icon.source: AppTheme.icon("cloud-owncloud.svg")
                 text: lang.language === "tr" ? "ownCloud'a gönder" : "Send to ownCloud"
                 onTriggered: root.sendSelectionToConfiguredCloud("owncloud", shareMenu.uploadUrls)
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("mega")
+                icon.source: AppTheme.icon("cloud-mega.svg")
                 text: lang.language === "tr" ? "MEGA'ya gönder" : "Send to MEGA"
                 onTriggered: root.sendSelectionToConfiguredCloud("mega", shareMenu.uploadUrls)
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("pcloud")
+                icon.source: AppTheme.icon("cloud-pcloud.svg")
                 text: lang.language === "tr" ? "pCloud'a gönder" : "Send to pCloud"
                 onTriggered: root.sendSelectionToConfiguredCloud("pcloud", shareMenu.uploadUrls)
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("webdav")
+                icon.source: AppTheme.icon("cloud.svg")
                 text: lang.language === "tr" ? "WebDAV'a gönder" : "Send to WebDAV"
                 onTriggered: root.sendSelectionToConfiguredCloud("webdav", shareMenu.uploadUrls)
             }
@@ -7531,6 +7584,7 @@ Rectangle {
                 model: fileOps.kdeConnectDevices
                 delegate: GMenuItem {
                     required property var modelData
+                    icon.name: "kdeconnect"
                     text: lang.language === "tr"
                           ? "KDE Connect ile " + modelData.name + "'e gönder"
                           : "Send to " + modelData.name + " with KDE Connect"
@@ -7542,18 +7596,21 @@ Rectangle {
 
             GMenuItem {
                 visible: fileOps.kdeConnectAvailable && fileOps.kdeConnectDevices.length === 0
+                icon.name: "kdeconnect"
                 enabled: false
                 text: lang.language === "tr" ? "Bağlı KDE Connect cihazı yok" : "No connected KDE Connect device"
             }
 
             GMenuItem {
                 visible: fileOps.bluetoothAvailable && !shareMenu.hasDirectory
+                icon.name: "preferences-system-bluetooth"
                 text: lang.language === "tr" ? "Bluetooth ile gönder…" : "Send via Bluetooth…"
                 onTriggered: fileOps.shareViaBluetooth(shareMenu.uploadUrls)
             }
 
             GMenuItem {
                 visible: fileOps.emailShareAvailable && !shareMenu.hasDirectory
+                icon.name: "mail-send"
                 text: lang.language === "tr" ? "E-posta ile gönder…" : "Send via Email…"
                 onTriggered: fileOps.shareViaEmail(shareMenu.uploadUrls)
             }
@@ -7562,6 +7619,7 @@ Rectangle {
 
             GMenuItem {
                 visible: root.selectedCount === 1
+                icon.source: AppTheme.icon("edit-copy.svg")
                 text: lang.language === "tr" ? "Yolu kopyala" : "Copy Path"
                 onTriggered: {
                     fileOps.copyLocationToClipboard(root.selectedUrl)
@@ -7572,6 +7630,7 @@ Rectangle {
 
         GMenu {
             id: applicationServiceMenu
+            icon.name: "system-run"
             title: lang.t("application_actions")
             enabled: serviceMenuModel.count > 0 && root.submenuActivationReady
             visible: serviceMenuModel.count > 0
@@ -7582,7 +7641,9 @@ Rectangle {
                     required property int index
                     required property string label
                     required property string actionKey
+                    required property string iconName
                     required property bool favorite
+                    icon.source: AppTheme.systemIcon(iconName || "system-run")
                     text: label
                     favoriteActionVisible: true
                     favoriteActionChecked: favorite
@@ -7596,29 +7657,32 @@ Rectangle {
 
         GMenu {
             id: compressMenu
+            icon.source: AppTheme.icon("archive.svg")
             title: lang.t("compress")
             property var sourceUrls: root.compressionSelectionUrls()
             enabled: sourceUrls.length > 0
                      && sourceUrls.length === root.selectedCount
-            GMenuItem { text: "Zip"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "zip") }
-            GMenuItem { text: "7z"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "7z") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Zip"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "zip") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "7z"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "7z") }
             GMenuItem {
                 objectName: "compressEncryptedAction"
+                icon.source: AppTheme.icon("lock.svg")
                 text: lang.t("compress_encrypted")
                 onTriggered: encryptedArchiveDialog.openFor(compressMenu.sourceUrls)
             }
             GMenuSeparator {}
-            GMenuItem { text: "Tar"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar") }
-            GMenuItem { text: "Tar.gz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.gz") }
-            GMenuItem { text: "Tar.bz2"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.bz2") }
-            GMenuItem { text: "Tar.xz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.xz") }
-            GMenuItem { text: "Tar.zst"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.zst") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.gz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.gz") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.bz2"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.bz2") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.xz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.xz") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.zst"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.zst") }
         }
 
         GMenuSeparator { visible: root.selectedIsArchive }
 
         GMenuItem {
             visible: root.selectedIsArchive
+            icon.source: AppTheme.icon("archive.svg")
             text: lang.language === "tr" ? "Buraya çıkar" : "Extract here"
             onTriggered: {
                 const destination = root.isCategoryLocation
@@ -7630,6 +7694,7 @@ Rectangle {
         }
         GMenuItem {
             visible: root.selectedIsArchive
+            icon.source: AppTheme.icon("archive.svg")
             text: lang.language === "tr" ? "Adıyla yeni dizine çıkar" : "Extract to named folder"
             onTriggered: {
                 const destination = root.isCategoryLocation
@@ -7641,6 +7706,7 @@ Rectangle {
         }
         GMenuItem {
             visible: root.selectedIsArchive
+            icon.source: AppTheme.icon("archive.svg")
             text: lang.language === "tr" ? "Dizine çıkar…" : "Extract to folder…"
             onTriggered: {
                 root.pendingArchiveUrl = root.selectedUrl
@@ -7650,6 +7716,7 @@ Rectangle {
 
         GMenuItem {
             visible: root.selectedCount === 1 && root.selectedIsDir
+            icon.source: AppTheme.icon("favorite.svg")
             text: favoritesModel.contains(root.selectedUrl) ? lang.t("remove_favorite") : lang.t("add_favorite")
             onTriggered: {
                 if (favoritesModel.contains(root.selectedUrl))
@@ -7661,10 +7728,12 @@ Rectangle {
 
         GMenu {
             id: fileActionsMenu
+            icon.name: "system-run"
             title: lang.language === "tr" ? "Eylemler" : "Actions"
             enabled: root.selectedCount > 0 && root.submenuActivationReady
 
             GMenuItem {
+                icon.source: AppTheme.icon("edit-copy.svg")
                 text: lang.t("copy_to")
                 onTriggered: {
                     root.actionMode = "copy"
@@ -7682,6 +7751,7 @@ Rectangle {
             }
 
             GMenuItem {
+                icon.name: "go-jump"
                 text: lang.t("move_to")
                 onTriggered: {
                     root.actionMode = "move"
@@ -7703,11 +7773,13 @@ Rectangle {
 
         GMenuItem {
             visible: root.isTrashLocation && root.selectedCount > 0
+            icon.name: "edit-undo"
             text: lang.language === "tr" ? "Eski konumuna taşı" : "Restore to former location"
             onTriggered: fileOps.restoreFromTrash(root.selectedUrls)
         }
 
         GMenuItem {
+            icon.source: AppTheme.icon("delete.svg")
             text: (root.isTrashLocation || root.contextShiftDelete)
                   ? lang.t("delete_permanently") : lang.t("move_trash")
             shortcutAction: (root.isTrashLocation || root.contextShiftDelete) ? "delete" : "trash"
@@ -7723,6 +7795,7 @@ Rectangle {
 
         GMenuItem {
             visible: root.selectedCount > 0
+            icon.source: AppTheme.icon("properties.svg")
             text: lang.t("properties"); shortcutAction: "properties"
             onTriggered: root.openPropertiesForSelection()
         }
@@ -7744,17 +7817,20 @@ Rectangle {
 
         GMenu {
             id: newItemMenu
+            icon.source: AppTheme.icon("plus.svg")
             closePolicy: Popup.CloseOnEscape
             title: lang.language === "tr" ? "Yeni" : "New"
             enabled: !root.isCategoryLocation && !root.isTrashLocation
 
             GMenuItem {
+                icon.source: AppTheme.icon("folder.svg")
                 text: lang.t("new_folder")
                 shortcutAction: "new_folder"
                 onTriggered: root.showNewFolderDialog()
             }
             GMenuItem {
                 visible: !root.isCloudUrl(directory.location)
+                icon.source: AppTheme.icon("file.svg")
                 text: lang.language === "tr" ? "Yeni dosya…" : "New file…"
                 shortcutAction: "new_file"
                 onTriggered: root.showNewFileDialog()
@@ -7762,11 +7838,13 @@ Rectangle {
             GMenuSeparator { visible: root.currentLocationIsLocal }
             GMenuItem {
                 visible: root.currentLocationIsLocal
+                icon.name: "insert-link"
                 text: lang.language === "tr" ? "Yeni symlink…" : "New symlink…"
                 onTriggered: root.showNewSymlinkDialog()
             }
             GMenuItem {
                 visible: root.currentLocationIsLocal
+                icon.name: "insert-link"
                 text: lang.language === "tr" ? "Yeni hardlink…" : "New hardlink…"
                 onTriggered: root.showNewHardlinkDialog()
             }
@@ -7774,6 +7852,7 @@ Rectangle {
 
         GMenuItem {
             visible: !root.isCloudUrl(directory.location) && !root.isCategoryLocation
+            icon.source: AppTheme.icon("edit-paste.svg")
             text: (lang.language === "tr" ? "Yapıştır" : "Paste"); shortcutAction: "paste"
             enabled: fileOps.canPaste
             onTriggered: root.pasteHere()
@@ -7781,12 +7860,14 @@ Rectangle {
 
         GMenuItem {
             visible: root.isCloudUrl(directory.location)
+            icon.name: "document-send"
             text: lang.language === "tr" ? "Dosya yükle…" : "Upload file…"
             onTriggered: cloudUploadDialog.open()
         }
 
         GMenuItem {
             visible: root.administratorUrlForCurrentLocation().length > 0
+            icon.source: AppTheme.icon("root.svg")
             text: lang.t("open_as_administrator")
             onTriggered: {
                 const adminUrl = root.administratorUrlForCurrentLocation()
@@ -7796,13 +7877,14 @@ Rectangle {
         }
 
         GMenuSeparator {}
-        GMenuItem { text: lang.t("select_all"); shortcutAction: "select_all"; onTriggered: root.selectAll() }
-        GMenuItem { text: lang.t("clear_selection"); shortcutAction: "clear_selection"; enabled: root.selectedCount > 0; onTriggered: root.clearSelection() }
+        GMenuItem { icon.name: "edit-select-all"; text: lang.t("select_all"); shortcutAction: "select_all"; onTriggered: root.selectAll() }
+        GMenuItem { icon.name: "edit-select-none"; text: lang.t("clear_selection"); shortcutAction: "clear_selection"; enabled: root.selectedCount > 0; onTriggered: root.clearSelection() }
 
         GMenuSeparator {}
 
         GMenu {
             id: sortMenu
+            icon.name: "view-sort-ascending"
             closePolicy: Popup.CloseOnEscape
             title: lang.t("sort_by")
             GMenuItem { text: lang.t("sort_name"); checkable: true; checked: directory.sortMode === "name"; onTriggered: directory.sortMode = "name" }
@@ -7826,7 +7908,7 @@ Rectangle {
         }
 
         GMenuSeparator {}
-        GMenuItem { text: lang.t("refresh"); onTriggered: root.refreshDirectory() }
+        GMenuItem { icon.source: AppTheme.icon("refresh.svg"); text: lang.t("refresh"); onTriggered: root.refreshDirectory() }
     }
 
     GModalPopup {
@@ -7984,7 +8066,7 @@ Rectangle {
             if (directorySizeTimer.running && root.currentLocationIsLocal && !directory.loading) {
                 directorySizeTimer.stop()
                 root.directorySizeNeedsRefresh = false
-                directoryProperties.inspect(directory.location)
+                directoryProperties.inspectCached(directory.location)
             }
             fileProperties.inspectSelection(selectionUrls)
             resetAccessDraft()

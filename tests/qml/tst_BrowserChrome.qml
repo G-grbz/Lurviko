@@ -153,6 +153,42 @@ Item {
                     page.switchToTab(savedCurrent, true)
                 }
             }
+            function test_native_translucent_tab_occlusion_tracks_selection() {
+                const savedTabs = page.tabs
+                const savedCurrent = page.currentTab
+                const savedQt = AppTheme.useQtTheme
+                try {
+                    inputTestHelper.setSystemThemeTestAppearance(false, true)
+                    AppTheme.setQtTheme(true)
+                    verify(AppTheme.translucentWindow)
+                    const location = String(fileArtworkFixtureUrl)
+                    page.tabs = [page.makeTab(location), page.makeTab(location), page.makeTab(location)]
+                    page.switchToTab(1, true)
+                    verify(inputTestHelper.settleQmlCreations(page))
+                    const left = findChild(visualTab(0), "fluidTabSurface")
+                    const active = findChild(visualTab(1), "fluidTabSurface")
+                    const right = findChild(visualTab(2), "fluidTabSurface")
+                    compare(active.tabOverlap, -findChild(page, "browserTabRow").spacing)
+                    verify(!active.cutLeft && !active.cutRight)
+                    verify(left.cutRight && right.cutLeft)
+                    verify(visualTab(1).z > visualTab(0).z && visualTab(1).z > visualTab(2).z)
+                    page.switchToTab(0, true)
+                    verify(!left.cutLeft && !left.cutRight)
+                    verify(active.cutLeft && active.cutRight)
+                    verify(!right.cutLeft && !right.cutRight)
+                    page.tabDragFrom = 0
+                    verify(!active.cutLeft && !active.cutRight)
+                    page.tabDragFrom = -1
+                    AppTheme.setQtTheme(false)
+                    verify(!active.cutLeft && !active.cutRight)
+                } finally {
+                    page.tabDragFrom = -1
+                    page.tabs = savedTabs
+                    page.switchToTab(savedCurrent, true)
+                    AppTheme.setQtTheme(savedQt)
+                    inputTestHelper.restoreSystemThemeTestAppearance()
+                }
+            }
             function test_view_session_preferences_are_shared_and_reversible() {
                 const savedResume = BrowserSession.resumeSession
                 const savedWarn = BrowserSession.warnOnMultipleTabs
@@ -302,7 +338,7 @@ Item {
                         AppTheme.setSystemIcons(mode)
                         for (const key in artwork) {
                             const button = findChild(page, "command_" + key)
-                            compare(String(button.icon.source), AppTheme.icon(artwork[key]))
+                            compare(decodeURIComponent(String(button.icon.source)), decodeURIComponent(AppTheme.icon(artwork[key])))
                             verify(!String(button.icon.source).startsWith("image://systemicon/"))
                         }
                         if (!mode)

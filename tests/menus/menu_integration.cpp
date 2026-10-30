@@ -226,6 +226,54 @@ ApplicationWindow {
         require(!expression.hasError(), qPrintable(expression.error().toString()));
         return result;
     };
+    require(until([&] { return !directory->loading() && directory->indexOfUrl(base + "/source.txt") >= 0; }), "icon fixture listed");
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(directory->indexOfUrl(base + "/source.txt"))),
+            Q_ARG(QVariant, QVariant(0))), "context icon fixture selected");
+    evaluatePane("itemContextMenu.x=100; itemContextMenu.y=100; itemContextMenu.open()");
+    require(until([&] { return pane->property("submenuActivationReady").toBool(); }), "icon context menu ready");
+    const auto checkIcon = [&](QObject *entry, const QString &source) {
+        auto glyph = findView(qobject_cast<QQuickItem *>(entry), "menuActionIcon");
+        require(glyph && glyph->isVisible(), "context icon is visible beside its action");
+        if (glyph->property("source").toUrl() != QUrl(source))
+            std::fprintf(stderr, "Icon source: actual=%s expected=%s\n", qPrintable(glyph->property("source").toUrl().toString()), qPrintable(source));
+        require(glyph->property("source").toUrl() == QUrl(source), "context icon uses the supplied action/application artwork");
+        require(until([&] { return glyph->property("status").toInt() == 1; }), "context icon actually renders");
+    };
+    for (const auto &action : {"cut", "copy", "rename", "trash", "properties"}) {
+        const QString lookup = QString("(function(){for(let i=0;i<itemContextMenu.count;++i){const e=itemContextMenu.itemAt(i);if(e.shortcutAction==='%1') return e;}return null;})()").arg(action);
+        auto entry = item(pane, paneContext, qPrintable(lookup));
+        const QString source = evaluatePane(lookup + ".icon.source.toString()").toString();
+        require(source.contains("image://bundledicon/"), "built-in file actions retain bundled symbolic artwork");
+        checkIcon(entry, source);
+    }
+    require(evaluatePane("openWithModel.quickApps.some(app => app.name === 'Lurviko Menu Fixture')").toBool(), "Open With includes the installed desktop-file fixture");
+    auto appEntry = item(pane, paneContext,
+        "(function(){for(let i=0;i<openWithMenu.count;++i){const e=openWithMenu.itemAt(i);if(e.text.indexOf('Lurviko Menu Fixture')===0) return e;}return null;})()");
+    evaluatePane("openWithMenu.open()"); pause(220);
+    checkIcon(appEntry, evaluatePane("AppTheme.systemIcon('accessories-text-editor')").toString());
+    evaluatePane("openWithMenu.close(); applicationServiceMenu.open()"); pause(220);
+    auto servicesModel = qobject_cast<ServiceMenuModel *>(item(pane, paneContext, "serviceMenuModel"));
+    require(servicesModel, "service actions model is available");
+    QString favoriteKey;
+    for (const auto &name : {"Lurviko Icon Action", "Lurviko Inherited Icon"}) {
+        const QString lookup = QString("(function(){for(let i=0;i<applicationServiceMenu.count;++i){const e=applicationServiceMenu.itemAt(i);if(e.text.indexOf('%1')>=0) return e;}return null;})()").arg(name);
+        auto entry = item(pane, paneContext, qPrintable(lookup));
+        // KDE uses the service's first action icon for this submenu. Actions
+        // without their own icon should inherit it rather than a generic file.
+        checkIcon(entry, evaluatePane("AppTheme.systemIcon('accessories-text-editor')").toString());
+        if (!QString::fromLatin1(name).contains("Inherited"))
+            favoriteKey = entry->property("actionKey").toString();
+    }
+    require(!favoriteKey.isEmpty(), "service action keeps its trigger/favorite identity");
+    servicesModel->toggleFavoriteKey(favoriteKey);
+    require(servicesModel->favoriteCount() == 1, "service action is pinned in the isolated settings");
+    evaluatePane("applicationServiceMenu.close(); itemContextMenu.open()"); pause(220);
+    auto pinned = item(pane, paneContext,
+        "(function(){for(let i=0;i<itemContextMenu.count;++i){const e=itemContextMenu.itemAt(i);if(e && e.text!==undefined && e.text.indexOf('Lurviko Icon Action')>=0) return e;}return null;})()");
+    checkIcon(pinned, evaluatePane("AppTheme.systemIcon('accessories-text-editor')").toString());
+    servicesModel->toggleFavoriteKey(favoriteKey);
+    evaluatePane("closeContextMenus()"); pause(150);
+    std::fprintf(stderr, "PASS: built-in, Open With, service, inherited and pinned context-menu icons render through the real models\n");
     auto openCopyActions = [&](const QString &name = QStringLiteral("source.txt")) {
         require(until([&] { return !directory->loading() && directory->indexOfUrl(base + "/" + name) >= 0; }), "source listed");
         require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(directory->indexOfUrl(base + "/" + name))), Q_ARG(QVariant, QVariant(0))), "copy source selected");
@@ -242,10 +290,17 @@ ApplicationWindow {
     evaluatePane("itemContextMenu.maximumPopupHeight=220; itemContextMenu.open()"); pause(250);
     auto menuList = qobject_cast<QQuickItem *>(item(pane, paneContext, "itemContextMenu.contentItem.children[0]"));
     const QPointF wheelPoint = menuList->mapToScene(QPointF(menuList->width() / 2, menuList->height() / 2));
+    QMouseEvent wheelMove(QEvent::MouseMove, wheelPoint, window->mapToGlobal(wheelPoint.toPoint()),
+                          Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &wheelMove); pause(30);
+    const qreal expectedScroll = evaluatePane("Math.min(AppTheme.wheelScrollStep, itemContextMenu.contentItem.children[0].contentHeight-itemContextMenu.contentItem.children[0].height)").toReal();
     QWheelEvent wheelEvent(wheelPoint, window->mapToGlobal(wheelPoint.toPoint()), QPoint(), QPoint(0, -120),
                            Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QApplication::sendEvent(window, &wheelEvent); pause(220);
-    require(evaluatePane("itemContextMenu.contentItem.children[0].contentY-itemContextMenu.contentItem.children[0].originY >= 200").toBool(),
+    const qreal actualScroll = evaluatePane("itemContextMenu.contentItem.children[0].contentY-itemContextMenu.contentItem.children[0].originY").toReal();
+    if (qAbs(actualScroll - expectedScroll) > 2)
+        std::fprintf(stderr, "Menu scroll: actual=%.1f expected=%.1f\n", actualScroll, expectedScroll);
+    require(expectedScroll > 0 && qAbs(actualScroll - expectedScroll) <= 2,
             "context menu wheel uses the configured pixel step instead of tiny default movement");
     evaluatePane("itemContextMenu.contentItem.children[0].positionViewAtEnd()"); pause(50);
     require(evaluatePane("itemContextMenu.contentItem.children[0].contentY > itemContextMenu.contentItem.children[0].originY").toBool(), "context menu is actually scrolled");

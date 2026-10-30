@@ -19,6 +19,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 #include "backend_test_types.h"
+#include "directorysizeworker.h"
 
 static void pause(int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); }
 static void require(bool ok, const char *message) {
@@ -86,14 +87,32 @@ int main(int argc, char **argv) {
     require(QDir().mkpath(idleChild), "idle-size tree created");
     const QString seed = idleRoot + "/seed";
     { QFile file(seed); require(file.open(QIODevice::WriteOnly) && file.write("x") == 1, "size seed created"); }
-    for (int index = 0; index < 20000; ++index)
-        require(::link(QFile::encodeName(seed).constData(), QFile::encodeName(idleChild + "/item-" + QString::number(index)).constData()) == 0,
+    QString linkSeed = seed;
+    for (int index = 0; index < 80000; ++index) {
+        // Keep each inode below filesystem hard-link limits (notably ext4
+        // under CI's overlayfs), without changing the scanned logical totals.
+        if (index > 0 && index % 20000 == 0) {
+            linkSeed = base + "-size-seed-" + QString::number(index);
+            require(QFile::copy(seed, linkSeed), "additional size seed created outside scanned tree");
+        }
+        require(::link(QFile::encodeName(linkSeed).constData(), QFile::encodeName(idleChild + "/item-" + QString::number(index)).constData()) == 0,
                 "cached-tree hardlink fixture created");
+    }
     FilePropertiesManager idleStats, demandingProperties;
     idleStats.setProperty("backgroundStats", true);
     demandingProperties.setStatsSource(&idleStats);
     int started = 0;
+    int partialUpdates = 0;
+    qint64 lastPartialBytes = 0;
     QObject::connect(&idleStats, &FilePropertiesManager::calculatingChanged, [&] { if (idleStats.calculating()) ++started; });
+    const auto progressConnection = QObject::connect(&idleStats, &FilePropertiesManager::propertiesChanged, [&] {
+        if (!idleStats.calculating() || idleStats.fileCount() == 0) return;
+        require(!idleStats.statsReady(), "partial bytes never become a reusable final snapshot");
+        require(idleStats.totalSize() >= lastPartialBytes && idleStats.totalSize() <= 80001,
+                "background progress is a monotonic lower bound of the final total");
+        lastPartialBytes = idleStats.totalSize();
+        ++partialUpdates;
+    });
     QElapsedTimer scanClock; scanClock.start();
     double beforeCpu = cpuSeconds();
     idleStats.inspect(idleRoot + "/");
@@ -102,15 +121,18 @@ int main(int argc, char **argv) {
     double workCpu = cpuSeconds() - beforeCpu;
     std::fprintf(stderr, "SIZE CPU: %lld ms background, %.4f CPU seconds\n", backgroundMs, workCpu);
     require(workCpu < backgroundMs / 1000.0 * 0.20, "automatic recursive size stays below 20% of one core, including event-loop overhead");
-    require(idleStats.totalSize() == 20001 && idleStats.fileCount() == 20001 && idleStats.folderCount() == 2,
+    require(idleStats.totalSize() == 80001 && idleStats.fileCount() == 80001 && idleStats.folderCount() == 2,
             "low-priority scan preserves exact recursive logical totals");
+    require(backgroundMs < 600 || partialUpdates > 0, "long background scans publish intermediate bytes instead of a permanent ellipsis");
+    require(partialUpdates <= backgroundMs / 450 + 1, "size progress publishes at most twice a second");
+    QObject::disconnect(progressConnection);
     idleStats.inspect(idleRoot);
     demandingProperties.inspect(idleRoot + "/alt öğe");
     scanClock.restart();
     require(until([&] { return demandingProperties.statsReady(); }, 10000), "Properties boosts and reuses the current scan");
     require(scanClock.elapsed() < backgroundMs * 0.6 + 100 && started == 2,
             "foreground demand speeds the existing scan without starting another");
-    require(demandingProperties.totalSize() == 20000 && demandingProperties.fileCount() == 20000,
+    require(demandingProperties.totalSize() == 80000 && demandingProperties.fileCount() == 80000,
             "boosted child subtotal remains exact");
     idleStats.inspect(idleRoot);
     demandingProperties.inspect(idleRoot);
@@ -120,6 +142,77 @@ int main(int argc, char **argv) {
     workCpu = cpuSeconds() - beforeCpu;
     require(workCpu < scanClock.elapsed() / 1000.0 * 0.20, "closing Properties releases foreground demand and restores the idle CPU budget");
     std::fprintf(stderr, "PASS: bounded background size CPU, exact totals, shared foreground promotion and cancellation demotion\n");
+    // Cache ownership is independent of a pane or tab. Leaving during a scan,
+    // destroying the reader, then returning must join the very same worker.
+    FilePropertiesManager cachedReader, otherReader;
+    cachedReader.setProperty("backgroundStats", true);
+    otherReader.setProperty("backgroundStats", true);
+    cachedReader.inspectCached(idleRoot);
+    FilePropertiesManager *cachedSource = nullptr;
+    for (auto source : app.findChildren<FilePropertiesManager *>("cachedDirectorySize"))
+        if (source->path() == idleRoot) cachedSource = source;
+    require(cachedSource && cachedSource->calculating(), "shared cache owns the running scan");
+    int cacheRestarts = 0;
+    QObject::connect(cachedSource, &FilePropertiesManager::calculatingChanged, [&] {
+        if (cachedSource->calculating()) ++cacheRestarts;
+    });
+    otherReader.inspectCached(idleRoot);
+    cachedReader.cancelInspection();
+    otherReader.cancelInspection();
+    pause(100);
+    require(cachedSource->calculating() || cachedSource->statsReady(), "unobserved cached work survives navigation");
+    require(cachedReader.restoreCachedStats(idleRoot), "returning restores the cached result or in-flight scan immediately");
+    require(until([&] { return cachedReader.statsReady(); }, 20000) && cacheRestarts == 0,
+            "multiple readers and navigation do not restart or duplicate recursive work");
+    require(cachedReader.totalSize() == 80001, "cached recursive total is exact");
+    cachedReader.cancelInspection();
+    require(cachedReader.restoreCachedStats(idleRoot) && cachedReader.statsReady() && !cachedReader.calculating()
+            && cacheRestarts == 0, "completed totals return synchronously without a new worker");
+    otherReader.inspectCached(idleChild);
+    require(until([&] { return otherReader.statsReady(); }, 20000) && otherReader.totalSize() == 80000,
+            "huge flat directories retain exact totals with bounded subtotal storage");
+    FilePropertiesManager flatSubset;
+    flatSubset.setStatsSource(&otherReader);
+    flatSubset.inspectSelection({idleChild + "/item-0", idleChild + "/item-79999"});
+    require(until([&] { return flatSubset.statsReady(); }) && flatSubset.totalSize() == 2,
+            "subsets spanning cached and uncached children still get exact Properties totals");
+    otherReader.cancelInspection();
+    const QString added = idleChild + "/added";
+    require(::link(QFile::encodeName(seed).constData(), QFile::encodeName(added).constData()) == 0,
+            "nested cache invalidation fixture created");
+    cachedReader.invalidateCachedStats(added);
+    cachedReader.inspectCached(idleRoot);
+    require(until([&] { return cachedReader.statsReady(); }, 20000)
+            && cachedReader.totalSize() == 80002 && cacheRestarts == 1,
+            "nested operations invalidate ancestor totals and recalculate exactly once");
+    QFile::remove(added);
+    cachedReader.invalidateCachedStats(added);
+    cachedReader.cancelInspection();
+    // The shared cache is finite even if many different directories are visited.
+    for (int i = 0; i < 35; ++i) {
+        const QString path = base + "-cached-" + QString::number(i);
+        require(QDir().mkpath(path), "cache eviction directory created");
+        otherReader.inspectCached(path);
+        require(until([&] { return otherReader.statsReady(); }), "empty cached directory completes");
+    }
+    otherReader.cancelInspection();
+    require(app.findChildren<FilePropertiesManager *>("cachedDirectorySize").size() <= 32,
+            "cache has at most 32 source objects, including completed results");
+    std::fprintf(stderr, "PASS: shared in-flight/ready size cache, navigation reattachment, nested invalidation and bounded eviction\n");
+    const QString wideRoot = base + "-wide-size";
+    for (int i = 0; i < 4112; ++i) {
+        const QString branch = wideRoot + "/branch-" + QString::number(i);
+        require(QDir().mkpath(branch), "wide size branch created");
+        require(::link(QFile::encodeName(seed).constData(), QFile::encodeName(branch + "/data").constData()) == 0,
+                "wide size branch file created");
+    }
+    auto cancelledSize = std::make_shared<std::atomic_bool>(false);
+    const auto wideSize = scanDirectorySize(wideRoot, cancelledSize,
+        std::make_shared<std::atomic_int>(1), std::make_shared<DirectorySizeProgress>(), true);
+    require(wideSize.bytes == 4112 && wideSize.files == 4112 && wideSize.folders == 4112
+            && wideSize.children.size() == 4096,
+            "bounded child storage still counts every descendant in omitted branches");
+    std::fprintf(stderr, "PASS: bounded subtotal storage preserves totals beyond 4096 nested branches\n");
     const QString longName = "LICENSE-FontAwesome-with-a-very-long-file-name.txt";
     const QString path = base + "/" + longName;
     { QFile file(path); require(file.open(QIODevice::WriteOnly), "fixture opens"); file.write("Permission and filename layout test\n"); }
@@ -369,6 +462,16 @@ ApplicationWindow {
     pane->setVisible(false); pause(30); pane->setVisible(true); pause(450);
     require(footerStats->statsReady() && visibleScanStarts == 0,
             "showing an unchanged pane reuses its ready size without a new scan");
+    const QString originalLocation = pane->property("currentLocation").toString();
+    pane->setProperty("currentLocation", QUrl::fromLocalFile(base + "/" + folderName).toString());
+    require(until([&] { return footerStats->statsReady() && footerStats->path() == folder; }), "child footer prepares once");
+    const int scansBeforeReturn = visibleScanStarts;
+    pane->setProperty("currentLocation", originalLocation);
+    require(footerStats->statsReady() && footerStats->path() == base && visibleScanStarts == scansBeforeReturn,
+            "real browser navigation restores the parent size immediately without another scan");
+    require(until([&] { return !directory->loading() && directory->rowCount() == 2; }), "parent model returns");
+    pause(450);
+    require(visibleScanStarts == scansBeforeReturn, "navigation's listing refresh does not invalidate unchanged cached totals");
     bool currentScanCompleted = false;
     const auto completedConnection = QObject::connect(footerStats, &FilePropertiesManager::propertiesChanged, [&] {
         if (footerStats->statsReady() && footerStats->path() == idleRoot) currentScanCompleted = true;
@@ -380,6 +483,27 @@ ApplicationWindow {
     require(currentScanCompleted && visibleScanStarts == 2,
             "refreshes coalesce into one follow-up without cancelling the active size scan");
     QObject::disconnect(completedConnection);
+    // Put a large tree inside the visible fixture, then keep changes arriving
+    // while it is scanned, as happens in a live Home directory.
+    const qint64 originalSize = footerStats->totalSize();
+    const QString liveTree = base + "/live-home";
+    require(QDir().rename(idleRoot, liveTree), "large live-directory fixture moved into browser");
+    eval("scheduleDirectorySize(true)");
+    require(until([&] { return footerStats->calculating() && footerStats->path() == base; }), "visible large-tree scan starts");
+    require(until([&] { return footerLabel->property("partial").toBool(); }, 20000), "footer shows a lower bound before a large scan finishes");
+    require(footerLabel->property("text").toString().contains(QChar(0x2265))
+            && !footerLabel->property("ready").toBool(), "partial footer is clearly marked instead of claiming an exact total");
+    require(until([&] { return footerStats->statsReady(); }, 20000), "visible large-tree scan reaches its exact result");
+    const QString completedFooter = footerLabel->property("text").toString();
+    eval("scheduleDirectorySize(true)");
+    require(footerLabel->property("ready").toBool() && footerLabel->property("text").toString() == completedFooter,
+            "debounced refresh retains a completed total until the next scan actually starts");
+    eval("directorySizeTimer.stop(); directorySizeNeedsRefresh=false");
+    require(QDir().rename(liveTree, idleRoot), "large test tree restored outside UI fixture");
+    directory->refresh();
+    require(until([&] { return !directory->loading() && directory->rowCount() == 2
+            && footerStats->statsReady() && footerStats->totalSize() == originalSize; }, 20000),
+            "watcher refresh restores exact fixture totals after a large child is removed");
     eval("selectAll(); showPropertiesForSelection()");
     auto sizeDialog = pane->findChild<QObject *>("filePropertiesDialog");
     require(sizeDialog && until([&] { return sizeDialog->property("opened").toBool(); }), "all-selected Properties opens");

@@ -18,6 +18,7 @@ python3 tests/run-columns-tests.py
 python3 tests/run-search-tests.py
 python3 tests/run-git-tests.py
 python3 tests/run-properties-tests.py
+python3 tests/run-menu-tests.py
 python3 tests/run-administrator-access-tests.py
 python3 tests/run-archive-progress-tests.py
 python3 tests/run-file-operations-tests.py
