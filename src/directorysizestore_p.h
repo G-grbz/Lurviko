@@ -35,6 +35,7 @@ struct DirectorySizeWork {
     QStringList cachedRoots;
     QHash<QString, quint64> requestIds;
     bool invalidateAll = false;
+    bool backgroundWarmup = false;
     QList<QPair<QString, QString>> moves;
     QHash<quint64, QStringList> selections;
     std::shared_ptr<std::atomic_bool> cancelled;

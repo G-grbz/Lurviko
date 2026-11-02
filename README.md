@@ -35,7 +35,7 @@ The screenshots show the current application with a locally selected icon theme.
 ## Features
 
 - **File management:** Grid, List and [Miller Columns with Git status badges](docs/file-browser.md), tabs, split panes, editable breadcrumbs, recursive search, favorites, drag and drop, inline/batch rename, undo and familiar keyboard shortcuts.
-- **Directory sizes:** on-demand recursive logical totals shared by the footer and Properties, a persistent cache, bounded background workers and nonrecursive monitoring of visible directories. Unmonitored totals can be approximate; see [behavior and validation limits](docs/directory-size-performance.md).
+- **Directory sizes:** an initial background cache fill beneath `/`, excluding other mounts and virtual filesystems; recursive logical totals shared by the footer and Properties; persistent caching, bounded workers and nonrecursive monitoring of visible directories. Startup reuses cached subtrees and yields to visible size requests. Unmonitored totals can be approximate; see [behavior and validation limits](docs/directory-size-performance.md).
 - **Folder sharing:** [Samba usershares in Properties](docs/network-sharing.md), read-only by default, with asynchronous creation, updates and removal. Samba server setup and a network login are required.
 - **Git management:** [Selected-file commits and safe repository synchronization](docs/git-management.md), an upstream-aware branch indicator, Fetch/Push/fast-forward Pull, history and change comparison, with no automatic stash or history rewrite.
 - **Desktop integration:** KDE KIO transfers, selectable in-app progress, system icon themes, trash, network locations and `org.freedesktop.FileManager1` support for “Show in folder”. Files open through their MIME default applications.
@@ -335,7 +335,7 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 Published tags are immutable: source fixes need a new version/tag rather than
 replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
 
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt` and push `main`. After that exact commit's build/tests and CodeQL checks pass, create and push a matching tag such as **`v1.5.0`** (or `Lurviko-v1.5.0`). The release workflow verifies those existing main-branch runs, checks for open CodeQL findings, then creates **Lurviko v1.5.0** with generated notes, source `.tar`, `.tar.gz` / `.zip` archives and SHA-256 checksums. It does not start a duplicate build. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
+Set `project(Lurviko VERSION ...)` in `CMakeLists.txt` and push `main`. After that exact commit's build/tests and CodeQL checks pass, create and push a matching tag such as **`v1.5.1`** (or `Lurviko-v1.5.1`). The release workflow verifies those existing main-branch runs, checks for open CodeQL findings, then creates **Lurviko v1.5.1** with generated notes, source `.tar`, `.tar.gz` / `.zip` archives and SHA-256 checksums. It does not start a duplicate build. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
 
 Release archives use the exported Git tree with a fixed timestamp. AUR recipe
 metadata stays in Git but is excluded from source archives because it contains

@@ -33,6 +33,8 @@ public:
 
     DirectorySizeSnapshot snapshot(const QString& path) const;
     bool request(const QString& path, bool forceVerification = false);
+    // One initial background fill; persisted totals avoid another full scan at startup.
+    void warmup(const QString& path = QStringLiteral("/"));
     void retain(QObject* consumer, const QString& path);
     void release(QObject* consumer);
     void setWatchedDirectories(QObject* owner, const QStringList& paths);

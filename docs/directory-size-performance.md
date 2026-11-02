@@ -28,18 +28,21 @@ entire home directory or of the running desktop application.
   external restores and vault changes conservatively invalidate cached totals.
 - `qml/components/BrowserPane.qml` and `MillerColumnsView.qml` release hidden
   consumers/watches and retain only visible panel/column demand.
-- `src/main.cpp` no longer schedules automatic size warmup. `src/storagemodel.*`
-  retains device events and manual refresh without the five-second polling timer.
+- `src/main.cpp` schedules one initial root-size warmup after the first frame.
+  The shared writer fills missing records without requiring navigation.
+  `src/storagemodel.*` retains device events and manual refresh without the
+  five-second polling timer.
 - CMake and the headless runner include the size tests. The added Qt SQL module
   is provided by the existing Qt base dependency; no external service is added.
 
 ## Work removed and limits
 
-The size service no longer walks `/` or home automatically at startup, restores
-thousands of descendant watches, or validates every cached file after each
-launch. Navigating to a cached directory performs an on-demand directory metadata
-check. A full recursive verification requires invalidation or explicit Refresh.
-No timer periodically scans size trees while idle.
+The first startup fills missing totals beneath `/` in the background, excluding
+other mounted and virtual filesystems. Later startups reuse an existing root
+total instead of validating every cached file. The service does not restore
+thousands of descendant watches. Navigating to a cached directory performs an
+on-demand directory metadata check; a full recursive verification requires
+invalidation or explicit Refresh. No timer periodically scans size trees while idle.
 
 Directory watches are nonrecursive, shared between owners, limited to 64 requested
 paths per owner and 256 distinct paths overall, and removed when no longer needed.
@@ -161,6 +164,85 @@ whole-application profiling limitations below still apply.
 - The initial validation did not replace or restart the installed application.
   A subsequent deployment check is recorded below. No commit, GitHub push or
   release is part of this work.
+
+## Follow-up: repeated navigation and legacy invalidation
+
+A later running-process observation found one pooled worker using about 87% of
+one CPU core while the GUI and render threads were idle. The size database held
+6,381,142 entries, and cached ancestors including `/` were marked `needs_verify=1`.
+The store interpreted that inherited flag as a request to verify every cached
+descendant each time a directory was opened. Kernel profiling/ptrace restrictions
+prevented capturing a function-level stack of that process.
+
+Named invalidations now persist the affected paths (at most 8,192) instead of
+implicitly requiring a whole-tree verification. On demand, those paths update
+the shared totals; an ancestor hint does not enumerate a visible child's siblings.
+Legacy invalidation flags retain approximate cached values. Explicit Refresh and
+lost-event/overflow invalidations still perform full verification when needed.
+No existing cache is deleted or automatically rebuilt for this change.
+
+The added regression fails against the previous store: reopening its cached
+fixture performs 50 file metadata checks. With the fix, successive parent/child
+visits perform zero file checks and zero directory listings. Replaying one
+persisted file-growth hint performs one file check and zero directory listings,
+and the next visit reuses the updated total. These fixture results are not a
+measurement of idle CPU in the user's restarted application.
+
+## Follow-up: first-scan throughput
+
+Initial enumeration now inserts new nondirectory records in groups of at most
+64, within the existing cancellable transaction. The batch has at most 832 SQL
+parameters. Prepared statements for child lookup and directory totals are reused;
+fresh directories skip stale-record deletion because they had no prior children.
+File records, hard-link accounting, mount boundaries and cached incremental
+updates keep their existing semantics. Worker count and scan throttling rules
+are unchanged. In-flight metadata is bounded to one batch, rather than an entire
+tree in memory.
+
+An alternating three-run comparison used identical release-optimized helpers,
+100,000 distinct sparse regular files in 5,000 directories, and a new SQLite
+database on each run. Each directory contained 20 files of 17–36 logical bytes;
+all scans returned 2,650,000 bytes, 100,000 files and 5,000 folders. Filesystem
+metadata was warm, and the desktop was not otherwise isolated. These figures
+compare the store with the preceding navigation fix against the batched store;
+they do not compare Lurviko against Filelight.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| Wall time, runs 1/2/3 | 3,095 / 2,869 / 2,838 ms | 1,451 / 1,481 / 1,745 ms |
+| Median wall time | 2,869 ms | 1,481 ms |
+| Median process CPU time | 2.826 s | 1.462 s |
+| Peak RSS range | 30,180–30,340 KiB | 30,216–30,328 KiB |
+
+Median time fell by about 48%. This does not establish a speedup for cold HDDs,
+network storage or the user's entire home directory. The 31-check size suite
+passed after the optimization. An additional regression checks totals and
+restart reuse across different batch boundaries, symbolic links, FIFOs, hard-link
+growth and deletion. The application also builds successfully.
+
+## Follow-up: startup root fill
+
+The application now requests one initial `/` warmup 1.2 seconds after its UI is
+created. It uses the existing serial size writer and its existing mount and
+virtual-filesystem exclusions. No visible directory, retained UI consumer or
+recursive watch is needed to start this work. An existing root total is reused;
+already cached child trees with matching identities/timestamps are also reused
+while an incomplete parent is filled. This is a cache warmup, not validation of
+all offline changes; overflow invalidations remain available to visible readers.
+
+A foreground size/selection request can cancel the startup batch. Before yielding,
+the worker commits completed subtrees and marks open, incompletely enumerated
+directories unknown. The pending initial fill resumes after foreground work;
+ordinary foreground cancellation continues to roll back its transaction. Errors
+do not cause an automatic retry loop. Finishing startup work releases its demand
+and leaves no periodic root scan behind.
+
+The 35-check size suite passed with startup coverage. The dedicated cases cover
+startup with no visible-directory request, reuse across restart, mounted and
+virtual exclusions, preserving partial results while yielding to navigation,
+and retaining forced invalidations. The navigation case published its foreground
+directory in 303 ms during the background scan. This fixture timing is not a
+benchmark of startup on the user's full root filesystem.
 
 
 ## Follow-up: installed binary mismatch

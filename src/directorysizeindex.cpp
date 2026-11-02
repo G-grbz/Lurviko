@@ -67,7 +67,8 @@ struct DirectorySizeIndex::Private {
     QFutureWatcher<DirectorySizeWorkResult>* watcher = nullptr;
     QFutureWatcher<DirectorySizeWorkResult>* peekWatcher = nullptr;
     QSet<QString> peekPaths;
-    bool warming = false;
+    bool warmupStarted = false, warmupPending = false, activeWarmup = false;
+    QString warmupPath;
     bool invalidateAll = false;
     QString databasePath, session = QUuid::createUuid().toString(QUuid::Id128);
     std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
@@ -186,6 +187,17 @@ DirectorySizeSnapshot DirectorySizeIndex::snapshot(const QString& path) const
 bool DirectorySizeIndex::busy() const { return d->watcher || d->pending || d->peekWatcher || !d->peekPaths.isEmpty(); }
 std::shared_ptr<std::atomic_int> DirectorySizeIndex::foregroundDemand() const { return d->demand; }
 
+void DirectorySizeIndex::warmup(const QString& value)
+{
+    const auto path = localPath(value);
+    if (path.isEmpty() || d->warmupStarted) return;
+    d->warmupStarted = true;
+    d->warmupPending = true;
+    d->warmupPath = path;
+    d->pending = true;
+    if (!d->watcher) d->debounce.start(200);
+}
+
 void DirectorySizeIndex::retain(QObject* consumer, const QString& value)
 {
     const auto path = localPath(value);
@@ -216,7 +228,8 @@ void DirectorySizeIndex::release(QObject* consumer)
         for (const auto& active : d->activeRequested)
             needed = needed || d->consumers.values().contains(active);
         const auto active = d->progress ? d->progress->activeRequest.load(std::memory_order_relaxed) : 0;
-        if (d->jobCancelled && ((!needed) || (active && active == d->activeRequestIds.value(path)))) {
+        if (!d->activeWarmup && d->jobCancelled
+            && ((!needed) || (active && active == d->activeRequestIds.value(path)))) {
             d->jobCancelled->store(true);
             if (needed) d->pending = true;
         }
@@ -337,6 +350,13 @@ bool DirectorySizeIndex::request(const QString& value, bool force)
     }
     if (force)
         d->verify.insert(path);
+    // A visible size request takes the serial writer before startup work.
+    // The warmup commits its partial cache before yielding, so this does not
+    // discard every completed subtree or restart the whole tree from scratch.
+    if (d->activeWarmup && (path != d->warmupPath || force) && d->jobCancelled)
+        d->jobCancelled->store(true);
+    if (d->activeWarmup && path == d->warmupPath && !s.available)
+        d->progressPath = path;
     s.calculating = true;
     if (s.available)
         s.state = "cached";
@@ -525,6 +545,7 @@ quint64 DirectorySizeIndex::inspectSelection(const QStringList& values)
     d->selections[id] = paths;
     d->selectionScopes[id] = paths;
     d->pending = true;
+    if (d->activeWarmup && d->jobCancelled) d->jobCancelled->store(true);
     if (!d->watcher)
         d->debounce.start(0);
     return id;
@@ -645,8 +666,6 @@ void DirectorySizeIndex::startPending()
     // Serve the latest visible demand first; previously scanned children still reuse records.
     std::sort(work.requested.begin(), work.requested.end(),
         [this](const auto& a, const auto& b) { return d->used.value(a) > d->used.value(b); });
-    for (qsizetype i = 0; i < work.requested.size(); ++i) work.requestIds[work.requested.at(i)] = i + 1;
-    d->activeRequestIds = work.requestIds;
     work.verify = d->verify.values();
     d->verify.clear();
     work.peek = d->unloaded.values();
@@ -663,10 +682,19 @@ void DirectorySizeIndex::startPending()
     d->selections.clear();
     d->activeSelections.clear();
     for (auto it = work.selections.cbegin(); it != work.selections.cend(); ++it) d->activeSelections.insert(it.key());
+    if (d->warmupPending && work.requested.isEmpty() && work.paths.isEmpty()
+        && work.directories.isEmpty() && work.moves.isEmpty() && work.selections.isEmpty()
+        && work.invalidatedPaths.isEmpty() && !work.invalidateAll) {
+        work.requested = {d->warmupPath};
+        work.backgroundWarmup = true;
+    }
+    for (qsizetype i = 0; i < work.requested.size(); ++i) work.requestIds[work.requested.at(i)] = i + 1;
+    d->activeRequestIds = work.requestIds;
     if (work.requested.isEmpty() && work.paths.isEmpty() && work.directories.isEmpty()
         && work.moves.isEmpty() && work.selections.isEmpty() && work.invalidatedPaths.isEmpty()
         && !work.invalidateAll) return;
     work.cancelled = d->jobCancelled = std::make_shared<std::atomic_bool>(false);
+    d->activeWarmup = work.backgroundWarmup;
     d->activeRequested = work.requested;
     work.demand = d->demand;
     work.ioBusy = d->ioBusy;
@@ -699,10 +727,11 @@ void DirectorySizeIndex::startPending()
     auto* watcher = d->watcher = new QFutureWatcher<DirectorySizeWorkResult>(this);
     connect(watcher, &QFutureWatcher<DirectorySizeWorkResult>::finished, this, [this, watcher, work] {
         const auto result = watcher->result();
+        d->activeWarmup = false;
         d->activeSelections.clear();
         if (result.error == "Cancelled") {
-            // The transaction was rolled back. Preserve mutation hints as lazy
-            // invalidations, including changes to roots with no visible reader.
+            // Ordinary transactions roll back; startup work retains partial
+            // records. Preserve mutation hints in either case (idempotently).
             auto invalidations = work.invalidatedPaths + work.paths + work.directories + work.verify;
             for (const auto& move : work.moves) invalidations << move.first << move.second;
             d->invalidateAll = d->invalidateAll || work.invalidateAll;
@@ -712,7 +741,8 @@ void DirectorySizeIndex::startPending()
             }
             for (auto it = work.selections.cbegin(); it != work.selections.cend(); ++it)
                 if (d->selectionScopes.contains(it.key())) d->selections.insert(it.key(), it.value());
-            d->pending = d->pending || d->invalidateAll || !d->invalidatedPaths.isEmpty() || !d->selections.isEmpty();
+            d->pending = d->pending || d->warmupPending || d->invalidateAll
+                || !d->invalidatedPaths.isEmpty() || !d->selections.isEmpty();
             d->watcher = nullptr; watcher->deleteLater(); d->progressTimer.stop();
             d->activeRequested.clear(); d->jobCancelled.reset();
             if (d->pending) d->debounce.start(0);
@@ -721,6 +751,7 @@ void DirectorySizeIndex::startPending()
         d->watcher = nullptr;
         watcher->deleteLater();
         d->progressTimer.stop();
+        if (work.backgroundWarmup) d->warmupPending = false;
         readEvents();
         for (const auto& path : result.changedDirectories)
             observeDirectory(path, true);
@@ -768,6 +799,7 @@ void DirectorySizeIndex::startPending()
             }
         }
         emit workCompleted(result.fileStats, result.directoryListings);
+        if (d->warmupPending) d->pending = true;
         if (d->pending)
             d->debounce.start(200);
     });

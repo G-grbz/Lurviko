@@ -53,6 +53,202 @@ class DirectorySizeTests : public QObject {
         return work;
     }
 private slots:
+    void startupWarmupWorksWithoutAVisibleDirectoryAndReusesTheCache()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        write(root + "/nested/data", 17);
+        // A prior Home/child scan must not be repeated while filling its parent.
+        const auto child = runDirectorySizeWork(workFor(database, {root + "/nested"}, "prior-session"));
+        QVERIFY(child.error.isEmpty());
+        {
+            DirectorySizeIndex index(database);
+            QSignalSpy jobs(&index, &DirectorySizeIndex::workCompleted);
+            index.warmup(root);
+            QTRY_VERIFY_WITH_TIMEOUT(!index.busy(), 10000);
+            QCOMPARE(jobs.size(), 1);
+            QCOMPARE(jobs.first().at(1).toLongLong(), 1);
+            QCOMPARE(index.activeWatchCount(), 0);
+            const auto cached = readDirectorySizeSnapshots(workFor(database, {root}, "read"));
+            QVERIFY2(cached.error.isEmpty(), qPrintable(cached.error));
+            QCOMPARE(cached.snapshots[root].totals.bytes, 17);
+            QVERIFY(cached.snapshots[root].complete);
+            index.warmup(root);
+            QVERIFY(!index.busy()); // At most one startup fill per service lifetime.
+        }
+        DirectorySizeIndex restarted(database);
+        QSignalSpy jobs(&restarted, &DirectorySizeIndex::workCompleted);
+        restarted.warmup(root);
+        QTRY_VERIFY_WITH_TIMEOUT(!restarted.busy(), 10000);
+        QCOMPARE(jobs.size(), 1);
+        QCOMPARE(jobs.first().at(0).toLongLong(), 0);
+        QCOMPARE(jobs.first().at(1).toLongLong(), 0);
+        QCOMPARE(restarted.activeWatchCount(), 0);
+    }
+    void startupWarmupYieldsToNavigationWithoutLosingPartialRecords()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/warmup", next = temp.path() + "/visible";
+        const auto database = temp.path() + "/cache/index.sqlite", seed = temp.path() + "/seed";
+        write(seed, 1); write(next + "/data", 7);
+        QDir().mkpath(root + "/a"); QDir().mkpath(root + "/b");
+        for (int i = 0; i < 24000; ++i) {
+            const auto file = root + (i < 12000 ? "/a/" : "/b/") + QString::number(i);
+            QCOMPARE(::link(QFile::encodeName(seed).constData(), QFile::encodeName(file).constData()), 0);
+        }
+        DirectorySizeIndex index(database);
+        QObject transfer, reader;
+        index.setIoBusy(&transfer, true);
+        index.warmup(root);
+        QTest::qWait(450);
+        QVERIFY(index.busy());
+        QElapsedTimer latency; latency.start();
+        index.retain(&reader, next); index.request(next);
+        QTRY_VERIFY_WITH_TIMEOUT(index.snapshot(next).complete && !index.snapshot(next).calculating, 3000);
+        QCOMPARE(index.snapshot(next).totals.bytes, 7);
+        qInfo() << "Visible directory while startup scan yields:" << latency.elapsed() << "ms";
+        const auto partial = readDirectorySizeSnapshots(workFor(database, {root + "/a", root + "/b"}, "partial"));
+        QVERIFY2(partial.error.isEmpty(), qPrintable(partial.error));
+        QVERIFY(partial.snapshots[root + "/a"].totals.files + partial.snapshots[root + "/b"].totals.files > 0);
+        index.setIoBusy(&transfer, false);
+        QTRY_VERIFY_WITH_TIMEOUT(!index.busy(), 10000);
+        const auto complete = readDirectorySizeSnapshots(workFor(database, {root}, "complete"));
+        QVERIFY2(complete.error.isEmpty(), qPrintable(complete.error));
+        QVERIFY(complete.snapshots[root].complete);
+        QCOMPARE(complete.snapshots[root].totals.bytes, 24000);
+        QCOMPARE(complete.snapshots[root].totals.files, 24000);
+        QCOMPARE(index.activeWatchCount(), 0);
+    }
+    void startupWarmupKeepsMountScopesAndDoesNotForceCachedVerification()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        write(root + "/data", 5);
+        write(root + "/disk/data", 100);
+        write(root + "/virtual/data", 200);
+        auto initial = workFor(database, {root}, "initial");
+        initial.backgroundWarmup = true;
+        initial.mountBoundaries = {root + "/disk"};
+        initial.virtualRoots = {root + "/virtual"};
+        const auto first = runDirectorySizeWork(initial);
+        QVERIFY2(first.error.isEmpty(), qPrintable(first.error));
+        QCOMPARE(first.snapshots[root].totals.bytes, 5);
+        QCOMPARE(first.directoryListings, 1);
+        QCOMPARE(first.fileStats, 1); // Excluded mountpoints are not even statted.
+        write(root + "/data", 8);
+        auto restart = initial; restart.session = "restart"; restart.invalidateAll = true;
+        const auto cached = runDirectorySizeWork(restart);
+        QVERIFY2(cached.error.isEmpty(), qPrintable(cached.error));
+        QCOMPARE(cached.snapshots[root].totals.bytes, 5);
+        QCOMPARE(cached.fileStats, 0);
+        QCOMPARE(cached.directoryListings, 0);
+        auto refresh = initial; refresh.session = "refresh"; refresh.backgroundWarmup = false;
+        const auto verified = runDirectorySizeWork(refresh);
+        QVERIFY2(verified.error.isEmpty(), qPrintable(verified.error));
+        QCOMPARE(verified.snapshots[root].totals.bytes, 8);
+    }
+    void initialScanKeepsLeafRecordsAcrossDirectoriesAndUpdates()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        qint64 expected = 0;
+        int files = 0;
+        for (int count : {1, 63, 64, 65, 129}) {
+            const auto folder = root + "/" + QString::number(count);
+            for (int i = 0; i < count; ++i) {
+                write(folder + "/item-" + QString::number(i), i + 1);
+                expected += i + 1;
+                ++files;
+            }
+        }
+        const auto source = root + "/64/item-63", alias = root + "/hard-link";
+        QCOMPARE(::link(QFile::encodeName(source).constData(), QFile::encodeName(alias).constData()), 0);
+        expected += 64; ++files;
+        QCOMPARE(::symlink("64/item-63", QFile::encodeName(root + "/symbolic-link").constData()), 0);
+        QCOMPARE(::mkfifo(QFile::encodeName(root + "/pipe").constData(), 0600), 0);
+        auto first = runDirectorySizeWork(workFor(database, {root}, "initial"));
+        QVERIFY2(first.error.isEmpty(), qPrintable(first.error));
+        QCOMPARE(first.snapshots[root].totals.bytes, expected);
+        QCOMPARE(first.snapshots[root].totals.files, files);
+        QCOMPARE(first.snapshots[root].totals.folders, 5);
+        auto children = workFor(database, {}, "restart");
+        for (int count : {1, 63, 64, 65, 129})
+            children.requested.append(root + "/" + QString::number(count));
+        const auto cached = runDirectorySizeWork(children);
+        QVERIFY2(cached.error.isEmpty(), qPrintable(cached.error));
+        QCOMPARE(cached.fileStats, 0);
+        QCOMPARE(cached.directoryListings, 0);
+        for (int count : {1, 63, 64, 65, 129}) {
+            const auto value = cached.snapshots[root + "/" + QString::number(count)];
+            QCOMPARE(value.totals.bytes, qint64(count) * (count + 1) / 2);
+            QCOMPARE(value.totals.files, count);
+        }
+        write(source, 71);
+        auto growth = workFor(database, {root}, "growth");
+        growth.paths = {source};
+        auto changed = runDirectorySizeWork(growth);
+        QVERIFY2(changed.error.isEmpty(), qPrintable(changed.error));
+        QCOMPARE(changed.snapshots[root].totals.bytes, expected + 14); // Both hard-link names grow.
+        QVERIFY(QFile::remove(root + "/129/item-128"));
+        auto deletion = workFor(database, {root}, "deletion");
+        deletion.paths = {root + "/129/item-128"};
+        auto removed = runDirectorySizeWork(deletion);
+        QCOMPARE(removed.snapshots[root].totals.bytes, expected + 14 - 129);
+        QCOMPARE(removed.snapshots[root].totals.files, files - 1);
+    }
+    void ancestorInvalidationDoesNotRescanEveryVisitedDirectory()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        for (int i = 0; i < 50; ++i)
+            write(root + "/folder-" + QString::number(i) + "/deep/data", 10);
+        auto initial = runDirectorySizeWork(workFor(database, {root}, "initial"));
+        QVERIFY2(initial.error.isEmpty(), qPrintable(initial.error));
+        QCOMPARE(initial.snapshots[root].totals.bytes, 500);
+        // The legacy cache marks every ancestor dirty even for a named change.
+        // That flag must not turn ordinary navigation into full verification.
+        {
+            const QString connection = "ancestor-invalidation";
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database); QVERIFY(db.open());
+            { QSqlQuery q(db); QVERIFY(q.exec("UPDATE roots SET needs_verify=1")); }
+            db.close(); db = {}; QSqlDatabase::removeDatabase(connection);
+        }
+        for (const auto& path : QStringList{root, root + "/folder-0", root + "/folder-1"}) {
+            auto result = runDirectorySizeWork(workFor(database, {path}, "restart"));
+            QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+            QCOMPARE(result.directoryListings, 0);
+            QCOMPARE(result.fileStats, 0);
+            QVERIFY(result.snapshots[path].available);
+        }
+        // Preserve the specific path across an inactive period/restart and
+        // update just that file, without revalidating the other 49 subtrees.
+        const auto changed = root + "/folder-0/deep/data";
+        write(changed, 23);
+        auto hint = workFor(database, {}, "inactive");
+        hint.invalidatedPaths = {changed};
+        QVERIFY(runDirectorySizeWork(hint).error.isEmpty());
+        auto updated = runDirectorySizeWork(workFor(database, {root}, "next"));
+        QVERIFY2(updated.error.isEmpty(), qPrintable(updated.error));
+        QCOMPARE(updated.snapshots[root].totals.bytes, 513);
+        QCOMPARE(updated.fileStats, 1);
+        QCOMPARE(updated.directoryListings, 0);
+        auto revisit = runDirectorySizeWork(workFor(database, {root}, "again"));
+        QCOMPARE(revisit.snapshots[root].totals.bytes, 513);
+        QCOMPARE(revisit.fileStats, 0);
+        QCOMPARE(revisit.directoryListings, 0);
+        write(root + "/unrelated/new/data", 7);
+        auto ancestorHint = workFor(database, {}, "ancestor-hint");
+        ancestorHint.invalidatedPaths = {root};
+        QVERIFY(runDirectorySizeWork(ancestorHint).error.isEmpty());
+        const auto child = root + "/folder-1";
+        auto childVisit = runDirectorySizeWork(workFor(database, {child}, "child-visit"));
+        QVERIFY(childVisit.error.isEmpty());
+        QCOMPARE(childVisit.snapshots[child].totals.bytes, 10);
+        QCOMPARE(childVisit.directoryListings, 0); // Do not scan the dirty ancestor's siblings.
+        auto parentVisit = runDirectorySizeWork(workFor(database, {root}, "parent-visit"));
+        QCOMPARE(parentVisit.snapshots[root].totals.bytes, 520);
+    }
     void visibleSubscriptionsAreSharedNonRecursiveAndReleased()
     {
         QTemporaryDir temp;

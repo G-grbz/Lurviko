@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <set>
+#include <map>
 #include <stdexcept>
 #include <vector>
 
@@ -146,6 +147,7 @@ public:
         ensureColumn("roots", "watch_session", "TEXT");
         ensureColumn("roots", "needs_verify", "INTEGER NOT NULL DEFAULT 0");
         sql("CREATE TABLE IF NOT EXISTS cache_info(key TEXT PRIMARY KEY,value TEXT)");
+        sql("CREATE TABLE IF NOT EXISTS dirty_paths(path TEXT PRIMARY KEY)");
         sql("INSERT OR IGNORE INTO entries(id,parent,name,kind,unknowns) VALUES(1,NULL,'',1,1)");
         if (!db.transaction())
             fail(db.lastError().text());
@@ -155,12 +157,28 @@ public:
             "INSERT INTO entries(parent,name,kind,bytes,files,unknowns,known,device,inode,mtime,ctime,seen,scope) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)");
         update = prepared("UPDATE entries SET device=?,inode=?,mtime=?,ctime=?,seen=?,scope=? WHERE id=?");
+        childTotals = prepared(
+            "SELECT COALESCE(SUM(CASE WHEN scope=0 THEN bytes ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN scope=0 THEN files ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN scope=0 THEN folders+CASE WHEN kind=1 THEN 1 ELSE 0 END ELSE 0 END),0),"
+            "COALESCE(SUM(CASE WHEN scope=0 THEN unknowns ELSE 0 END),0) FROM entries WHERE parent=?");
+        saveTotals = prepared("UPDATE entries SET bytes=?,files=?,folders=?,unknowns=?,known=?,verified=? WHERE id=?");
+        anyChild = prepared("SELECT 1 FROM entries WHERE parent=? LIMIT 1");
         if (work.invalidateAll)
-            sql("UPDATE roots SET needs_verify=1");
-        for (const auto& path : work.invalidatedPaths)
-            sql("UPDATE roots SET needs_verify=1 WHERE path='/' OR path=? "
+            sql("UPDATE roots SET needs_verify=2");
+        for (const auto& path : work.invalidatedPaths) {
+            sql("INSERT OR IGNORE INTO dirty_paths(path) VALUES(?)", { path });
+            sql("UPDATE roots SET needs_verify=MAX(needs_verify,1) WHERE path='/' OR path=? "
                 "OR substr(?,1,length(path)+1)=path||'/' OR substr(path,1,?)=?",
                 {path, path, path.size()+1, path+'/' });
+        }
+        auto pending = sql("SELECT 1 FROM dirty_paths LIMIT 1 OFFSET 8192");
+        const bool overflow = pending.next();
+        pending.finish();
+        if (overflow) {
+            sql("UPDATE roots SET needs_verify=2");
+            sql("DELETE FROM dirty_paths");
+        }
         reconcileScopes();
         sql("INSERT INTO cache_info(key,value) VALUES('scope-accounting','2') "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE value<>excluded.value");
@@ -173,6 +191,8 @@ public:
         byName = QSqlQuery();
         insert = QSqlQuery();
         update = QSqlQuery();
+        childTotals = QSqlQuery(); saveTotals = QSqlQuery(); anyChild = QSqlQuery();
+        bulkInserts.clear();
         if (db.isOpen()) {
             db.rollback();
             db.close();
@@ -348,6 +368,31 @@ public:
             old.totals.bytes = info.st_size;
         return old;
     }
+    void insertLeaf(qint64 parent, const QString& name, const struct stat& info, int scope)
+    {
+        const bool regular = S_ISREG(info.st_mode);
+        pendingLeaves.append(QVariantList{parent, name, regular ? 2 : 0,
+            regular ? qint64(info.st_size) : 0, regular ? 1 : 0, 0, true,
+            device(info), inode(info), stamp(info.st_mtim), stamp(info.st_ctim), epoch, scope});
+        if (pendingLeaves.size() == 64 * 13) flushLeaves();
+    }
+    void flushLeaves()
+    {
+        if (pendingLeaves.isEmpty()) return;
+        const int rows = pendingLeaves.size() / 13;
+        auto query = bulkInserts.find(rows);
+        if (query == bulkInserts.end()) {
+            QStringList values;
+            for (int i = 0; i < rows; ++i)
+                values.append(QStringLiteral("(?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+            query = bulkInserts.emplace(rows, prepared(
+                "INSERT INTO entries(parent,name,kind,bytes,files,unknowns,known,device,inode,mtime,ctime,seen,scope) VALUES "
+                + values.join(','))).first;
+        }
+        exec(query->second, pendingLeaves);
+        query->second.finish();
+        pendingLeaves.clear();
+    }
     Node ensureDirectory(const QString& path)
     {
         Node n = node(1);
@@ -370,16 +415,13 @@ public:
     }
     void recompute(qint64 id, bool known)
     {
-        auto q = sql("SELECT COALESCE(SUM(CASE WHEN scope=0 THEN bytes ELSE 0 END),0),"
-                     "COALESCE(SUM(CASE WHEN scope=0 THEN files ELSE 0 END),0),"
-                     "COALESCE(SUM(CASE WHEN scope=0 THEN folders+CASE WHEN kind=1 THEN 1 ELSE 0 END ELSE 0 END),0),"
-                     "COALESCE(SUM(CASE WHEN scope=0 THEN unknowns ELSE 0 END),0) "
-                     "FROM entries WHERE parent=?",
-            { id });
-        q.next();
-        sql("UPDATE entries SET bytes=?,files=?,folders=?,unknowns=?,known=?,verified=? WHERE id=?",
-            { q.value(0), q.value(1), q.value(2), q.value(3).toLongLong() + (known ? 0 : 1), known,
-                work.session, id });
+        exec(childTotals, {id});
+        childTotals.next();
+        const QVariantList values{childTotals.value(0), childTotals.value(1), childTotals.value(2),
+            childTotals.value(3).toLongLong() + (known ? 0 : 1), known, work.session, id};
+        childTotals.finish();
+        exec(saveTotals, values);
+        saveTotals.finish();
     }
     void checkpoint()
     {
@@ -440,8 +482,9 @@ public:
             }
             watch(p, info);
             ancestors.insert({ info.st_dev, info.st_ino });
-            auto existing = sql("SELECT 1 FROM entries WHERE parent=? LIMIT 1", { id });
-            const bool fresh = !existing.next();
+            exec(anyChild, {id});
+            const bool fresh = !anyChild.next();
+            anyChild.finish();
             stack.push_back({ id, p, dir, deep, { info.st_dev, info.st_ino }, true, fresh });
             ++result.directoryListings;
             return true;
@@ -464,10 +507,11 @@ public:
                 dirent* entry = ::readdir(frame.dir);
                 if (!entry) {
                     const bool complete = errno == 0 && frame.readable;
+                    flushLeaves(); // Publish this directory's leaves before summing its children.
                     ::closedir(frame.dir);
                     ancestors.erase(frame.identity);
                     stack.pop_back();
-                    if (complete) {
+                    if (complete && !frame.fresh) {
                         // A vanished mount is unavailable, not an empty directory.
                         sql("UPDATE entries SET seen=?,unknowns=unknowns+CASE WHEN known=1 THEN 1 ELSE 0 "
                             "END,known=0 "
@@ -484,6 +528,16 @@ public:
                 }
                 if (!std::strcmp(entry->d_name, ".") || !std::strcmp(entry->d_name, ".."))
                     continue;
+                const QString name = QFile::decodeName(entry->d_name);
+                const QString childPath = QDir(frame.path).filePath(name);
+                if (work.backgroundWarmup && (mountBoundaries.contains(childPath) || scopeFor(childPath) == 2)) {
+                    // A mountpoint stat can wake its disk. Startup work needs
+                    // neither that metadata nor a new record for the volume.
+                    // Keep any previously cached independent volume untouched.
+                    if (!frame.fresh)
+                        sql("UPDATE entries SET seen=? WHERE parent=? AND name=?", {epoch, frame.id, name});
+                    continue;
+                }
                 struct stat info { };
                 if (directoryMetadataAt(::dirfd(frame.dir), entry->d_name, &info) != 0) {
                     if (errno == ENOENT || errno == ENOTDIR)
@@ -496,8 +550,15 @@ public:
                     continue;
                 }
                 ++result.fileStats;
-                const QString name = QFile::decodeName(entry->d_name);
-                const QString childPath = QDir(frame.path).filePath(name);
+                if (frame.fresh && !S_ISDIR(info.st_mode)) {
+                    const int scope = scopeFor(childPath);
+                    insertLeaf(frame.id, name, info, scope);
+                    if (!scope && S_ISREG(info.st_mode)) {
+                        work.progress->bytes.fetch_add(info.st_size, std::memory_order_relaxed);
+                        work.progress->files.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    continue;
+                }
                 const Node old = frame.fresh ? Node { } : child(frame.id, name);
                 if (old.id && old.kind == 1 && old.device != QString::number(qulonglong(frame.identity.first))
                     && device(info) == QString::number(qulonglong(frame.identity.first))) {
@@ -515,7 +576,7 @@ public:
                 } else if (current.kind == 1) {
                     work.progress->folders.fetch_add(1, std::memory_order_relaxed);
                     const bool sameIdentity = old.device == device(info) && old.inode == inode(info);
-                    if (old.known && sameIdentity && old.verified == work.session
+                    if (old.known && sameIdentity && (old.verified == work.session || work.backgroundWarmup)
                         && old.modified == stamp(info.st_mtim) && old.changed == stamp(info.st_ctim))
                         continue;
                     if (frame.recursive || !old.known || old.device != device(info)
@@ -526,12 +587,30 @@ public:
                             frame.recursive || !old.known);
                 }
             }
-        } catch (...) {
+        } catch (const std::runtime_error& error) {
+            if (work.backgroundWarmup && work.cancelled->load(std::memory_order_relaxed)
+                && std::strcmp(error.what(), "Cancelled") == 0) {
+                try {
+                    // Keep completed subtrees when yielding to navigation.
+                    // Open frames retain their rows but never a completed total.
+                    flushLeaves();
+                    for (auto frame = stack.rbegin(); frame != stack.rend(); ++frame)
+                        recompute(frame->id, false);
+                    const auto partial = node(root.id);
+                    propagate(partial.parent, partial.contribution() - before.contribution());
+                    if (!db.commit()) fail(db.lastError().text());
+                } catch (...) {
+                    for (const auto& frame : stack) ::closedir(frame.dir);
+                    throw;
+                }
+            }
             for (const auto& frame : stack)
                 ::closedir(frame.dir);
             throw;
+        } catch (...) {
+            for (const auto& frame : stack) ::closedir(frame.dir);
+            throw;
         }
-        root = node(root.id);
         struct stat rootInfo { };
         if (::stat(QFile::encodeName(path).constData(), &rootInfo) == 0) {
             if (rootIdentified
@@ -646,7 +725,10 @@ public:
     }
     bool needsVerification(const QString& path)
     {
-        auto rows = sql("SELECT path FROM roots WHERE needs_verify=1");
+        // A named change is reconciled through dirty_paths. Only loss of event
+        // coverage (or explicit Refresh) warrants walking an entire cached tree.
+        // Legacy value 1 is deliberately treated as approximate cached data.
+        auto rows = sql("SELECT path FROM roots WHERE needs_verify>=2");
         while (rows.next())
             if (within(path, rows.value(0).toString())) return true;
         return false;
@@ -835,6 +917,34 @@ public:
     DirectorySizeWorkResult run()
     {
         initialize();
+        QStringList dirty;
+        auto rows = sql("SELECT path FROM dirty_paths WHERE ?=0 ORDER BY length(path),path",
+            {work.backgroundWarmup ? 1 : 0});
+        while (rows.next()) {
+            const auto path = rows.value(0).toString();
+            for (const auto& requested : work.requested) {
+                if (within(path, requested) || within(requested, path)) {
+                    dirty.push_back(path);
+                    break;
+                }
+            }
+        }
+        rows.finish();
+        for (const auto& path : dirty) {
+            checkpoint();
+            bool insideDemand = false;
+            for (const auto& requested : work.requested)
+                insideDemand = insideDemand || within(path, requested);
+            if (insideDemand) {
+                updatePath(path);
+                sql("DELETE FROM dirty_paths WHERE path=?", {path});
+            } else {
+                // An ancestor hint must not enumerate siblings of the visible
+                // directory. Leave it pending for the ancestor's own reader.
+                for (const auto& requested : work.requested)
+                    if (within(requested, path)) updatePath(requested);
+            }
+        }
         QStringList scanned;
         for (const auto& path : work.requested) {
             work.progress->activeRequest.store(work.requestIds.value(path), std::memory_order_relaxed);
@@ -861,7 +971,7 @@ public:
             sql("INSERT INTO roots(path,node,mount) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET "
                 "node=excluded.node",
                 { path, root.id, QStorageInfo(actual).rootPath() });
-            const bool force = work.verify.contains(path) || needsVerification(path);
+            const bool force = !work.backgroundWarmup && (work.verify.contains(path) || needsVerification(path));
             const bool needsScan = !root.known || force;
             auto watched = sql("SELECT watch_session FROM roots WHERE path=?", { path });
             const bool needsWatches = !watched.next() || watched.value(0).toString() != work.session;
@@ -876,8 +986,14 @@ public:
                 if (root.known) verifyTree(actual);
                 else scan(actual, true);
                 scanned.push_back(actual);
-                sql("UPDATE roots SET needs_verify=0,watch_session=? WHERE path=? OR substr(path,1,?)=?",
-                    { work.session, path, path == "/" ? 1 : path.size() + 1, path == "/" ? path : path + '/' });
+                if (work.backgroundWarmup) {
+                    // Reusing a cached subtree is not a full validation of it.
+                    // Keep lost-event invalidations for a later visible reader.
+                    sql("UPDATE roots SET watch_session=? WHERE path=?", {work.session, path});
+                } else {
+                    sql("UPDATE roots SET needs_verify=0,watch_session=? WHERE path=? OR substr(path,1,?)=?",
+                        { work.session, path, path == "/" ? 1 : path.size() + 1, path == "/" ? path : path + '/' });
+                }
             }
             else if (needsWatches && !work.peek.contains(path)) {
                 // A cached lookup never enumerates or watches descendants.
@@ -1016,6 +1132,8 @@ public:
     void closeQueries()
     {
         byId = QSqlQuery(); byName = QSqlQuery(); insert = QSqlQuery(); update = QSqlQuery();
+        childTotals = QSqlQuery(); saveTotals = QSqlQuery(); anyChild = QSqlQuery();
+        bulkInserts.clear();
         db.close();
     }
     void accountOwnFiles()
@@ -1074,6 +1192,9 @@ public:
     QString connection, ownDirectory, epoch;
     QSqlDatabase db;
     QSqlQuery byId, byName, insert, update;
+    QSqlQuery childTotals, saveTotals, anyChild;
+    std::map<int, QSqlQuery> bulkInserts;
+    QVariantList pendingLeaves; // At most 64 rows; no per-tree metadata retained in memory.
     QHash<QString, QString> canonical;
     QSet<QString> mountBoundaries;
     QSet<QString> virtualRoots;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.5.0 LANGUAGES CXX)
+project(Lurviko VERSION 1.5.1 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 

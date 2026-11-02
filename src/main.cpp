@@ -712,7 +712,10 @@ int main(int argc, char *argv[])
                                       Q_ARG(QVariant, QVariant(target)));
         }
     }
-
+    // Start after the first frame without requiring entry into a filesystem
+    // folder. Visible requests can interrupt the shared low-priority writer
+    // without losing completed subtrees; a cached root does not start over.
+    QTimer::singleShot(1200, &app, [] { DirectorySizeIndex::instance()->warmup(); });
 
     return app.exec();
 }
