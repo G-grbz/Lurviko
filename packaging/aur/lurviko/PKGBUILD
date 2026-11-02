@@ -46,7 +46,7 @@ optdepends=(
 install=lurviko.install
 source=("Lurviko-${pkgver}-${pkgrel}.tar::${url}/releases/download/v${pkgver}/Lurviko-${pkgver}.tar")
 # SHA-256 of the reproducible v1.5.0 source archive.
-sha256sums=('6218eec37344b228b463a268042591c00486e1c39d18499f66320dd1f96b2c50')
+sha256sums=('2428aedcb01ca97e5d430c7b7c60cd03193e3afb86a8e997c58533ea682d1d52')
 
 prepare() {
   # Installed workers are found in /usr/share/Lurviko. Do not embed the

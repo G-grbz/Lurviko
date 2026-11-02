@@ -12,12 +12,33 @@ import tempfile
 import math
 import struct
 import wave
+import errno
+import time
+from contextlib import contextmanager
+
+
+@contextmanager
+def isolated_directory():
+    directory = tempfile.TemporaryDirectory(prefix="gfile-qml-tests-")
+    try:
+        yield directory.name
+    finally:
+        # Services on the private desktop bus may flush settings just after
+        # it exits. Retry only ENOTEMPTY; real test/process errors still fail.
+        for attempt in range(5):
+            try:
+                directory.cleanup()
+                break
+            except OSError as error:
+                if error.errno != errno.ENOTEMPTY or attempt == 4:
+                    raise
+                time.sleep(0.1 * (2 ** attempt))
 
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", str(repo / "build"))).resolve()
 if not (build / "build.ninja").is_file():
     raise SystemExit("Build the application with Ninja first (see README.md).")
-with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
+with isolated_directory() as temporary:
     root = Path(temporary)
     audio_fixture = root / "music-preview.wav"
     with wave.open(str(audio_fixture), "wb") as audio:
