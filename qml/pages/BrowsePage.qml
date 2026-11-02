@@ -19,7 +19,7 @@ Item {
         page.height - (page.headerHost ? 6 : page.headerHeight + 6) - commandBar.height - 10))
 
     readonly property color navigationColor: AppTheme.useQtTheme
-            ? (AppTheme.translucentWindow ? AppTheme.tint(AppTheme.surfaceRaised, 0.14) : AppTheme.workspace)
+            ? (AppTheme.translucentWindow ? AppTheme.tint(AppTheme.surfaceRaised, 0.30) : AppTheme.workspace)
             : AppTheme.mix(AppTheme.workspace, AppTheme.surface, 0.55)
 
     required property var lang
@@ -32,12 +32,34 @@ Item {
     required property var cloudIntegrationPreferences
     required property var googleDrive
     required property var oneDrive
+    property var privateVault: null
+    property var operationPresentation: null
+    readonly property var notificationSources: splitEnabled && rightPaneLoader.item
+        ? [leftPane.fileOperations, rightPaneLoader.item.fileOperations]
+        : [leftPane.fileOperations]
     signal backRequested(string lastLocation)
     signal sidebarLocationChanged(string location)
+    signal watermarkEditorRequested()
 
     property var tabs: []
     property var closedTabs: []
     property int currentTab: 0
+    // Repeater delegates can appear a frame after tabs/currentTab change.
+    // The revision forces the frame to rebind as soon as the new tab exists.
+    property int activeSurfaceGeneration: 0
+    // Expose the painted selected tab to the shared outer outline, including
+    // scrolling and tab reordering. No hard-coded tab position is needed.
+    readonly property Item activeTabSurface: {
+        const generation = activeSurfaceGeneration
+        const count = tabRepeater.count + generation * 0
+        const delegate = currentTab >= 0 && currentTab < count
+                ? tabRepeater.itemAt(currentTab) : null
+        return delegate ? delegate.surfaceItem : null
+    }
+    readonly property real activeTabScrollPosition: tabScrollView.contentItem
+        ? tabScrollView.contentItem.contentX : 0
+    readonly property bool activeTabAdministrator: currentTab >= 0 && currentTab < tabs.length
+            && isAdminLocation(tabs[currentTab].location)
     property int tabDragFrom: -1
     property int tabDragTarget: -1
     property bool splitEnabled: false
@@ -795,6 +817,12 @@ Item {
         parent: page
         maximumPopupHeight: page.toolbarPopupHeight
         closePolicy: Popup.CloseOnEscape
+        GMenuItem {
+            objectName: "exploreWatermarkViewSetting"
+            text: lang.language === "tr" ? "Keşfet filigranını düzenle…" : "Edit Discover watermark…"
+            onTriggered: page.watermarkEditorRequested()
+        }
+        GMenuSeparator {}
         Item {
             objectName: "sidebarAutoHideSetting"
             implicitWidth: 300
@@ -1011,7 +1039,7 @@ Item {
             objectName: "operationAutoHideSettings"
             visible: !AppTheme.kioProgressEnabled
             implicitWidth: 310
-            implicitHeight: visible ? (AppTheme.operationAutoHide ? 92 : 40) : 0
+            implicitHeight: visible ? (AppTheme.operationAutoHide ? 132 : 40) : 0
             width: parent ? parent.width : implicitWidth
             height: implicitHeight
             ColumnLayout {
@@ -1051,6 +1079,14 @@ Item {
                         onAccepted: saveDelay()
                         onEditingFinished: saveDelay()
                     }
+                }
+                GSwitch {
+                    objectName: "operationShowOnCompletionSwitch"
+                    visible: AppTheme.operationAutoHide
+                    Layout.fillWidth: true
+                    text: lang.t("operation_show_on_completion")
+                    checked: AppTheme.operationShowOnCompletion
+                    onToggled: AppTheme.setOperationShowOnCompletion(checked)
                 }
             }
         }
@@ -1242,6 +1278,12 @@ Item {
                         spacing: -18
                         Repeater {
                             id: tabRepeater
+                            onItemAdded: function(index, item) {
+                                page.activeSurfaceGeneration++
+                            }
+                            onItemRemoved: function(index, item) {
+                                page.activeSurfaceGeneration++
+                            }
                             // Saved scroll/search state changes must not recreate every
                             // tab, interrupting selection animations and pointer targets.
                             model: page.tabs.length
@@ -1250,6 +1292,7 @@ Item {
                                 objectName: "browserTab" + index
                                 required property int index
                                 readonly property var tabData: page.tabs[index]
+                                readonly property Item surfaceItem: tabSurface
                                 property bool suppressClickAfterDrag: false
                                 property int dragStartIndex: -1
                                 readonly property bool dragging: tabDrag.active
@@ -1258,9 +1301,11 @@ Item {
                                 height: tabsBar.implicitHeight
                                 readonly property bool administratorTab: page.isAdminLocation(tabData.location)
                                 FluidTabSurface {
+                                    id: tabSurface
                                     objectName: "fluidTabSurface"
                                     anchors.fill: parent
                                     selected: index === page.currentTab
+                                    pageOutlineJoined: page.headerHost !== null
                                     hovered: tabMouse.containsMouse
                                     dropTarget: tabDelegate.dragTarget
                                     administrator: tabDelegate.administratorTab
@@ -1691,6 +1736,8 @@ Item {
                 cloudIntegrationPreferences: page.cloudIntegrationPreferences
                 googleDrive: page.googleDrive
                 oneDrive: page.oneDrive
+                privateVault: page.privateVault
+                operationPresentation: page.operationPresentation
                 backNavigationEnabled: page.canGoBack()
                 forwardNavigationEnabled: page.canGoForward()
                 onLocationChangedByUser: function(location) {
@@ -1748,6 +1795,8 @@ Item {
                 cloudIntegrationPreferences: page.cloudIntegrationPreferences
                 googleDrive: page.googleDrive
                 oneDrive: page.oneDrive
+                privateVault: page.privateVault
+                operationPresentation: page.operationPresentation
                 backNavigationEnabled: page.canGoBack()
                 forwardNavigationEnabled: page.canGoForward()
                 onLocationChangedByUser: function(location) {

@@ -547,6 +547,7 @@ Item {
                 const native = AppTheme.kioProgressEnabled
                 const automatic = AppTheme.operationAutoHide
                 const seconds = AppTheme.operationAutoHideSeconds
+                const showOnCompletion = AppTheme.operationShowOnCompletion
                 const menu = findChild(page, "toolbarViewMenu")
                 try {
                     window.requestActivate()
@@ -559,6 +560,9 @@ Item {
                     const row = findChild(page, "operationAutoHideSettings")
                     const toggle = findChild(page, "operationAutoHideSwitch")
                     const delay = findChild(page, "operationAutoHideDelay")
+                    const completionToggle = findChild(page, "operationShowOnCompletionSwitch")
+                    verify(completionToggle.visible, "Completion preference is conditional on auto hide")
+                    AppTheme.setOperationShowOnCompletion(false)
                     let rowIndex = -1
                     for (let i = 0; i < menu.count; ++i)
                         if (menu.itemAt(i) === row) rowIndex = i
@@ -575,18 +579,23 @@ Item {
                     keyClick(Qt.Key_Return)
                     compare(delay.text, "12", "The editable delay receives typed digits")
                     tryCompare(AppTheme, "operationAutoHideSeconds", 12)
+                    mouseClick(completionToggle, completionToggle.width / 2, completionToggle.height / 2)
+                    tryCompare(AppTheme, "operationShowOnCompletion", true)
                     mouseClick(toggle, toggle.width / 2, toggle.height / 2)
                     tryCompare(AppTheme, "operationAutoHide", false)
+                    verify(!completionToggle.visible, "Completion preference is hidden when auto hide is disabled")
                     verify(menu.visible, "Embedded preferences keep the view menu open")
                     // QtCore.Settings batches property writes. Wait for that
                     // batch before reading through a fresh native QSettings instance.
                     tryVerify(function() {
                         return String(AppTheme.settings.value("operationAutoHide", true)) === "false"
                                 && Number(AppTheme.settings.value("operationAutoHideSeconds", 0)) === 12
+                                && String(AppTheme.settings.value("operationShowOnCompletion", false)) === "true"
                     })
                     AppTheme.settings.sync()
                     compare(inputTestHelper.savedAppearanceSetting("operationAutoHide"), false)
                     compare(inputTestHelper.savedAppearanceSetting("operationAutoHideSeconds"), 12)
+                    compare(inputTestHelper.savedAppearanceSetting("operationShowOnCompletion"), true)
                     AppTheme.setKioProgressEnabled(true)
                     verify(!row.visible)
                     AppTheme.setOperationAutoHideSeconds(-20)
@@ -598,6 +607,7 @@ Item {
                     tryCompare(menu, "visible", false)
                     AppTheme.setOperationAutoHide(automatic)
                     AppTheme.setOperationAutoHideSeconds(seconds)
+                    AppTheme.setOperationShowOnCompletion(showOnCompletion)
                     AppTheme.setKioProgressEnabled(native)
                     AppTheme.settings.sync()
                 }

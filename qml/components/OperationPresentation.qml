@@ -7,6 +7,9 @@ QtObject {
     property var operations: []
     property bool nativeProgress: false
     property bool autoHide: true
+    // Show the finished card again after it was automatically minimized.
+    // This option is only meaningful while autoHide is enabled.
+    property bool showOnCompletion: false
     property int hideDelayMs: 8000
     property bool hovered: false
     property bool minimized: false
@@ -45,15 +48,31 @@ QtObject {
     function restore() { minimized = false; scheduleHide() }
     function toggle() { if (minimized) restore(); else minimize() }
     function syncOperations() {
+        // The operation IDs that were active at the last transition identify
+        // genuine completions (as opposed to old finished cards in the model).
+        const justFinished = operations.filter(function(op) {
+            return op.finished && previousActiveIds.indexOf(String(op.id)) >= 0
+        }).map(function(op) { return String(op.id) })
+        const reveal = minimized && autoHide && showOnCompletion && justFinished.length > 0
+        // An operation started while the previous one was minimized must
+        // appear immediately, not inherit a stale minimized UI state. The
+        // ordinary auto-hide timer will compact it again after the delay.
+        const newActiveJob = activeOperations.some(function(op) {
+            return previousActiveIds.indexOf(String(op.id)) < 0
+        })
         const hidden = ({})
         for (const op of operations) {
             const id = String(op.id)
+            const isNewCompletion = justFinished.indexOf(id) >= 0
+            // Already-hidden successes remain hidden. Newly completed jobs
+            // become visible only when the completion option requests it.
             if (op.finished && op.success && (hiddenCompletions[id]
-                    || minimized && previousActiveIds.indexOf(id) >= 0)) hidden[id] = true
+                    || minimized && isNewCompletion && !reveal))
+                hidden[id] = true
         }
         hiddenCompletions = hidden
         previousActiveIds = activeOperations.map(function(op) { return String(op.id) })
-        if (!activeCount) minimized = false
+        if (!activeCount || reveal || newActiveJob) minimized = false
         scheduleHide()
     }
     onActiveKeyChanged: syncOperations()
@@ -69,7 +88,10 @@ QtObject {
         if (nativeProgress) { minimized = false; hiddenCompletions = ({}) }
         scheduleHide()
     }
-    onAutoHideChanged: scheduleHide()
+    onAutoHideChanged: {
+        if (!autoHide && minimized) restore()
+        else scheduleHide()
+    }
     onHideDelayMsChanged: scheduleHide()
     onHoveredChanged: if (!hovered && hidePending) scheduleHide()
 }

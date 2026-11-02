@@ -106,6 +106,10 @@ public:
     Q_INVOKABLE bool shareViaKdeConnect(const QStringList &sourceUrls, const QString &deviceId);
     Q_INVOKABLE bool shareViaBluetooth(const QStringList &sourceUrls);
     Q_INVOKABLE bool shareViaEmail(const QStringList &sourceUrls);
+    // Explicit Git writes report affected paths through the existing size/index
+    // notification pipeline; no second filesystem monitor is installed.
+    Q_INVOKABLE void notifyGitChanges(const QString &root, const QString &commonDirectory,
+                                     const QStringList &paths);
 
 signals:
     void lastErrorChanged();

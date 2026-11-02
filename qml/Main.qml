@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import Lurviko.App
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -186,7 +187,141 @@ ApplicationWindow {
                 globalMusicPlayer.closePlayer()
         }
     }
-    readonly property var transferManager: oneDrive.transferActive ? oneDrive : googleDrive
+    readonly property bool browsingFiles: stack.currentItem
+        && typeof stack.currentItem.currentTabLocation === "function"
+    // One window-wide pipeline for normal FileOperations and vault transfers.
+    // BrowserPane owns the jobs; OperationPresentation owns all visual state.
+    // The normal operation card moved unmodified in spirit to OperationToastLayer.
+    property bool vaultTransferWasActive: false
+    property int vaultJobSerial: 0
+    property bool vaultCompletionVisible: false
+    property bool vaultCompletionSuccess: true
+    property string vaultCompletionMessage: ""
+    property string vaultTransferLastFile: ""
+    property double vaultTransferLastBytesDone: 0
+    property double vaultTransferLastBytesTotal: 0
+    property int vaultTransferLastFilesDone: 0
+    property int vaultTransferLastFilesTotal: 0
+
+    readonly property var notificationSources: {
+        const page = stack.currentItem
+        return page && page.notificationSources !== undefined ? page.notificationSources : []
+    }
+    readonly property var combinedOperations: {
+        const combined = []
+        // Native KIO progress owns the ordinary file-job notifications if enabled.
+        if (!AppTheme.kioProgressEnabled) {
+            for (let index = 0; index < root.notificationSources.length; ++index) {
+                const source = root.notificationSources[index]
+                if (!source) continue
+                for (const op of source.operations) {
+                    combined.push(Object.assign({}, op, {
+                        id: "file:" + index + ":" + op.id,
+                        sourceId: op.id,
+                        sourceIndex: index
+                    }))
+                }
+            }
+        }
+        // Cloud uploads/downloads are normal file transfers too: use the
+        // same card instead of maintaining a second globalDriveTransferCard.
+        const clouds = [{key: "google", manager: googleDrive}, {key: "onedrive", manager: oneDrive}]
+        for (const entry of clouds) {
+            const cloud = entry.manager
+            if (!cloud.transferActive) continue
+            combined.push({
+                id: "cloud:" + entry.key,
+                kind: "cloud",
+                title: cloud.transferLabel || (entry.key === "google" ? "Google Drive" : "OneDrive"),
+                detail: cloud.transferDetail || "",
+                phaseLabel: cloud.transferDetail || "",
+                finished: false,
+                success: true,
+                controllable: false,
+                canCancel: false,
+                canPause: false,
+                processedBytes: cloud.transferDone,
+                totalBytes: cloud.transferTotal,
+                processedItems: 0,
+                totalItems: 0,
+                percent: cloud.transferTotal > 0 ? cloud.transferPercent : -1,
+                paused: false,
+                speed: 0
+            })
+        }
+        if (root.vaultTransferWasActive || root.vaultCompletionVisible) {
+            const active = root.vaultTransferWasActive
+            const total = Number(root.vaultTransferLastBytesTotal)
+            const done = Number(root.vaultTransferLastBytesDone)
+            const percent = total > 0 ? Math.min(100, Math.round(100 * done / total)) : -1
+            combined.push({
+                id: "vault:" + root.vaultJobSerial,
+                kind: "vault",
+                finished: !active,
+                success: root.vaultCompletionSuccess,
+                controllable: false,
+                canCancel: false,
+                canPause: false,
+                detail: !active && !root.vaultCompletionSuccess ? root.vaultCompletionMessage
+                    : root.vaultTransferLastFile || root.vaultCompletionMessage,
+                phaseLabel: active ? privateVault.transferPhase : "",
+                processedItems: root.vaultTransferLastFilesDone,
+                totalItems: root.vaultTransferLastFilesTotal,
+                processedBytes: root.vaultTransferLastBytesDone,
+                totalBytes: root.vaultTransferLastBytesTotal,
+                percent: active ? percent : 100,
+                paused: false,
+                speed: 0
+            })
+        }
+        return combined
+    }
+    OperationPresentation {
+        id: unifiedOperationPresentation
+        objectName: "unifiedOperationPresentation"
+        operations: root.combinedOperations
+        // FileOperations is filtered above when native KIO handles it. The
+        // vault still uses the ordinary custom progress card.
+        nativeProgress: false
+        autoHide: AppTheme.operationAutoHide
+        showOnCompletion: AppTheme.operationShowOnCompletion
+        hideDelayMs: AppTheme.operationAutoHideSeconds * 1000
+        hovered: operationToastLayer.cardsHovered
+    }
+    Connections {
+        target: privateVault
+        function onTransferProgressChanged() {
+            if (!privateVault.transferActive) return
+            if (!root.vaultTransferWasActive) {
+                root.vaultJobSerial++
+                root.vaultTransferLastFile = ""
+                root.vaultTransferLastBytesDone = 0
+                root.vaultTransferLastBytesTotal = 0
+                root.vaultTransferLastFilesDone = 0
+                root.vaultTransferLastFilesTotal = 0
+                root.vaultCompletionVisible = false
+                root.vaultTransferWasActive = true
+            }
+            if (privateVault.transferCurrentFile.length)
+                root.vaultTransferLastFile = privateVault.transferCurrentFile
+            root.vaultTransferLastBytesDone = privateVault.transferBytesDone
+            root.vaultTransferLastBytesTotal = privateVault.transferBytesTotal
+            root.vaultTransferLastFilesDone = privateVault.transferFilesDone
+            root.vaultTransferLastFilesTotal = privateVault.transferFilesTotal
+        }
+        function onTransferFinished(success, message) {
+            // Capture final metrics before clearing active state: the same ID
+            // transitions from active to finished in the shared presentation.
+            root.vaultTransferLastBytesDone = Math.max(root.vaultTransferLastBytesDone, privateVault.transferBytesDone)
+            root.vaultTransferLastBytesTotal = Math.max(root.vaultTransferLastBytesTotal, privateVault.transferBytesTotal)
+            root.vaultTransferLastFilesDone = Math.max(root.vaultTransferLastFilesDone, privateVault.transferFilesDone)
+            root.vaultTransferLastFilesTotal = Math.max(root.vaultTransferLastFilesTotal, privateVault.transferFilesTotal)
+            root.vaultCompletionMessage = lang.localizeMessage(message)
+            root.vaultCompletionSuccess = success
+            root.vaultCompletionVisible = true
+            root.vaultTransferWasActive = false
+        }
+    }
     property string homeForwardLocation: launchLocation
     // Empty means the Discover/home page; otherwise this mirrors the visible browser pane.
     property string sidebarLocation: launchLocation
@@ -710,6 +845,160 @@ ApplicationWindow {
         }
     }
 
+    // The selected tab and the page border form a single, continuous path.
+    // Two separately antialiased strokes used to leave gaps at the tab feet,
+    // particularly at fractional DPI and after dynamically adding a tab.
+    // This Shape owns the selected outline; FluidTabSurface only paints its
+    // fill while joined. Unselected/standalone tabs retain their own outline.
+    Shape {
+        id: activePageOutline
+        objectName: "activePageOutline"
+        z: 60
+        x: unifiedBrowserSurface.x
+        y: mainShell.y
+        width: unifiedBrowserSurface.width
+        height: mainShell.height
+        visible: browserChromeHost.visible && activeTab !== null && width > 0 && height > 0
+        preferredRendererType: Shape.CurveRenderer
+        antialiasing: true
+
+        readonly property real inset: 0.65
+        readonly property real topLeftCorner: AppTheme.sidebarAutoHide ? 0 : 12
+        readonly property real bottomLeftCorner: AppTheme.sidebarAutoHide ? 0 : AppTheme.panelRadius
+        readonly property real topRightCorner: 12
+        readonly property real bottomRightCorner: AppTheme.panelRadius
+        readonly property Item activeTab: stack.currentItem
+                && stack.currentItem.activeTabSurface !== undefined
+                ? stack.currentItem.activeTabSurface : null
+        // Reading this forces reevaluation during horizontal tab scrolling.
+        readonly property real tabScrollPosition: stack.currentItem
+                && stack.currentItem.activeTabScrollPosition !== undefined
+                ? stack.currentItem.activeTabScrollPosition : 0
+        readonly property point tabOrigin: {
+            if (!activeTab) return Qt.point(0, 0)
+            const scroll = tabScrollPosition
+            const location = activeTab.mapToItem(activePageOutline, 0, 0)
+            return Qt.point(location.x + scroll * 0, location.y)
+        }
+        readonly property real tabLeft: tabOrigin.x
+        readonly property real tabRight: tabLeft + (activeTab ? activeTab.width : 0)
+        readonly property real tabTop: tabOrigin.y
+        // The join line uses the EXACT bottom of the tab, not a rounded or
+        // independently inset page-top coordinate.
+        readonly property real tabBaseline: tabTop + (activeTab ? activeTab.base : 0)
+        readonly property real footWidth: activeTab ? activeTab.footWidth : 0
+        readonly property real lowerRadius: activeTab ? activeTab.lowerRadius : 0
+        readonly property real tangentRun: activeTab ? activeTab.tangentRun : 0
+        readonly property real tangentRise: activeTab ? activeTab.tangentRise : 0
+        readonly property real wing: activeTab ? activeTab.wing : 0
+        readonly property real sideInset: activeTab ? activeTab.sideInset : 0
+        readonly property real corner: activeTab ? activeTab.corner : 0
+        readonly property real capTop: activeTab ? activeTab.capTop : 0
+        readonly property color strokeColor: activeTab
+                ? activeTab.outlineColor : AppTheme.activeTabOutline
+        readonly property real lineWidth: activeTab && activeTab.administrator ? 0.8 : 1
+
+        ShapePath {
+            strokeColor: activePageOutline.strokeColor
+            strokeWidth: activePageOutline.lineWidth
+            fillColor: "transparent"
+            // Left tab foot -> the entire selected tab contour -> right foot.
+            startX: activePageOutline.tabLeft
+            startY: activePageOutline.tabBaseline
+            PathCubic {
+                x: activePageOutline.tabLeft + activePageOutline.wing - activePageOutline.sideInset
+                y: activePageOutline.tabBaseline - activePageOutline.lowerRadius
+                control1X: activePageOutline.tabLeft + activePageOutline.footWidth / 2
+                control1Y: activePageOutline.tabBaseline
+                control2X: activePageOutline.tabLeft + activePageOutline.footWidth - activePageOutline.tangentRun
+                control2Y: activePageOutline.tabBaseline - activePageOutline.lowerRadius + activePageOutline.tangentRise
+            }
+            PathLine {
+                x: activePageOutline.tabLeft + activePageOutline.wing
+                y: activePageOutline.tabTop + activePageOutline.capTop + activePageOutline.corner
+            }
+            PathCubic {
+                x: activePageOutline.tabLeft + activePageOutline.wing + activePageOutline.corner
+                y: activePageOutline.tabTop + activePageOutline.capTop
+                control1X: activePageOutline.tabLeft + activePageOutline.wing + activePageOutline.tangentRun
+                control1Y: activePageOutline.tabTop + activePageOutline.capTop
+                           + activePageOutline.corner - activePageOutline.tangentRise
+                control2X: activePageOutline.tabLeft + activePageOutline.wing + activePageOutline.corner / 2
+                control2Y: activePageOutline.tabTop + activePageOutline.capTop
+            }
+            PathLine {
+                x: activePageOutline.tabRight - activePageOutline.wing - activePageOutline.corner
+                y: activePageOutline.tabTop + activePageOutline.capTop
+            }
+            PathCubic {
+                x: activePageOutline.tabRight - activePageOutline.wing
+                y: activePageOutline.tabTop + activePageOutline.capTop + activePageOutline.corner
+                control1X: activePageOutline.tabRight - activePageOutline.wing - activePageOutline.corner / 2
+                control1Y: activePageOutline.tabTop + activePageOutline.capTop
+                control2X: activePageOutline.tabRight - activePageOutline.wing - activePageOutline.tangentRun
+                control2Y: activePageOutline.tabTop + activePageOutline.capTop
+                           + activePageOutline.corner - activePageOutline.tangentRise
+            }
+            PathLine {
+                x: activePageOutline.tabRight - activePageOutline.wing + activePageOutline.sideInset
+                y: activePageOutline.tabBaseline - activePageOutline.lowerRadius
+            }
+            PathCubic {
+                x: activePageOutline.tabRight
+                y: activePageOutline.tabBaseline
+                control1X: activePageOutline.tabRight - activePageOutline.footWidth + activePageOutline.tangentRun
+                control1Y: activePageOutline.tabBaseline - activePageOutline.lowerRadius + activePageOutline.tangentRise
+                control2X: activePageOutline.tabRight - activePageOutline.footWidth / 2
+                control2Y: activePageOutline.tabBaseline
+            }
+            // Continue around the entire page without starting a second path.
+            PathLine {
+                x: activePageOutline.width - activePageOutline.topRightCorner - activePageOutline.inset
+                y: activePageOutline.tabBaseline
+            }
+            PathQuad {
+                x: activePageOutline.width - activePageOutline.inset
+                y: activePageOutline.tabBaseline + activePageOutline.topRightCorner
+                controlX: activePageOutline.width - activePageOutline.inset
+                controlY: activePageOutline.tabBaseline
+            }
+            PathLine {
+                x: activePageOutline.width - activePageOutline.inset
+                y: activePageOutline.height - activePageOutline.bottomRightCorner - activePageOutline.inset
+            }
+            PathQuad {
+                x: activePageOutline.width - activePageOutline.bottomRightCorner - activePageOutline.inset
+                y: activePageOutline.height - activePageOutline.inset
+                controlX: activePageOutline.width - activePageOutline.inset
+                controlY: activePageOutline.height - activePageOutline.inset
+            }
+            PathLine {
+                x: activePageOutline.bottomLeftCorner + activePageOutline.inset
+                y: activePageOutline.height - activePageOutline.inset
+            }
+            PathQuad {
+                x: activePageOutline.inset
+                y: activePageOutline.height - activePageOutline.bottomLeftCorner - activePageOutline.inset
+                controlX: activePageOutline.inset
+                controlY: activePageOutline.height - activePageOutline.inset
+            }
+            PathLine {
+                x: activePageOutline.inset
+                y: activePageOutline.tabBaseline + activePageOutline.topLeftCorner
+            }
+            PathQuad {
+                x: activePageOutline.topLeftCorner + activePageOutline.inset
+                y: activePageOutline.tabBaseline
+                controlX: activePageOutline.inset
+                controlY: activePageOutline.tabBaseline
+            }
+            PathLine {
+                x: activePageOutline.tabLeft
+                y: activePageOutline.tabBaseline
+            }
+        }
+    }
+
     // Native top-level Window; closing it does NOT destroy the shared player.
     Window {
         id: musicDetachedWindow
@@ -894,56 +1183,54 @@ ApplicationWindow {
         }
     }
 
-    GOverlaySurface {
-        id: globalDriveTransferCard
-        sourceItem: stack
-        visible: root.transferManager.transferActive
-        z: 10000
+    // One canonical renderer and one auto-hide/completion state for every job.
+    // The cards were lifted out of BrowserPane, not recreated as vault UI.
+    OperationToastLayer {
+        id: operationToastLayer
+        objectName: "unifiedOperationToastLayer"
+        // ApplicationWindow's popup overlay is guaranteed to render above
+        // the workspace/StackView. A high z on contentItem alone is not:
+        // modal/overlay stacking can otherwise hide the transfer cards while
+        // the separate status-bar compact indicator remains functional.
+        parent: Overlay.overlay
+        z: 0
+        anchors.fill: parent
+        lang: root.appLang
+        presentation: unifiedOperationPresentation
+        operationSources: root.notificationSources
+        backdropSource: stack
+        bottomMargin: root.browsingFiles ? 60 : 26
+        onVaultDismissed: root.vaultCompletionVisible = false
+    }
+
+    // BrowserPane has its own status-bar badge. Home and Private Vault show
+    // exactly the same badge here when the shared card is minimized.
+    GToolButton {
+        id: unifiedOperationCompactBadge
+        objectName: "unifiedOperationCompactBadge"
+        z: 30001
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 26
-        anchors.bottomMargin: 26
-        width: 340
-        height: 92
-        radius: 20
-        customColor: AppTheme.popupSurface
-        border.color: AppTheme.borderStrong
-        border.width: 1
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 14
-            spacing: 7
-            RowLayout {
-                Layout.fillWidth: true
-                GText { text: root.transferManager.transferLabel; baseColor: AppTheme.text; basePixelSize: 12; baseBold: true; Layout.fillWidth: true; elide: Text.ElideRight }
-                GText { text: root.transferManager.transferTotal > 0 ? root.transferManager.transferPercent + "%" : "…"; baseColor: AppTheme.accent; basePixelSize: 11; baseBold: true }
-            }
-            GText { text: root.transferManager.transferDetail; baseColor: AppTheme.textMuted; basePixelSize: 10; Layout.fillWidth: true; elide: Text.ElideMiddle }
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 7
-                radius: 4
-                color: AppTheme.surfaceHover
-                Rectangle {
-                    width: parent.width * (root.transferManager.transferTotal > 0 ? root.transferManager.transferPercent / 100 : 0.22)
-                    height: parent.height
-                    radius: 4
-                    color: AppTheme.accent
-                    SequentialAnimation on opacity {
-                        running: root.transferManager.transferActive && root.transferManager.transferTotal <= 0
-                        loops: Animation.Infinite
-                        NumberAnimation { from: 0.45; to: 1.0; duration: 650; easing.type: Easing.InOutSine }
-                        NumberAnimation { from: 1.0; to: 0.45; duration: 650; easing.type: Easing.InOutSine }
-                    }
-                }
-            }
+        anchors.bottomMargin: 16
+        visible: !root.browsingFiles && unifiedOperationPresentation.activeCount > 0
+        implicitWidth: 48; implicitHeight: 24
+        leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
+        text: String(unifiedOperationPresentation.activeCount)
+        basePixelSize: 10
+        icon.width: 13; icon.height: 13
+        icon.source: AppTheme.icon(unifiedOperationPresentation.minimized ? "music-queue.svg" : "music-minimize.svg")
+        primary: unifiedOperationPresentation.minimized
+        onClicked: unifiedOperationPresentation.toggle()
+        GToolTip {
+            text: root.appLang.t(unifiedOperationPresentation.minimized ? "operation_restore" : "operation_minimize")
         }
     }
 
     Component {
         id: homeComponent
         HomePage {
+            headerHost: browserChromeHost
             updateChecker: appUpdates
             storageModel: root.appStorage
             favoritesModel: root.appFavorites
@@ -965,9 +1252,11 @@ ApplicationWindow {
     Component {
         id: privateVaultComponent
         PrivateVaultPage {
+            headerHost: browserChromeHost
             lang: root.appLang
             vault: root.appPrivateVault
             musicPlayer: globalMusicPlayer
+            onBrowseNewTabRequested: function(location) { root.openInNewTab(location) }
             onCloseRequested: {
                 root.sidebarLocation = ""
                 if (stack.depth > 1)
@@ -1010,7 +1299,9 @@ ApplicationWindow {
         id: browseComponent
         BrowsePage {
             headerHost: browserChromeHost
+            operationPresentation: unifiedOperationPresentation
             initialLocation: root.homeForwardLocation
+            privateVault: root.appPrivateVault
             lang: root.appLang
             contentIndexModel: root.appContentIndex
             musicPlayer: globalMusicPlayer
@@ -1034,6 +1325,7 @@ ApplicationWindow {
                     root.popPage(stack.get(stack.depth - 2))
                 }
             }
+            onWatermarkEditorRequested: appSidebar.openWatermarkEditor()
             onSidebarLocationChanged: function(location) { root.sidebarLocation = location }
         }
     }

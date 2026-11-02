@@ -17,6 +17,15 @@ Item {
     required property var cloudIntegrationPreferences
     required property var privateVault
     property var updateChecker: null
+    property Item headerHost: null
+    readonly property real tabStripHeight: homeHeader.tabStripHeight
+    readonly property real headerHeight: homeHeader.headerHeight
+    readonly property Item activeTabSurface: homeHeader.activeTabSurface
+    readonly property real activeTabScrollPosition: 0
+    readonly property bool activeTabAdministrator: false
+    readonly property color navigationColor: AppTheme.useQtTheme
+        ? AppTheme.tint(AppTheme.surfaceRaised, AppTheme.translucentWindow ? 0.30 : 1)
+        : AppTheme.mix(AppTheme.workspace, AppTheme.surfaceRaised, 0.42)
 
     signal browseRequested(string location)
     signal browseNewTabRequested(string location)
@@ -31,6 +40,17 @@ Item {
     property int wheelBurstDirection: 0
     property date now: new Date()
     Timer { interval: 1000; running: true; repeat: true; onTriggered: page.now = new Date() }
+
+    property string diskPropertiesPath: ""
+    property string diskPropertiesTitle: ""
+    property string diskPropertiesIconName: "drive.svg"
+
+    function openDiskProperties(path, title, iconName) {
+        diskPropertiesPath = path || ""
+        diskPropertiesTitle = title || path || ""
+        diskPropertiesIconName = iconName || "drive.svg"
+        diskPropertiesPopup.open()
+    }
 
 
     GModalPopup {
@@ -98,6 +118,354 @@ Item {
                         if (page.privateVault.unlock(privateUnlockPassword.text))
                             privateUnlockPopup.close()
                     }
+                }
+            }
+        }
+    }
+
+    FilePropertiesManager {
+        id: diskFileProperties
+        backgroundStats: true
+    }
+
+    GModalPopup {
+        id: diskPropertiesPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(620, page.width - 40)
+        height: Math.min(700, page.height - 40)
+        modal: true
+        focus: true
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: GModalSurface { }
+
+        property int permissionDraft: 0
+        property string ownerDraft: ""
+        property string groupDraft: ""
+        property bool recursiveDraft: false
+        property bool administratorDraft: false
+        property var ownerChoices: []
+        property var groupChoices: []
+        readonly property bool canEditAccess: !diskFileProperties.accessBusy
+                && diskFileProperties.allLocal && diskFileProperties.linkType !== "symlink"
+                && (diskFileProperties.permissionsEditable || administratorDraft)
+        readonly property bool permissionsDirty: permissionDraft !== diskFileProperties.permissionMode
+                || ownerDraft !== diskFileProperties.ownerName
+                || groupDraft !== diskFileProperties.groupName
+                || recursiveDraft
+        readonly property bool validMode: permissionModeInput.acceptableInput
+                && ownerPicker.acceptableInput && groupPicker.acceptableInput
+
+        function reloadAccessChoices() {
+            ownerChoices = diskFileProperties.availableOwners(administratorDraft)
+            groupChoices = diskFileProperties.availableGroups(administratorDraft)
+            if (ownerChoices.indexOf(ownerDraft) < 0) ownerDraft = diskFileProperties.ownerName
+            if (groupChoices.indexOf(groupDraft) < 0) groupDraft = diskFileProperties.groupName
+        }
+        function resetAccessDraft() {
+            permissionDraft = diskFileProperties.permissionMode
+            ownerDraft = diskFileProperties.ownerName
+            groupDraft = diskFileProperties.groupName
+            recursiveDraft = false
+            reloadAccessChoices()
+            permissionModeInput.syncModeText()
+        }
+        function applyAccessDraft() {
+            if (!canEditAccess || !validMode)
+                return
+            diskFileProperties.applyAccess(permissionDraft, ownerDraft, groupDraft, recursiveDraft, administratorDraft)
+        }
+
+        onAdministratorDraftChanged: reloadAccessChoices()
+        onAboutToShow: {
+            diskFileProperties.inspect(page.diskPropertiesPath)
+            administratorDraft = false
+            resetAccessDraft()
+        }
+        onOpened: resetAccessDraft()
+        onClosed: { diskFileProperties.cancelAccess(); diskFileProperties.cancelInspection() }
+
+        Connections {
+            target: diskFileProperties
+            function onPermissionsChanged() {
+                if (diskPropertiesPopup.visible && !diskFileProperties.accessBusy)
+                    diskPropertiesPopup.resetAccessDraft()
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 22
+            spacing: 14
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 100
+                radius: 18
+                color: AppTheme.surfaceRaised
+                border.color: AppTheme.border
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    spacing: 14
+                    Rectangle {
+                        Layout.preferredWidth: 64
+                        Layout.preferredHeight: 64
+                        radius: 16
+                        color: AppTheme.accentSoft
+                        border.color: AppTheme.accentBorder
+                        CrispIcon {
+                            anchors.centerIn: parent
+                            width: 42
+                            height: 42
+                            source: AppTheme.useSystemIcons
+                                    ? AppTheme.systemIconAtSize(AppTheme.discoveryIcon(page.diskPropertiesIconName, "drive.svg"), 42)
+                                    : AppTheme.discoveryIcon(page.diskPropertiesIconName, "drive.svg")
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        GText { text: lang.language === "tr" ? "ÖZELLİKLER" : "PROPERTIES"; baseColor: AppTheme.accent; basePixelSize: 9; baseBold: true; baseLetterSpacing: 1.0 }
+                        GText { Layout.fillWidth: true; text: page.diskPropertiesTitle; baseColor: AppTheme.text; basePixelSize: 18; baseFontWeight: Font.DemiBold; elide: Text.ElideRight }
+                        GText { Layout.fillWidth: true; text: page.diskPropertiesPath; baseColor: AppTheme.textMuted; basePixelSize: 10; elide: Text.ElideMiddle }
+                        GText { text: diskFileProperties.permissionsEditable ? (lang.language === "tr" ? "İzinler düzenlenebilir" : "Permissions can be edited") : (lang.language === "tr" ? "İzinler salt okunur" : "Permissions are read-only"); baseColor: diskFileProperties.permissionsEditable ? AppTheme.success : AppTheme.textMuted; basePixelSize: 10 }
+                    }
+                }
+            }
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: diskPropertiesContent.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { }
+
+                ColumnLayout {
+                    id: diskPropertiesContent
+                    width: diskPropertiesPopup.width - 44
+                    spacing: 14
+
+                    GText {
+                        text: lang.language === "tr" ? "GENEL BİLGİLER" : "GENERAL INFORMATION"
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 10
+                        baseBold: true
+                        baseLetterSpacing: 0.8
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: infoGrid.implicitHeight + 28
+                        radius: 16
+                        color: AppTheme.surfaceRaised
+                        border.color: AppTheme.border
+                        GridLayout {
+                            id: infoGrid
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            columns: 2
+                            columnSpacing: 18
+                            rowSpacing: 10
+                            GText { text: lang.language === "tr" ? "Boyut" : "Size"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            RowLayout {
+                                GBusyIndicator { visible: diskFileProperties.calculating; running: visible; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                                GText { text: diskFileProperties.calculating ? "…" : diskFileProperties.formatBytes(diskFileProperties.totalSize); baseColor: AppTheme.text; basePixelSize: 11 }
+                            }
+                            GText { text: lang.language === "tr" ? "İçerik" : "Contents"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { text: diskFileProperties.calculating ? "…" : diskFileProperties.fileCount + (lang.language === "tr" ? " dosya · " : " files · ") + diskFileProperties.folderCount + (lang.language === "tr" ? " klasör" : " folders"); baseColor: AppTheme.text; basePixelSize: 11 }
+                            GText { text: lang.language === "tr" ? "Oluşturma" : "Created"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { text: diskFileProperties.created && !isNaN(diskFileProperties.created.getTime()) ? Qt.formatDateTime(diskFileProperties.created, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                            GText { text: lang.language === "tr" ? "Değiştirme" : "Modified"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { text: diskFileProperties.modified && !isNaN(diskFileProperties.modified.getTime()) ? Qt.formatDateTime(diskFileProperties.modified, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                            GText { text: lang.language === "tr" ? "Son erişim" : "Last accessed"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { text: diskFileProperties.accessed && !isNaN(diskFileProperties.accessed.getTime()) ? Qt.formatDateTime(diskFileProperties.accessed, "dd.MM.yyyy HH:mm") : "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                            GText { text: lang.language === "tr" ? "İzinler" : "Permissions"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { text: diskFileProperties.permissionsText || "—"; baseColor: AppTheme.text; basePixelSize: 11 }
+                            GText { text: lang.language === "tr" ? "Sahip" : "Owner"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
+                            GText { text: (diskFileProperties.ownerName || "—") + " / " + (diskFileProperties.groupName || "—"); baseColor: AppTheme.text; basePixelSize: 11 }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: permissionsContent.implicitHeight + 28
+                        radius: 16
+                        color: AppTheme.surfaceRaised
+                        border.color: AppTheme.border
+                        ColumnLayout {
+                            id: permissionsContent
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 10
+
+                            GText { text: lang.language === "tr" ? "ERİŞİM İZİNLERİ" : "ACCESS PERMISSIONS"; baseColor: AppTheme.textMuted; basePixelSize: 10; baseBold: true; baseLetterSpacing: 0.8 }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    GText { text: lang.language === "tr" ? "Sahibi" : "Owner"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                    GAccountPicker {
+                                        id: ownerPicker
+                                        Layout.fillWidth: true
+                                        model: diskPropertiesPopup.ownerChoices
+                                        value: diskPropertiesPopup.ownerDraft
+                                        allowKeep: false
+                                        keepText: lang.language === "tr" ? "Kullanıcı ara…" : "Find a user…"
+                                        enabled: diskPropertiesPopup.canEditAccess && count > 0
+                                        onEdited: function(value) { diskPropertiesPopup.ownerDraft = value }
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    GText { text: lang.language === "tr" ? "Grup" : "Group"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                    GAccountPicker {
+                                        id: groupPicker
+                                        Layout.fillWidth: true
+                                        model: diskPropertiesPopup.groupChoices
+                                        value: diskPropertiesPopup.groupDraft
+                                        allowKeep: false
+                                        keepText: lang.language === "tr" ? "Grup ara…" : "Find a group…"
+                                        enabled: diskPropertiesPopup.canEditAccess && count > 0
+                                        onEdited: function(value) { diskPropertiesPopup.groupDraft = value }
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+                                GText { text: lang.language === "tr" ? "Mod" : "Mode"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                GTextField {
+                                    id: permissionModeInput
+                                    Layout.preferredWidth: 90
+                                    text: ""
+                                    enabled: diskPropertiesPopup.canEditAccess
+                                    validator: RegularExpressionValidator { regularExpression: /0?[0-7]{3}/ }
+                                    function syncModeText() {
+                                        text = "0" + Math.max(0, Math.min(511, diskPropertiesPopup.permissionDraft)).toString(8).padStart(3, "0")
+                                    }
+                                    onTextEdited: {
+                                        if (acceptableInput)
+                                            diskPropertiesPopup.permissionDraft = parseInt(text, 8)
+                                    }
+                                    Component.onCompleted: syncModeText()
+                                }
+                                Item { Layout.fillWidth: true }
+                                GCheckBox {
+                                    visible: diskFileProperties.administratorAvailable
+                                    text: lang.language === "tr" ? "Yönetici olarak uygula" : "Apply as administrator"
+                                    checked: diskPropertiesPopup.administratorDraft
+                                    onToggled: diskPropertiesPopup.administratorDraft = checked
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Item { Layout.preferredWidth: 92 }
+                                Repeater {
+                                    model: [lang.language === "tr" ? "Okuma" : "Read", lang.language === "tr" ? "Yazma" : "Write", diskFileProperties.directory ? (lang.language === "tr" ? "Dizine girme" : "Enter folder") : (lang.language === "tr" ? "Çalıştırma" : "Execute")]
+                                    GText { required property string modelData; Layout.fillWidth: true; Layout.preferredWidth: 1; text: modelData; horizontalAlignment: Text.AlignHCenter; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                }
+                            }
+                            Repeater {
+                                model: [
+                                    { label: lang.language === "tr" ? "Sahibi" : "Owner", bits: [256, 128, 64] },
+                                    { label: lang.language === "tr" ? "Grup" : "Group", bits: [32, 16, 8] },
+                                    { label: lang.language === "tr" ? "Diğerleri" : "Others", bits: [4, 2, 1] }
+                                ]
+                                RowLayout {
+                                    id: permissionRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    GText { Layout.preferredWidth: 92; text: permissionRow.modelData.label; baseColor: AppTheme.text; basePixelSize: 11 }
+                                    Repeater {
+                                        model: permissionRow.modelData.bits
+                                        Item {
+                                            required property int modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 1
+                                            Layout.preferredHeight: 28
+                                            GCheckBox {
+                                                anchors.centerIn: parent
+                                                enabled: diskPropertiesPopup.canEditAccess
+                                                checked: (diskPropertiesPopup.permissionDraft & parent.modelData) !== 0
+                                                onToggled: {
+                                                    if (checked) diskPropertiesPopup.permissionDraft |= parent.modelData
+                                                    else diskPropertiesPopup.permissionDraft &= ~parent.modelData
+                                                    permissionModeInput.syncModeText()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            GCheckBox {
+                                visible: diskFileProperties.directory
+                                Layout.fillWidth: true
+                                enabled: diskPropertiesPopup.canEditAccess
+                                text: lang.language === "tr" ? "Alt dosya ve klasörlere de uygula" : "Apply to enclosed files and folders"
+                                checked: diskPropertiesPopup.recursiveDraft
+                                onToggled: diskPropertiesPopup.recursiveDraft = checked
+                            }
+                            GText {
+                                visible: diskPropertiesPopup.recursiveDraft
+                                Layout.fillWidth: true
+                                text: lang.language === "tr"
+                                    ? "Dikkat: bu işlem alt klasör ve dosyaların izinlerini de değiştirebilir."
+                                    : "Caution: this can also change permissions of enclosed files and folders."
+                                baseColor: AppTheme.danger
+                                basePixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+
+                            GText {
+                                Layout.fillWidth: true
+                                text: diskFileProperties.specialPermissionsHint()
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+                            GText {
+                                visible: diskFileProperties.accessError.length > 0
+                                Layout.fillWidth: true
+                                text: diskFileProperties.accessError
+                                baseColor: AppTheme.danger
+                                basePixelSize: 10
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                GModalButton { text: lang.language === "tr" ? "Kapat" : "Close"; onClicked: diskPropertiesPopup.close() }
+                Item { Layout.fillWidth: true }
+                GBusyIndicator { visible: diskFileProperties.accessBusy; running: visible; Layout.preferredWidth: 20; Layout.preferredHeight: 20 }
+                GText {
+                    visible: diskFileProperties.accessBusy
+                    text: lang.language === "tr" ? "İzinler uygulanıyor…" : "Applying permissions…"
+                    baseColor: AppTheme.textMuted
+                    basePixelSize: 10
+                }
+                GModalButton {
+                    primary: true
+                    text: lang.language === "tr" ? "Uygula" : "Apply"
+                    enabled: diskPropertiesPopup.canEditAccess && diskPropertiesPopup.permissionsDirty && diskPropertiesPopup.validMode
+                    onClicked: diskPropertiesPopup.applyAccessDraft()
                 }
             }
         }
@@ -501,10 +869,47 @@ Item {
         homeWheelScrollAnimation.start()
     }
 
+    PageChrome {
+        id: homeHeader
+        pageOutlineJoined: page.headerHost !== null
+        objectName: "homeHeader"
+        parent: page.headerHost || page
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: headerHeight
+        visible: page.visible && (!page.StackView.view || page.StackView.view.currentItem === page)
+        tabTitle: lang.t("dashboard")
+        tabIcon: AppTheme.icon("dashboard.svg")
+        navigationColor: page.navigationColor
+        canGoBack: false
+        canGoForward: true
+        canGoUp: true
+        backTip: lang.language === "tr" ? "Geri" : "Back"
+        forwardTip: lang.language === "tr" ? "Son açılan dizine git" : "Open last folder"
+        upTip: lang.language === "tr" ? "Ev dizinini aç" : "Open home folder"
+        refreshTip: lang.language === "tr" ? "Keşfet'i yenile" : "Refresh Discover"
+        historyTip: lang.language === "tr" ? "Son konuma dön" : "Return to last location"
+        newTabTip: lang.t("new_tab")
+        onNewTabRequested: page.browseNewTabRequested(page.homePath)
+        onForwardRequested: page.forwardNavigationRequested()
+        onUpRequested: page.browseRequested(page.homePath)
+        onHistoryRequested: page.forwardNavigationRequested()
+        onRefreshRequested: {
+            page.now = new Date()
+            if (homeScroll.contentItem)
+                homeScroll.contentItem.contentY = homeScroll.contentItem.originY || 0
+        }
+        onTabSelected: {
+            if (homeScroll.contentItem)
+                homeScroll.contentItem.contentY = homeScroll.contentItem.originY || 0
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
-        radius: Math.max(0, AppTheme.panelRadius - 1)
-        color: AppTheme.workspace
+        radius: page.headerHost ? 0 : Math.max(0, AppTheme.panelRadius - 1)
+        color: page.headerHost ? "transparent" : AppTheme.workspace
         antialiasing: true
     }
 
@@ -1192,13 +1597,108 @@ Item {
                     onActionTriggered: page.storageModel.refresh()
                 }
 
+                Rectangle {
+                    id: diskOverviewPanel
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 6
+                    Layout.rightMargin: 6
+                    Layout.preferredHeight: 92
+                    radius: AppTheme.cardRadius + 2
+                    color: AppTheme.cardSurface
+                    border.color: AppTheme.border
+
+                    readonly property real totalBytes: page.storageModel.totalBytes
+                    readonly property real usedBytes: page.storageModel.usedBytes
+                    readonly property real freeBytes: page.storageModel.freeBytes
+                    readonly property real usageRatio: totalBytes > 0 ? usedBytes / totalBytes : 0
+                    readonly property string usagePercent: "%" + Math.round(usageRatio * 100)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 16
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            Rectangle {
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 40
+                                radius: 12
+                                color: AppTheme.accentSoft
+                                border.color: AppTheme.accentBorder
+                                CrispIcon { anchors.centerIn: parent; source: AppTheme.icon("drive.svg"); width: 18; height: 18 }
+                            }
+                            ColumnLayout {
+                                spacing: 2
+                                GText { text: page.storageModel.count + " " + (page.lang.language === "tr" ? "Disk" : "Disks"); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
+                                GText { text: page.lang.language === "tr" ? "Bağlı depolama birimi" : "Connected storage devices"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                            }
+                        }
+
+                        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: AppTheme.border }
+
+                        ColumnLayout {
+                            Layout.preferredWidth: Math.max(108, Math.min(170, diskOverviewPanel.width * 0.115))
+                            spacing: 2
+                            GText { text: page.storageModel.formatBytes(diskOverviewPanel.totalBytes); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
+                            GText { text: page.lang.language === "tr" ? "Toplam kapasite" : "Total capacity"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                        }
+
+                        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: AppTheme.border }
+
+                        ColumnLayout {
+                            Layout.preferredWidth: Math.max(108, Math.min(170, diskOverviewPanel.width * 0.115))
+                            spacing: 2
+                            GText { text: page.storageModel.formatBytes(diskOverviewPanel.usedBytes); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
+                            GText { text: page.lang.language === "tr" ? "Kullanılan alan" : "Used space"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                        }
+
+                        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: AppTheme.border }
+
+                        ColumnLayout {
+                            Layout.preferredWidth: Math.max(100, Math.min(150, diskOverviewPanel.width * 0.105))
+                            spacing: 2
+                            GText { text: page.storageModel.formatBytes(diskOverviewPanel.freeBytes); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
+                            GText { text: page.lang.language === "tr" ? "Boş alan" : "Free space"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 7
+                            Layout.minimumWidth: 140
+                            radius: height / 2
+                            color: AppTheme.surfaceHover
+                            Rectangle {
+                                width: parent.width * Math.max(0, Math.min(1, diskOverviewPanel.usageRatio))
+                                height: parent.height
+                                radius: height / 2
+                                gradient: Gradient {
+                                    orientation: Gradient.Horizontal
+                                    GradientStop { position: 0; color: Qt.lighter(AppTheme.accent, 1.38) }
+                                    GradientStop { position: 1; color: Qt.darker(AppTheme.accent, 1.08) }
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: 2
+                            GText { text: diskOverviewPanel.usagePercent; baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold; horizontalAlignment: Text.AlignRight }
+                            GText { text: page.lang.language === "tr" ? "Kullanım" : "Usage"; baseColor: AppTheme.textMuted; basePixelSize: 10; horizontalAlignment: Text.AlignRight }
+                        }
+                    }
+                }
+
                 GridLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 6
                     Layout.rightMargin: 6
-                    columns: width > 1050 ? 4 : (width > 760 ? 3 : 2)
-                    columnSpacing: 12
-                    rowSpacing: 12
+                    columns: width > 1380 ? 4 : (width > 980 ? 3 : (width > 640 ? 2 : 1))
+                    columnSpacing: 14
+                    rowSpacing: 14
 
                     Repeater {
                         model: page.storageModel
@@ -1211,7 +1711,8 @@ Item {
                             stableId: model.stableId
                             iconName: model.icon
                             systemIconPixels: page.systemHomeIconSize
-                            subtitle: rootPath + (fileSystem.length ? " · " + fileSystem : "")
+                            subtitle: rootPath
+                            fileSystem: model.fileSystem
                             rootPath: model.rootPath
                             device: model.device
                             mounted: model.mounted
@@ -1219,8 +1720,10 @@ Item {
                             mountBusy: model.busy
                             mountActionText: model.busy
                                              ? (model.mounted ? lang.t("unmounting") : lang.t("mounting"))
-                                             : (model.canMountToggle ? (model.mounted ? lang.t("unmount") : lang.t("mount")) : "")
-                            mountedStatusText: model.mounted ? lang.t("mounted") : lang.t("not_mounted")
+                                             : (model.canMountToggle ? (model.mounted ? (lang.language === "tr" ? "Bağlantıyı kes" : "Disconnect")
+                                                                             : lang.t("mount")) : "")
+                            mountedStatusText: model.mounted ? (lang.language === "tr" ? "Bağlı" : "Connected")
+                                                             : lang.t("not_mounted")
                             usedText: mounted && totalBytes > 0 ? page.storageModel.formatBytes(usedBytes)
                                       : (mounted ? "" : lang.t("not_mounted"))
                             totalText: totalBytes > 0 ? page.storageModel.formatBytes(totalBytes)
@@ -1233,6 +1736,10 @@ Item {
                             onEditRequested: function(stableId, title, iconName) {
                                 page.editDiscoverItem("disk", stableId, title, iconName)
                             }
+                            onPropertiesRequested: function(path, title, iconName) {
+                                page.openDiskProperties(path, title, iconName)
+                            }
+                            onRefreshRequested: page.storageModel.refresh()
                             onReorderRequested: function(from, to) { page.storageModel.moveDisk(from, to) }
                             onReorderDragStateChanged: function(active) { page.storageModel.setReorderActive(active) }
                             onFavoriteToggleRequested: function(path, diskTitle) {

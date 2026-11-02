@@ -1,4 +1,5 @@
 #include "fileoperations.h"
+#include "directorysizeindex.h"
 #include "archivearguments.h"
 #include "archivelisting.h"
 #include "archiveinspectionjob.h"
@@ -334,6 +335,26 @@ private:
 FileOperations::FileOperations(QObject *parent)
     : QObject(parent)
 {
+    connect(this, &FileOperations::ioBusyChanged, this, [this] {
+        if (auto *sizes = DirectorySizeIndex::existing()) sizes->setIoBusy(this, ioBusy());
+    });
+    connect(this, &FileOperations::itemsRenamed, this, [](const QStringList &from, const QStringList &to) {
+        if (auto *sizes = DirectorySizeIndex::existing()) {
+            if (from.size() == to.size())
+                for (int i = 0; i < from.size(); ++i) sizes->observeMove(from.at(i), to.at(i));
+            sizes->observeOperation(from + to);
+        }
+    });
+    connect(this, &FileOperations::transferItemsFinished, this, [](const QString &destination, const QStringList &paths) {
+        if (auto *sizes = DirectorySizeIndex::existing()) {
+            sizes->observeOperation(paths, {destination});
+        }
+    });
+    connect(this, &FileOperations::archiveDropItemsChanged, this, [](const QString &destination, const QStringList &paths, bool) {
+        if (auto *sizes = DirectorySizeIndex::existing()) {
+            sizes->observeOperation(paths, {destination});
+        }
+    });
     connect(QGuiApplication::clipboard(), &QClipboard::dataChanged, this, [this]() {
         const QMimeData *mime = QGuiApplication::clipboard()->mimeData();
         const QByteArray ownerToken = mime
@@ -555,6 +576,13 @@ QUrl FileOperations::toUrl(const QString &value)
     return QUrl::fromLocalFile(QDir(localPath).absolutePath());
 }
 
+void FileOperations::notifyGitChanges(const QString &root, const QString &commonDirectory, const QStringList &paths)
+{
+    Q_UNUSED(root)
+    if (auto *sizes = DirectorySizeIndex::existing())
+        sizes->observeOperation(paths + QStringList{commonDirectory});
+}
+
 void FileOperations::setLastError(const QString &errorText)
 {
     if (m_lastError == errorText)
@@ -567,6 +595,15 @@ void FileOperations::finishJob(KJob *job, const QString &successMessage, bool re
 {
     configureProgressJob(job);
     connect(job, &KJob::result, this, [this, job, successMessage, refreshNeeded]() {
+        if (auto *sizes = DirectorySizeIndex::existing())
+            sizes->observeOperation(job->property("directorySizeSourcePaths").toStringList());
+        if (auto *sizes = DirectorySizeIndex::existing()) {
+            for (const auto& value : job->property("directorySizeRestoreTargets").toStringList()) {
+                const auto url = QUrl(value);
+                if (url.isLocalFile()) sizes->observeDirectory(QFileInfo(url.toLocalFile()).absolutePath());
+            }
+            if (job->property("directorySizeUnknownRestore").toBool()) sizes->invalidateAllCached();
+        }
         bool trackedOperation = false;
         for (const Operation &operation : std::as_const(m_operations)) {
             if (operation.job == job) {
@@ -965,6 +1002,29 @@ void FileOperations::trackTransferJob(KIO::CopyJob *job, const QList<QUrl> &sour
             setOperationAmount(operationId, int(KJob::Items), completed->size(), false);
         }
     });
+    connect(job, &KJob::result, this, [this, sources, destination, completed, kind] {
+        auto *sizes = DirectorySizeIndex::existing();
+        if (!sizes) return;
+        QStringList paths;
+        for (const auto &source : sources) {
+            paths.push_back(source.toString());
+            const auto target = completed->value(source.adjusted(QUrl::StripTrailingSlash).toString(QUrl::FullyEncoded));
+            if (!target.isEmpty()) {
+                paths.push_back(target.toString());
+                if (kind == "trash") {
+                    auto origins = property("directorySizeTrashOrigins").toMap();
+                    while (origins.size() >= 128) origins.erase(origins.begin());
+                    origins.insert(target.toString(QUrl::FullyEncoded), source.toString());
+                    setProperty("directorySizeTrashOrigins", origins);
+                }
+                if (kind == "move") sizes->observeMove(source.toString(), target.toString());
+            }
+        }
+        // Results can be partial even when KIO returns an error/cancellation.
+        sizes->observeOperation(paths, {destination.toString()});
+        if (kind == "trash")
+            sizes->observePaths({QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/Trash"});
+    });
     // Trashing is a rename into KDE's trash, not a copy into the current view.
     // Keep its real completion count without selecting trash URLs in a tab.
     if (kind == QStringLiteral("trash"))
@@ -1071,6 +1131,7 @@ bool FileOperations::createSymbolicLink(const QString &parentLocation, const QSt
     }
 
     setLastError(QString());
+    if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeOperation({destinationPath});
     emit operationFinished(true, QStringLiteral("Symbolic link created"), true);
     return true;
 }
@@ -1126,6 +1187,7 @@ bool FileOperations::createHardLink(const QString &parentLocation, const QString
     }
 
     setLastError(QString());
+    if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeOperation({destinationPath});
     emit operationFinished(true, QStringLiteral("Hard link created"), true);
     return true;
 }
@@ -1747,6 +1809,17 @@ void FileOperations::restoreFromTrash(const QStringList &itemUrls)
     // its normal KIO UI delegate alive: if the original path already contains
     // an item with the same name, KDE presents its overwrite/rename/skip flow.
     auto *job = KIO::restoreFromTrash(urls);
+    QStringList targets;
+    const auto origins = property("directorySizeTrashOrigins").toMap();
+    bool unknown = false;
+    for (const auto& url : urls) {
+        const auto original = origins.value(url.toString(QUrl::FullyEncoded)).toString();
+        if (original.isEmpty()) unknown = true;
+        else targets.append(original);
+    }
+    job->setProperty("directorySizeSourcePaths", targets);
+    job->setProperty("directorySizeRestoreTargets", targets);
+    job->setProperty("directorySizeUnknownRestore", unknown);
     trackOperationJob(job, QStringLiteral("restore"), securityMessage("Restoring %1 items", "%1 öğe geri yükleniyor").arg(urls.size()), urls.size());
     finishJob(job, QStringLiteral("Restored from trash"));
 }
@@ -1754,6 +1827,7 @@ void FileOperations::restoreFromTrash(const QStringList &itemUrls)
 void FileOperations::removeItem(const QString &itemUrl)
 {
     auto *job = KIO::del(toUrl(itemUrl));
+    job->setProperty("directorySizeSourcePaths", QStringList{itemUrl});
     trackOperationJob(job, QStringLiteral("delete"), toUrl(itemUrl).fileName(), 1);
     finishJob(job, QStringLiteral("Deleted"));
 }
@@ -1767,6 +1841,7 @@ void FileOperations::removeMany(const QStringList &itemUrls)
     if (urls.isEmpty())
         return;
     auto *job = KIO::del(urls);
+    job->setProperty("directorySizeSourcePaths", itemUrls);
     trackOperationJob(job, QStringLiteral("delete"), securityMessage("%1 items", "%1 öğe").arg(urls.size()), urls.size());
     finishJob(job, QStringLiteral("Deleted"));
 }
@@ -2242,6 +2317,7 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
             [this, process, outputPath, operationId, lastOutput, errors, readErrors, trackedJob](int exitCode, QProcess::ExitStatus status) {
         const bool cancelled = m_cancelledOperations.remove(operationId);
         const bool ok = !cancelled && status == QProcess::NormalExit && exitCode == 0;
+        if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeOperation({}, {outputPath});
         readErrors();
         const QString processError = QString::fromLocal8Bit(*errors).trimmed();
         QString error = cancelled ? securityMessage("Cancelled", "İptal edildi") : processError;

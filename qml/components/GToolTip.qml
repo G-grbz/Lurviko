@@ -6,6 +6,9 @@ ToolTip {
     id: control
     // Media players can supply a fixed palette; ordinary controls follow AppTheme.
     property var colorTheme: AppTheme
+    // A media window can disappear before its tooltip's exit transition ends.
+    // Continue with the application palette after that window's palette dies.
+    readonly property var effectiveColorTheme: colorTheme || AppTheme
 
     property int maximumWidth: 360
 
@@ -29,7 +32,7 @@ ToolTip {
     contentItem: GText {
         typographyRole: "menu"
         text: control.text
-        baseColor: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.qtColors.toolTipText : "#F7F8FC"
+        baseColor: AppTheme.useQtTheme && control.effectiveColorTheme === AppTheme ? AppTheme.qtColors.toolTipText : "#F7F8FC"
         basePixelSize: 11
         baseFontWeight: Font.Medium
         lineHeight: 1.08
@@ -40,11 +43,11 @@ ToolTip {
 
     background: Rectangle {
         radius: 9
-        color: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.qtColors.toolTipBase
-               : (control.colorTheme.dark ? "#1A2438" : "#232938")
+        color: AppTheme.useQtTheme && control.effectiveColorTheme === AppTheme ? AppTheme.qtColors.toolTipBase
+               : (control.effectiveColorTheme.dark ? "#1A2438" : "#232938")
         border.width: 1
-        border.color: AppTheme.useQtTheme && control.colorTheme === AppTheme ? AppTheme.borderStrong
-                      : (control.colorTheme.dark ? "#3A4862" : "#353D50")
+        border.color: AppTheme.useQtTheme && control.effectiveColorTheme === AppTheme ? AppTheme.borderStrong
+                      : (control.effectiveColorTheme.dark ? "#3A4862" : "#353D50")
 
         Rectangle {
             anchors.left: parent.left
@@ -53,7 +56,7 @@ ToolTip {
             width: 3
             height: Math.max(10, parent.height - 14)
             radius: 1.5
-            color: control.colorTheme.accent
+            color: control.effectiveColorTheme.accent
         }
     }
 

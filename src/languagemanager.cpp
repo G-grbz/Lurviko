@@ -230,6 +230,7 @@ void LanguageManager::buildDictionary()
         {"deselect_all", {"Deselect all", "Tümünü bırak"}},
         {"operation_auto_hide", {"Automatically minimize progress", "Otomatik gizle"}},
         {"operation_hide_seconds", {"Hide after (seconds)", "Gizleme süresi (saniye)"}},
+        {"operation_show_on_completion", {"Show notification when finished", "İşlem bitince tekrar göster"}},
         {"operation_minimize", {"Minimize progress", "İşlemleri simgeye al"}},
         {"operation_restore", {"Show progress", "İşlemleri göster"}},
         {"drop_target", {"Drop into this folder", "Bu klasörün içine bırak"}},

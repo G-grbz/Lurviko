@@ -33,6 +33,7 @@ Item {
             shell.closeSection()
             navigations.clear()
             discoveries.clear()
+            shell.currentLocation = ""
             mouseMove(workspace, workspace.width - 20, workspace.height - 20)
             wait(120)
         }
@@ -48,6 +49,87 @@ Item {
             tryCompare(shell, "collapsed", true)
             verify(shell.width < 248)
             wait(50) // Allow the reparented controls and their layouts to polish.
+        }
+        function test_discover_is_its_own_navigation_card_on_every_location() {
+            // The shared SidebarShell remains mounted while StackView swaps
+            // Home, directories, category:/ pages, and private:/.
+            const card = findChild(shell.panel, "sidebarExploreItem")
+            const folder = findChild(shell.panel, "sidebarSystemItem_homefolder")
+            verify(card && folder)
+            compare(card.implicitHeight, 66)
+            verify(card.subtitle.length > 0, "Discover must not be styled as a folder entry")
+            for (const location of ["/tmp", "category:/music", "private:/"]) {
+                shell.currentLocation = location
+                compare(card.active, false)
+            }
+            shell.currentLocation = ""
+            compare(card.active, true)
+            mouseClick(card, card.width / 2, card.height / 2)
+            compare(discoveries.count, 1)
+        }
+        function test_explore_frameless_card_and_live_watermark() {
+            const card = findChild(shell.panel, "sidebarExploreItem")
+            const viewport = findChild(card, "exploreWatermarkViewport")
+            const watermark = findChild(card, "exploreHomeWatermark")
+            const activeMarker = findChild(card, "exploreActiveMarker")
+            const iconSlot = findChild(card, "exploreIconSlot")
+            verify(card && viewport && watermark && activeMarker && iconSlot)
+            compare(iconSlot.width, 40)
+            shell.currentLocation = ""
+            compare(activeMarker.visible, true)
+            shell.currentLocation = "/tmp"
+            compare(activeMarker.visible, false)
+            compare(viewport.clip, true)
+            compare(viewport.x, 6)
+            compare(viewport.y, 6)
+            // The editor controls the same instance and does not create a
+            // separate screenshot-only copy of the Discover card.
+            const oldIcon = AppTheme.discoverWatermarkIcon
+            const oldScale = AppTheme.discoverWatermarkScale
+            const oldAngle = AppTheme.discoverWatermarkAngle
+            const oldAlpha = AppTheme.discoverWatermarkOpacity
+            const oldX = AppTheme.discoverWatermarkOffsetX
+            const oldY = AppTheme.discoverWatermarkOffsetY
+            try {
+                AppTheme.setDiscoverWatermarkDraft("watermark.png", 1.5, -10, 0.25, -15, 0)
+                compare(watermark.rotation, -10)
+                verify(String(watermark.source).indexOf("watermark.png") >= 0)
+                verify(watermark.width > 0)
+                fuzzyCompare(watermark.opacity, 0.25, 0.002)
+                const oldWidth = watermark.width
+                AppTheme.discoverWatermarkScale = 1.8
+                verify(watermark.width > oldWidth, "Live size changes must repaint the card")
+                AppTheme.discoverWatermarkIcon = "favorite.svg"
+                verify(String(watermark.source).indexOf("favorite.svg") >= 0)
+                AppTheme.discoverWatermarkAngle = 9
+                compare(watermark.rotation, 9)
+                AppTheme.discoverWatermarkOffsetX = -10
+                AppTheme.discoverWatermarkOffsetY = 4
+                AppTheme.discoverWatermarkOpacity = 0.12
+                fuzzyCompare(watermark.opacity, 0.12, 0.002)
+            } finally {
+                AppTheme.setDiscoverWatermarkDraft(oldIcon, oldScale, oldAngle, oldAlpha, oldX, oldY)
+            }
+            const previous = AppTheme.useQtTheme
+            try {
+                for (const qtMode of [false, true]) {
+                    AppTheme.setQtTheme(qtMode)
+                    shell.currentLocation = "/tmp"
+                    mouseMove(workspace, workspace.width - 20, workspace.height - 20)
+                    wait(60)
+                    compare(card.color.a, 0)
+                    compare(card.border.width, 0)
+                    mouseMove(card, card.width / 2, card.height / 2)
+                    wait(60)
+                    compare(card.color.a, 0)
+                    compare(card.border.width, 0)
+                    shell.currentLocation = ""
+                    compare(card.color.a, 0)
+                    compare(card.border.width, 0)
+                }
+            } finally {
+                AppTheme.setQtTheme(previous)
+            }
         }
         function test_disabled_keeps_the_existing_complete_sidebar() {
             compare(shell.width, 248)
@@ -144,7 +226,7 @@ Item {
                 }
             } finally { shell.height = 700 }
         }
-        function test_icon_mode_has_a_borderless_dock_centered_above_administrator_controls() {
+        function test_icon_mode_centers_the_dock_and_marks_the_selected_destination() {
             collapse()
             AppTheme.setSidebarRailMode("icon")
             const keys = ["dashboard", "places", "favorites", "network", "disks"]
@@ -158,8 +240,9 @@ Item {
                         const button = badge(key)
                         const position = button.mapToItem(shell, 0, 0)
                         fuzzyCompare(position.x + button.width / 2, shell.width / 2, 0.1)
-                        compare(button.background.color.a, 0)
-                        compare(button.background.border.width, 0)
+                        if (button.selected) compare(button.background.color, AppTheme.accentSoft)
+                        else compare(button.background.color.a, 0)
+                        compare(button.background.border.width, button.selected ? 0.75 : 0)
                         if (previousBottom >= 0) fuzzyCompare(position.y - previousBottom, 6, 0.1)
                         previousBottom = position.y + button.height
                     }
@@ -175,8 +258,8 @@ Item {
                 mouseMove(favorites, favorites.width / 2, favorites.height / 2)
                 tryCompare(shell.sectionPopup, "opened", true)
                 compare(shell.activeSection, "favorites")
-                compare(favorites.background.color.a, 0)
-                compare(favorites.background.border.width, 0)
+                compare(favorites.background.color, AppTheme.accentSoft)
+                compare(favorites.background.border.width, 0.75)
             } finally { shell.height = 700 }
         }
         function test_badge_names_fit_at_compact_window_height() {

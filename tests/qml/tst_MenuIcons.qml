@@ -20,6 +20,7 @@ Item {
                 GMenuItem { text: "Run" }
             }
         }
+        GToolTip { id: detachedTooltip; parent: window.contentItem; visible: false; text: "Palette lifecycle" }
         TestCase {
             name: "MenuIcons"
             when: windowShown
@@ -43,6 +44,15 @@ Item {
                 AppTheme.settings.darkMode = savedDark
             }
             function actionIcon(entry) { return findChild(entry, "menuActionIcon") }
+            function test_destroyed_media_palette_falls_back_before_theme_change() {
+                detachedTooltip.colorTheme = undefined
+                AppTheme.setQtTheme(true)
+                compare(detachedTooltip.effectiveColorTheme, AppTheme)
+                compare(detachedTooltip.background.color, AppTheme.qtColors.toolTipBase)
+                AppTheme.setQtTheme(false)
+                compare(detachedTooltip.effectiveColorTheme, AppTheme)
+                detachedTooltip.colorTheme = AppTheme
+            }
             function test_bundled_actions_and_real_application_artwork_data() {
                 return [{tag: "bundled-light", system: false, qt: false, dark: false},
                     {tag: "bundled-dark", system: false, qt: false, dark: true},

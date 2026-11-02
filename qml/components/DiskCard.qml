@@ -15,6 +15,7 @@ Rectangle {
     property string stableId: ""
     property string iconName: "drive.svg"
     property string subtitle: ""
+    property string fileSystem: ""
     property string rootPath: "/"
     property string device: ""
     property string usedText: ""
@@ -28,26 +29,45 @@ Rectangle {
     property string mountActionText: ""
     property string mountedStatusText: ""
     property int systemIconPixels: AppTheme.systemHomeIconSize
-    readonly property int effectiveIconPixels: Math.max(24, Math.round(AppTheme.effectiveHomeIconSize * 1.05))
-    // Large icons need their own row; otherwise the text/badges get squeezed out.
-    readonly property bool stackedLayout: effectiveIconPixels >= 72
-    readonly property int responsiveHeight: stackedLayout
-            ? Math.max(176, effectiveIconPixels + 116)
-            : Math.max(138, effectiveIconPixels + 84)
+    // Keep user-selected icons responsive, but constrain artwork to the card's
+    // compact header. A large global icon preference must never overpaint its
+    // siblings or escape the rounded card at high DPI / narrow widths.
+    // Unlike the old 48/62 px clamp, retain the user's real icon preference.
+    // The card and its content grow with the image instead of clipping it.
+    readonly property int effectiveIconPixels: Math.max(28, Math.min(
+            Math.round(AppTheme.effectiveHomeIconSize), Math.max(28, Math.floor(card.width * 0.34))))
+    readonly property int responsiveHeight: Math.max(138, effectiveIconPixels + 96)
+    readonly property color usageColor: card.ratio >= 0.9 ? AppTheme.danger : AppTheme.accent
+    readonly property string percentText: "%" + Math.round(Math.max(0, Math.min(1, card.ratio)) * 100)
+    readonly property string mountPillText: card.mountActionText.length ? card.mountActionText : card.mountedStatusText
+    readonly property string usageSummaryText: {
+        if (card.usedText.length && card.totalText.length)
+            return card.usedText + " / " + card.totalText
+        if (card.usedText.length)
+            return card.usedText
+        if (card.totalText.length)
+            return card.totalText
+        return card.language === "tr" ? "Bilgi yok" : "Unavailable"
+    }
     signal openRequested(string path)
     signal openNewTabRequested(string path)
     signal favoriteToggleRequested(string path, string title)
     signal editRequested(string stableId, string title, string iconName)
+    signal propertiesRequested(string path, string title, string iconName)
+    signal refreshRequested()
     signal mountToggleRequested(string device)
     signal reorderRequested(int from, int to)
     signal reorderDragStateChanged(bool active)
 
     radius: AppTheme.cardRadius
-    color: dropTarget.containsDrag ? AppTheme.accentSoft : (mouse.containsMouse || dragging ? AppTheme.cardHover : AppTheme.cardSurface)
-    border.color: dropTarget.containsDrag ? AppTheme.accent : (mouse.containsMouse ? AppTheme.accentBorder : AppTheme.border)
+    color: dropTarget.containsDrag ? AppTheme.accentSoft
+                                  : (mouse.containsMouse || dragging ? AppTheme.cardHover : AppTheme.cardSurface)
+    border.color: dropTarget.containsDrag ? AppTheme.accent
+                                          : (mouse.containsMouse ? AppTheme.accentBorder : AppTheme.border)
     border.width: dropTarget.containsDrag ? 2 : 1
     scale: dragging ? 0.97 : 1.0
     opacity: dragging ? 0.72 : 1.0
+    clip: true
 
     Drag.dragType: Drag.Automatic
     Drag.active: reorderDrag.active
@@ -61,12 +81,7 @@ Rectangle {
         id: dropTarget
         anchors.fill: parent
         onDropped: function(drop) {
-            if (drop.source && drop.source.diskReorder
-                    && drop.source.diskIndex !== card.diskIndex) {
-                // Queue the destination on the SOURCE card. The actual model
-                // move happens after DragHandler becomes inactive; mutating a
-                // Repeater model from inside the drop event can invalidate the
-                // active drag source.
+            if (drop.source && drop.source.diskReorder && drop.source.diskIndex !== card.diskIndex) {
                 drop.source.pendingReorderTo = card.diskIndex
                 drop.acceptProposedAction()
             }
@@ -77,7 +92,6 @@ Rectangle {
         id: mouse
         z: 1
         anchors.fill: parent
-        anchors.rightMargin: 38
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
@@ -104,6 +118,28 @@ Rectangle {
     GMenu {
         id: diskContextMenu
         GMenuItem {
+            text: card.language === "tr" ? "Yeni sekmede aç" : "Open in new tab"
+            enabled: card.mounted && card.rootPath.length > 0
+            onTriggered: card.openNewTabRequested(card.rootPath)
+        }
+        GMenuItem {
+            text: card.favorite
+                ? (card.language === "tr" ? "Favorilerden çıkar" : "Remove from favorites")
+                : (card.language === "tr" ? "Favorilere ekle" : "Add to favorites")
+            enabled: card.favoriteAvailable && card.mounted
+            onTriggered: card.favoriteToggleRequested(card.rootPath, card.title)
+        }
+        GMenuItem {
+            text: card.language === "tr" ? "Yenile" : "Refresh"
+            onTriggered: card.refreshRequested()
+        }
+        MenuSeparator { }
+        GMenuItem {
+            text: card.language === "tr" ? "Özellikler" : "Properties"
+            enabled: card.mounted && !card.rootPath.startsWith("/dev/")
+            onTriggered: card.propertiesRequested(card.rootPath, card.title, card.iconName)
+        }
+        GMenuItem {
             text: card.language === "tr" ? "Düzenle" : "Edit"
             onTriggered: card.editRequested(card.stableId, card.title, card.iconName)
         }
@@ -119,11 +155,10 @@ Rectangle {
                 card.reorderDragStateChanged(true)
                 return
             }
-
             card.suppressClick = true
             dragClickReset.restart()
             if (card.pendingReorderTo >= 0 && card.pendingReorderTo !== card.diskIndex) {
-                var destination = card.pendingReorderTo
+                const destination = card.pendingReorderTo
                 card.pendingReorderTo = -1
                 card.reorderRequested(card.diskIndex, destination)
             } else {
@@ -133,85 +168,22 @@ Rectangle {
         }
     }
 
-    Item {
-        id: headerArea
+    ColumnLayout {
+        // Keep actionable children above the card-wide navigation hit area.
         z: 2
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: capacityRow.top
-        anchors.leftMargin: 18
-        anchors.rightMargin: 18
-        anchors.topMargin: 14
-        anchors.bottomMargin: 10
+        anchors.fill: parent
+        anchors.margins: 12
+        spacing: 6
 
-        ColumnLayout {
-            id: horizontalHeader
-            visible: !card.stackedLayout
-            anchors.fill: parent
-            spacing: 8
-
-            GText {
-                text: card.title
-                baseColor: AppTheme.text
-                basePixelSize: 15
-                baseFontWeight: Font.DemiBold
-                elide: Text.ElideRight
-                horizontalAlignment: Text.AlignHCenter
-                Layout.fillWidth: true
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 12
-
-                Item {
-                    Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: card.effectiveIconPixels
-                    Layout.preferredHeight: card.effectiveIconPixels
-                    CrispIcon {
-                        anchors.fill: parent
-                        source: AppTheme.useSystemIcons
-                                ? AppTheme.systemIconAtSize(AppTheme.discoveryIcon(card.iconName, "drive.svg"), card.effectiveIconPixels)
-                                : AppTheme.discoveryIcon(card.iconName, "drive.svg")
-                    }
-                }
-
-                GText {
-                    text: card.subtitle
-                    baseColor: AppTheme.textMuted
-                    basePixelSize: 11
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                }
-
-                DiskFavoriteButton { }
-                DiskMountBadge { }
-            }
-        }
-
-        ColumnLayout {
-            id: stackedHeader
-            visible: card.stackedLayout
-            anchors.fill: parent
-            spacing: 7
-
-            GText {
-                text: card.title
-                baseColor: AppTheme.text
-                basePixelSize: 15
-                baseFontWeight: Font.DemiBold
-                elide: Text.ElideRight
-                horizontalAlignment: Text.AlignHCenter
-                Layout.fillWidth: true
-            }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 9
 
             Item {
-                Layout.alignment: Qt.AlignHCenter
+                clip: true
                 Layout.preferredWidth: card.effectiveIconPixels
                 Layout.preferredHeight: card.effectiveIconPixels
+                Layout.alignment: Qt.AlignTop
                 CrispIcon {
                     anchors.fill: parent
                     source: AppTheme.useSystemIcons
@@ -220,99 +192,200 @@ Rectangle {
                 }
             }
 
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 8
-
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 3
                 GText {
+                    Layout.fillWidth: true
+                    text: card.title
+                    baseColor: AppTheme.text
+                    basePixelSize: 14
+                    baseFontWeight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+                GText {
+                    Layout.fillWidth: true
                     text: card.subtitle
                     baseColor: AppTheme.textMuted
-                    basePixelSize: 11
+                    basePixelSize: 10
                     elide: Text.ElideMiddle
-                    Layout.fillWidth: true
+                }
+            }
+
+            // Both metadata and favorite are centered within the SAME row;
+            // previously the filesystem badge lived in the title's nested
+            // layout while the star aligned to the top of the whole card.
+            RowLayout {
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 8
+                DiskInfoChip {
+                    visible: card.fileSystem.length > 0
+                    text: card.fileSystem
+                    emphasis: false
                     Layout.alignment: Qt.AlignVCenter
                 }
-
-                DiskFavoriteButton { }
-                DiskMountBadge { }
+                DiskIconActionButton {
+                    visible: card.favoriteAvailable
+                    iconSource: AppTheme.icon("favorite.svg")
+                    iconOpacity: card.favorite ? 1.0 : 0.35
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: card.favoriteToggleRequested(card.rootPath, card.title)
+                }
             }
         }
+
+        // Push storage usage to the lower edge at any font or icon scale.
+        Item { Layout.fillHeight: true }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 6
+            GText {
+                Layout.fillWidth: true
+                text: card.usageSummaryText
+                baseColor: AppTheme.text
+                basePixelSize: 11
+                baseFontWeight: Font.Medium
+                elide: Text.ElideRight
+            }
+            DiskInfoChip {
+                text: card.percentText
+                emphasis: true
+                emphasisColor: card.usageColor
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 5
+                radius: height / 2
+                color: AppTheme.surfaceHover
+                clip: true
+                Rectangle {
+                    width: parent.width * Math.max(0, Math.min(1, card.ratio))
+                    height: parent.height
+                    radius: height / 2
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: Qt.lighter(card.usageColor, 1.38) }
+                        GradientStop { position: 1.0; color: Qt.darker(card.usageColor, 1.08) }
+                    }
+                }
+            }
+            DiskMountBadge {
+                id: mountBadge
+                visible: card.mountPillText.length > 0
+                Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
+            }
+        }
+
     }
 
-    component DiskFavoriteButton: Item {
-        id: favoriteControl
-        visible: card.favoriteAvailable
-        readonly property bool hovered: favoriteMouse.containsMouse
-        Layout.preferredWidth: visible ? 30 : 0
-        Layout.preferredHeight: visible ? 30 : 0
+    component DiskIconActionButton: Item {
+        id: actionButton
+        property url iconSource: ""
+        property real iconOpacity: 1.0
+        signal clicked()
+        Layout.preferredWidth: visible ? 24 : 0
+        Layout.preferredHeight: visible ? 24 : 0
         Layout.alignment: Qt.AlignVCenter
         z: 5
 
         Rectangle {
             anchors.fill: parent
             radius: 9
-            color: favoriteControl.hovered ? AppTheme.surfaceRaised : "transparent"
+            color: actionMouse.containsMouse ? AppTheme.surfaceRaised : "transparent"
         }
         CrispIcon {
             anchors.centerIn: parent
-            source: AppTheme.icon("favorite.svg")
-            width: 18
-            height: 18
-            opacity: card.favorite ? 1.0 : 0.35
+            source: actionButton.iconSource
+            width: 17
+            height: 17
+            opacity: actionButton.iconOpacity
         }
         MouseArea {
-            id: favoriteMouse
+            id: actionMouse
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: card.favoriteToggleRequested(card.rootPath, card.title)
+            onClicked: actionButton.clicked()
         }
-        GToolTip { text: card.favorite ? qsTr("Favorilerden çıkar") : qsTr("Favorilere ekle") }
+    }
+
+    component DiskInfoChip: Rectangle {
+        id: chip
+        property string text: ""
+        property bool emphasis: false
+        property color emphasisColor: AppTheme.accent
+        radius: 11
+        implicitHeight: 22
+        implicitWidth: chipText.implicitWidth + 16
+        color: emphasis
+               ? AppTheme.tint(emphasisColor, AppTheme.dark ? 0.20 : 0.12)
+               : AppTheme.surfaceRaised
+        border.width: 1
+        border.color: emphasis
+                     ? AppTheme.tint(emphasisColor, AppTheme.dark ? 0.55 : 0.40)
+                     : AppTheme.border
+        GText {
+            id: chipText
+            anchors.centerIn: parent
+            text: chip.text
+            baseColor: emphasis ? chip.emphasisColor : AppTheme.textMuted
+            basePixelSize: 10
+            baseFontWeight: Font.DemiBold
+        }
     }
 
     component DiskMountBadge: Rectangle {
-        id: mountBadge
-        Layout.alignment: Qt.AlignVCenter
+        id: mountChip
+        // The card's full-surface navigation MouseArea sits at z:1;
+        // keep the mount action above it so clicks never open the folder.
         z: 6
-        radius: 10
-        implicitWidth: Math.max(54, mountBadgeRow.implicitWidth + 16)
-        implicitHeight: 26
+        radius: 11
+        implicitHeight: 24
+        implicitWidth: Math.max(86, mountBadgeRow.implicitWidth + 14)
         color: {
+            if (card.mountBusy)
+                return AppTheme.surfaceRaised
             if (!card.canMountToggle)
-                return card.mounted ? (AppTheme.dark ? "#17382B" : "#EAF8F1") : AppTheme.surfaceRaised
+                return card.mounted ? AppTheme.tint(AppTheme.success, AppTheme.dark ? 0.20 : 0.12) : AppTheme.surfaceRaised
             if (mountBadgeMouse.containsMouse)
-                return card.mounted ? (AppTheme.dark ? "#4A2B2F" : "#FFF0F0") : AppTheme.accentSoft
-            return card.mounted ? (AppTheme.dark ? "#2A2738" : "#F7F4FF") : AppTheme.surfaceRaised
+                return card.mounted ? AppTheme.tint(AppTheme.danger, AppTheme.dark ? 0.16 : 0.10)
+                                    : AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.18 : 0.10)
+            return AppTheme.surfaceRaised
         }
         border.width: 1
         border.color: {
-            if (!card.canMountToggle)
-                return card.mounted ? AppTheme.success : AppTheme.border
             if (card.mountBusy)
                 return AppTheme.accentBorder
-            return card.mounted ? (mountBadgeMouse.containsMouse ? AppTheme.danger : AppTheme.borderStrong)
-                                : (mountBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.borderStrong)
+            if (!card.canMountToggle)
+                return card.mounted ? AppTheme.success : AppTheme.border
+            return card.mounted ? (mountBadgeMouse.containsMouse ? AppTheme.danger : AppTheme.border)
+                                : (mountBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.border)
         }
 
         RowLayout {
             id: mountBadgeRow
             anchors.centerIn: parent
-            spacing: 5
+            spacing: 6
             GBusyIndicator {
                 visible: card.mountBusy
                 running: visible
-                Layout.preferredWidth: 13
-                Layout.preferredHeight: 13
+                Layout.preferredWidth: 12
+                Layout.preferredHeight: 12
             }
             GText {
-                text: card.mountActionText.length ? card.mountActionText : card.mountedStatusText
-                baseColor: {
-                    if (card.mountBusy) return AppTheme.textMuted
-                    if (!card.canMountToggle) return card.mounted ? AppTheme.success : AppTheme.textMuted
-                    return card.mounted ? (mountBadgeMouse.containsMouse ? AppTheme.danger : AppTheme.textMuted)
-                                        : (mountBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.textMuted)
-                }
-                basePixelSize: 9
+                text: card.mountPillText
+                baseColor: card.mountBusy ? AppTheme.textMuted
+                          : (!card.canMountToggle && card.mounted ? AppTheme.success
+                             : (card.mounted && card.canMountToggle && mountBadgeMouse.containsMouse ? AppTheme.danger
+                                : (mountBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.textMuted)))
+                basePixelSize: 10
                 baseFontWeight: Font.DemiBold
             }
         }
@@ -325,40 +398,5 @@ Rectangle {
             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: card.mountToggleRequested(card.device)
         }
-    }
-
-    Rectangle {
-        id: usageTrack
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: 18
-        anchors.rightMargin: 18
-        anchors.bottomMargin: 12
-        height: 7
-        radius: 4
-        color: AppTheme.surfaceRaised
-
-        Rectangle {
-            width: parent.width * Math.min(1, Math.max(0, card.ratio))
-            height: parent.height
-            radius: parent.radius
-            color: card.ratio > 0.9 ? AppTheme.danger : AppTheme.accent
-        }
-    }
-
-    RowLayout {
-        id: capacityRow
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: usageTrack.top
-        anchors.leftMargin: 18
-        anchors.rightMargin: 18
-        anchors.bottomMargin: 7
-        spacing: 8
-
-        GText { text: card.usedText; baseColor: AppTheme.textMuted; basePixelSize: 11 }
-        Item { Layout.fillWidth: true }
-        GText { text: card.totalText; baseColor: AppTheme.textMuted; basePixelSize: 11 }
     }
 }

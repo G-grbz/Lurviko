@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.4.1 LANGUAGES CXX)
+project(Lurviko VERSION 1.5.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -62,7 +62,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.9 REQUIRED COMPONENTS Quick QuickControls2 Network NetworkAuth Concurrent Widgets DBus Multimedia)
+find_package(Qt6 6.9 REQUIRED COMPONENTS Quick QuickControls2 Network NetworkAuth Concurrent Widgets DBus Multimedia Sql)
 find_package(OpenSSL 3.2 REQUIRED COMPONENTS Crypto)
 find_package(KF6KIO REQUIRED)
 find_package(KF6Service REQUIRED)
@@ -140,8 +140,17 @@ qt_add_executable(lurviko
     src/iconpickermanager.cpp
     src/iconpickermanager.h
     src/filepropertiesmanager.cpp
+    src/gitoperations.cpp
+    src/gitoperations.h
+    src/sambasharemanager.cpp
+    src/sambasharemanager.h
     src/directorysizeworker.cpp
     src/directorysizeworker.h
+    src/directorysizeindex.cpp
+    src/directorywatchsubscription.h
+    src/directorysizeindex.h
+    src/directorysizestore.cpp
+    src/directorysizestore_p.h
     src/fileaccesssecurity.cpp
     src/fileaccesssecurity.h
     src/filepropertiesaccess.cpp
@@ -240,6 +249,10 @@ qt_add_qml_module(lurviko
     URI Lurviko.App
     VERSION 1.0
     QML_FILES
+        qml/components/GitActionsMenu.qml
+        qml/components/GitDialog.qml
+        qml/components/SambaSharePanel.qml
+        qml/components/LocalSambaShares.qml
         qml/Main.qml
         qml/TypographyStyle.qml
         qml/GText.qml
@@ -263,15 +276,19 @@ qt_add_qml_module(lurviko
         qml/GOverlaySurface.qml
         qml/GViewerIcon.qml
         qml/components/FluidTabSurface.qml
+        qml/components/PageChrome.qml
         qml/components/EncryptedArchiveDialog.qml
         qml/components/SidebarShell.qml
         qml/components/AppSidebar.qml
         qml/components/SidebarItem.qml
+        qml/components/ExploreNavigationCard.qml
+        qml/components/ExploreWatermarkDialog.qml
         qml/components/BrowserPane.qml
         qml/components/MillerColumnsView.qml
         qml/components/GitStatusBadge.qml
         qml/components/DropTargetBadge.qml
         qml/components/OperationPresentation.qml
+        qml/components/OperationToastLayer.qml
         qml/components/GMenu.qml
         qml/components/GPopupWheelScroll.qml
         qml/components/GPopupDismissHandler.qml
@@ -337,6 +354,7 @@ target_link_libraries(lurviko PRIVATE
     Qt6::Widgets
     Qt6::DBus
     Qt6::Multimedia
+    Qt6::Sql
     KF6::KIOCore
     KF6::KIOGui
     KF6::KIOWidgets

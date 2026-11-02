@@ -76,6 +76,21 @@ int main(int argc, char **argv) {
     require(vault.createVault(password), "real encrypted fixture vault is created");
     require(!vault.recoveryEnabled(), "recovery is opt-in and disabled by default");
     require(vault.createFolder("Kept encrypted folder"), "fixture manifest contains a real item");
+    QString navigationFolderId;
+    for (int row = 0; row < vault.rowCount(); ++row) {
+        if (vault.data(vault.index(row), PrivateVaultManager::NameRole).toString() == QStringLiteral("Kept encrypted folder"))
+            navigationFolderId = vault.data(vault.index(row), PrivateVaultManager::ObjectIdRole).toString();
+    }
+    require(!navigationFolderId.isEmpty() && !vault.canGoBack() && !vault.canGoForward(), "fresh vault starts without history");
+    require(vault.enterFolder(navigationFolderId) && vault.canGoBack() && !vault.canGoForward(),
+            "enter folder adds a back entry");
+    require(vault.goBack() && vault.currentFolderId() == QStringLiteral("root") && vault.canGoForward(),
+            "vault Back returns to the previous folder");
+    require(vault.goForward() && vault.currentFolderId() == navigationFolderId && vault.canGoBack(),
+            "vault Forward restores the visited folder");
+    require(vault.goUp() && vault.currentFolderId() == QStringLiteral("root") && !vault.canGoForward(),
+            "going up adds history and drops the stale Forward branch");
+    vault.refresh();
     const QByteArray payload = QStringLiteral("Private test payload: İşler güçler, şarkılar.\n").toUtf8();
     const QString payloadPath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)).filePath("payload.txt");
     QFile plaintext(payloadPath);
@@ -208,7 +223,10 @@ int main(int argc, char **argv) {
         require(!vault.unlock(changedPassword) && timer.elapsed() < 500, "corrupt KDF header is rejected before allocating Argon2 resources");
     }
     require(headerFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "oversized header fixture opens");
-    headerFile.write(QByteArray(65537, ' ')); headerFile.close();
+    // The encrypted index is permitted to grow past 64 KiB, but a truly
+    // unreasonable header must still be rejected before parsing/allocations.
+    require(headerFile.resize(32LL * 1024 * 1024 + 1), "oversized header is extended sparsely");
+    headerFile.close();
     require(!vault.unlock(changedPassword), "oversized header is rejected before parsing");
     require(headerFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "valid header is restored");
     headerFile.write(originalHeader); headerFile.close();
@@ -428,8 +446,176 @@ int main(int argc, char **argv) {
             && !QFileInfo::exists(outside + "/ordinary.txt"), "external extractor remains anchored to its pinned destination fd");
         std::puts("PASS: actual archive jobs reject symlink escapes and preserve ordinary overwrite and probe-based extraction");
     }
+    {
+        // Context-menu backend: Received is a stable encrypted root folder,
+        // copy retains the originals, and move removes them only after commit.
+        QTemporaryDir receivedFixture;
+        require(receivedFixture.isValid(), "Received fixture creates temporary source directory");
+        const QString copyPath = receivedFixture.filePath(QStringLiteral("keep.txt"));
+        QFile copyFile(copyPath);
+        require(copyFile.open(QIODevice::WriteOnly) && copyFile.write("keep-this") == 9,
+                "Received copy fixture writes a source file");
+        copyFile.close();
+        int transferProgressSignals = 0;
+        int transferCompletionSignals = 0;
+        bool transferCompletionSuccess = false;
+        const auto progressConnection = QObject::connect(&vault,
+            &PrivateVaultManager::transferProgressChanged, &vault, [&]() {
+            if (vault.transferActive()) {
+                ++transferProgressSignals;
+                require(vault.transferBytesDone() <= vault.transferBytesTotal(),
+                        "Vault transfer never reports more processed bytes than scanned bytes");
+                require(vault.transferFilesDone() <= vault.transferFilesTotal(),
+                        "Vault transfer never reports more completed files than scanned files");
+            }
+        });
+        const auto completionConnection = QObject::connect(&vault,
+            &PrivateVaultManager::transferFinished, &vault,
+                         [&](bool success, const QString &) {
+            ++transferCompletionSignals;
+            transferCompletionSuccess = success;
+            require(!vault.transferActive(), "Vault transfer reports inactive before finish signal");
+        });
+        vault.goRoot();
+        require(vault.importToReceived({ QUrl::fromLocalFile(copyPath) }, false),
+                "Send to Vault accepts a background copy without deleting original");
+        require(vault.busy() && vault.transferActive(), "Received import starts asynchronously and reports busy");
+        bool guiEventWasHandled = false;
+        QTimer::singleShot(0, [&] { guiEventWasHandled = true; });
+        require(until([&] { return transferCompletionSignals == 1; }), "Received copy completes asynchronously");
+        require(guiEventWasHandled, "main Qt event loop processes input/work while vault transfer runs");
+        require(QFileInfo::exists(copyPath), "Send to Vault leaves original in place");
+        require(transferProgressSignals >= 2 && transferCompletionSuccess,
+                "Received import publishes live progress plus one successful completion signal");
+        require(vault.transferFilesDone() == 1 && vault.transferFilesTotal() == 1
+                    && vault.transferBytesDone() == 9 && vault.transferBytesTotal() == 9,
+                "Received import progress counts the actual encrypted file bytes");
+        QString receivedId;
+        int receivedCount = 0;
+        for (int row = 0; row < vault.rowCount(); ++row) {
+            if (vault.data(vault.index(row), PrivateVaultManager::NameRole).toString() == QStringLiteral("Alınanlar")) {
+                receivedId = vault.data(vault.index(row), PrivateVaultManager::ObjectIdRole).toString();
+                ++receivedCount;
+            }
+        }
+        require(receivedCount == 1 && !receivedId.isEmpty(), "Received folder created exactly once at vault root");
+        require(vault.enterFolder(receivedId), "Received folder is navigable");
+        bool copyImported = false;
+        for (int row = 0; row < vault.rowCount(); ++row)
+            copyImported |= vault.data(vault.index(row), PrivateVaultManager::NameRole).toString() == QStringLiteral("keep.txt");
+        require(copyImported, "encrypted copy appears inside Received even when current vault folder differs");
+
+        const QString moveFolder = receivedFixture.filePath(QStringLiteral("inbox-project"));
+        require(QDir().mkpath(moveFolder), "Received move creates nested source folder");
+        QFile nested(moveFolder + QStringLiteral("/inside.txt"));
+        require(nested.open(QIODevice::WriteOnly) && nested.write("nested") == 6,
+                "Received move nested file is written");
+        nested.close();
+        require(vault.importToReceived({ QUrl::fromLocalFile(moveFolder) }, true),
+                "Send to Vault and Delete starts a background folder transfer");
+        require(until([&] { return transferCompletionSignals == 2; }) && transferCompletionSuccess,
+                "Send to Vault and Delete finishes safely before UI reports completion");
+        require(!QFileInfo::exists(moveFolder), "source folder is permanently removed, not put in Trash");
+        QString nestedFolderId;
+        for (int row = 0; row < vault.rowCount(); ++row) {
+            if (vault.data(vault.index(row), PrivateVaultManager::NameRole).toString() == QStringLiteral("inbox-project"))
+                nestedFolderId = vault.data(vault.index(row), PrivateVaultManager::ObjectIdRole).toString();
+        }
+        require(!nestedFolderId.isEmpty() && vault.enterFolder(nestedFolderId),
+                "Received contains the transferred folder");
+        QString insideId;
+        for (int row = 0; row < vault.rowCount(); ++row) {
+            if (vault.data(vault.index(row), PrivateVaultManager::NameRole).toString() == QStringLiteral("inside.txt"))
+                insideId = vault.data(vault.index(row), PrivateVaultManager::ObjectIdRole).toString();
+        }
+        require(!insideId.isEmpty(), "nested source file exists in encrypted folder");
+        const QString restoredUrl = vault.materializeForOpen(insideId);
+        QFile restored(QUrl(restoredUrl).toLocalFile());
+        require(!restoredUrl.isEmpty() && restored.open(QIODevice::ReadOnly)
+                && restored.readAll() == QByteArrayLiteral("nested"),
+                "encrypted nested file decrypts to the original bytes after source deletion");
+        restored.close();
+        vault.releaseMaterialized(restoredUrl);
+        vault.goRoot();
+        receivedCount = 0;
+        for (int row = 0; row < vault.rowCount(); ++row)
+            receivedCount += vault.data(vault.index(row), PrivateVaultManager::ObjectIdRole).toString() == receivedId;
+        require(receivedCount == 1, "subsequent transfers reuse the same Received directory");
+
+        const QString badFolder = receivedFixture.filePath(QStringLiteral("contains-symlink"));
+        require(QDir().mkpath(badFolder), "unsafe source directory fixture created");
+        require(QFile::link(copyPath, badFolder + QStringLiteral("/linked.txt")),
+                "unsafe folder has a symbolic link");
+        const int before = vault.totalItemCount();
+        const int completionsBeforeRejected = transferCompletionSignals;
+        require(vault.importToReceived({ QUrl::fromLocalFile(badFolder) }, true),
+                "unsafe selection is queued for background preflight");
+        require(until([&] { return transferCompletionSignals == completionsBeforeRejected + 1; })
+                && !transferCompletionSuccess,
+                "Unsafe Received import reports failure and closes its progress toast");
+        require(QFileInfo::exists(badFolder) && QFileInfo::exists(copyPath)
+                && vault.totalItemCount() == before,
+                "rejected destructive import retains all originals and leaves vault unchanged");
+        require(vault.importToReceived({ QUrl::fromLocalFile(receivedFixture.path()) }, true),
+                "selection containing links is checked on the background worker");
+        require(until([&] { return transferCompletionSignals == completionsBeforeRejected + 2; })
+                && !transferCompletionSuccess, "selection containing links fails recursive preflight");
+        vault.lock();
+        require(!vault.importToReceived({ QUrl::fromLocalFile(copyPath) }, true)
+                && QFileInfo::exists(copyPath), "locked vault cannot delete source files");
+        require(vault.unlock(changedPassword), "unlock after Received tests restores the existing vault session");
+        const int completionsBeforeDeferredLock = transferCompletionSignals;
+        require(vault.importToReceived({ QUrl::fromLocalFile(copyPath) }, false),
+                "background transfer can start before leaving the vault");
+        vault.lock();
+        require(vault.unlocked(), "locking during an active transfer is deferred until safe completion");
+        require(until([&] { return transferCompletionSignals == completionsBeforeDeferredLock + 1; })
+                && transferCompletionSuccess && !vault.unlocked(),
+                "deferred lock clears the live session only after encrypted commit");
+        require(vault.unlock(changedPassword), "deferred lock preserves the encrypted vault and password");
+        QObject::disconnect(progressConnection);
+        QObject::disconnect(completionConnection);
+        std::puts("PASS: Received copy, destructive move, stable folder, symlink rejection and locked-vault guard");
+    }
+    {
+        // Regression: a successful Received folder import previously wrote a
+        // vault.json bigger than 64 KiB, but readHeader() refused to open it.
+        // Hundreds of empty directories exercise the index without wasting
+        // disk space or producing plaintext blobs.
+        QTemporaryDir largeFolderFixture;
+        require(largeFolderFixture.isValid(), "large manifest fixture directory exists");
+        const QString sourceFolder = largeFolderFixture.filePath(QStringLiteral("bulk-folders"));
+        require(QDir().mkpath(sourceFolder), "large manifest source folder exists");
+        for (int i = 0; i < 480; ++i) {
+            const QString child = QStringLiteral("folder-%1-%2").arg(i, 4, 10, QLatin1Char('0'))
+                .arg(QString(88, QLatin1Char('x')));
+            require(QDir().mkpath(QDir(sourceFolder).filePath(child)), "large manifest nested directory exists");
+        }
+        require(vault.importToReceived({ QUrl::fromLocalFile(sourceFolder) }, false),
+                "Received import with hundreds of folders starts in the background");
+        require(until([&] { return !vault.transferActive(); }, 30000)
+                && vault.lastError().isEmpty(), "large directory encryption and manifest commit succeed");
+        require(QFileInfo::exists(sourceFolder), "large directory copy preserves source");
+        const qint64 savedHeaderSize = QFileInfo(privateRoot + QStringLiteral("/vault.json")).size();
+        require(savedHeaderSize > 65536, "encrypted vault header exceeds the former 64 KiB limit");
+        require(savedHeaderSize <= 8LL * 1024 * 1024, "encrypted vault header remains within the 8 MiB limit");
+        vault.lock();
+        require(vault.unlock(changedPassword),
+                "large encrypted manifest still opens after a full lock/unlock cycle");
+        require(vault.totalItemCount() > 480, "large encrypted manifest preserves imported entries");
+        std::fprintf(stderr, "PASS: large Received manifest survives re-open (%lld bytes)\n",
+                     static_cast<long long>(savedHeaderSize));
+    }
     if (arguments.contains("--backend-only")) {
-        std::puts("PASS: vault authentication and encrypted file preservation without desktop/media services");
+        vault.lock();
+        require(vault.deleteVault() && !vault.exists() && !QFileInfo::exists(privateRoot),
+                "locked vault reset deletes all encrypted files without a password");
+        require(!vault.unlocked() && vault.failedPasswordAttempts() == 0 && !vault.recoveryEnabled(),
+                "reset clears keys, authentication counters and recovery state");
+        require(vault.createVault(password), "vault can be recreated after total reset");
+        vault.lock();
+        require(vault.deleteVault(), "recreated vault can also be removed while locked");
+        std::puts("PASS: vault authentication, navigation history and irreversible reset without desktop/media services");
         return 0;
     }
 
@@ -573,6 +759,27 @@ ApplicationWindow {
     child(window, "vaultRecoveryNewPasswordAgain")->setProperty("text", password);
     require(QMetaObject::invokeMethod(child(window, "vaultRecoverButton"), "clicked") && vault.unlocked() && !vault.recoveryEnabled(), "actual recovery UI resets the password and disables used key");
     require(until([&] { return !recoveryPopup->property("visible").toBool() && child(window, "vaultRecoveryInput")->property("text").toString().isEmpty(); }), "recovery inputs clear on closure");
-    std::puts("PASS: vault retry delay, limits, restart persistence, success/expiry reset, disabled mode, encrypted data and security modal");
+    // Full GUI confirmation: the explicit checkbox is mandatory, cancellation preserves data,
+    // and the real action removes the vault while it is locked and the password is unavailable.
+    vault.lock();
+    auto deleteOpen = child(window, "vaultDeleteButton");
+    auto deleteConfirmation = child(window, "vaultDeleteConfirmationPopup");
+    auto deleteAcknowledged = child(window, "vaultDeleteAcknowledged");
+    auto deleteYes = child(window, "vaultDeleteYesButton");
+    require(QMetaObject::invokeMethod(deleteOpen, "clicked"), "delete control opens confirmation");
+    require(!deleteAcknowledged->property("checked").toBool() && !deleteYes->property("enabled").toBool(),
+            "confirmation opens unchecked and Yes stays disabled");
+    require(QMetaObject::invokeMethod(child(window, "vaultDeleteNoButton"), "clicked") && vault.exists(),
+            "No closes the confirmation without deleting encrypted files");
+    require(QMetaObject::invokeMethod(deleteOpen, "clicked"), "reopen reset confirmation");
+    require(!deleteYes->property("enabled").toBool(), "checkbox must be checked on each attempt");
+    deleteAcknowledged->setProperty("checked", true);
+    require(deleteYes->property("enabled").toBool(), "Yes activates only with explicit acknowledgement");
+    require(QMetaObject::invokeMethod(deleteYes, "clicked") && !vault.exists() && !QFileInfo::exists(privateRoot),
+            "confirmed GUI action removes encrypted vault including the directory");
+    require(vault.createVault(password), "after GUI reset the create-vault screen can create a new vault");
+    vault.lock();
+    require(vault.deleteVault(), "test fixture cleans up recreated vault");
+    std::puts("PASS: vault retry policy, navigation history, security modal and confirmed destructive reset");
     return 0;
 }

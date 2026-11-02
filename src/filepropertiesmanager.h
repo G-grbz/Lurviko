@@ -22,6 +22,9 @@ class FilePropertiesManager : public QObject
     Q_PROPERTY(bool directory READ directory NOTIFY propertiesChanged)
     Q_PROPERTY(FilePropertiesManager *statsSource READ statsSource WRITE setStatsSource)
     Q_PROPERTY(bool statsReady READ statsReady NOTIFY propertiesChanged)
+    Q_PROPERTY(bool statsAvailable READ statsAvailable NOTIFY propertiesChanged)
+    Q_PROPERTY(QString statsState READ statsState NOTIFY propertiesChanged)
+    Q_PROPERTY(QString statsError READ statsError NOTIFY propertiesChanged)
     Q_PROPERTY(bool backgroundStats MEMBER m_backgroundStats)
     Q_PROPERTY(qint64 totalSize READ totalSize NOTIFY propertiesChanged)
     Q_PROPERTY(int fileCount READ fileCount NOTIFY propertiesChanged)
@@ -63,6 +66,9 @@ public:
     FilePropertiesManager *statsSource() const { return m_statsSource; }
     void setStatsSource(FilePropertiesManager *source) { m_statsSource = source == this ? nullptr : source; }
     bool statsReady() const { return m_statsReady; }
+    bool statsAvailable() const { return m_statsAvailable || m_statsReady; }
+    QString statsState() const { return m_statsState; }
+    QString statsError() const { return m_statsError; }
     QString path() const { return m_path; }
     QString name() const { return m_name; }
     bool directory() const { return m_directory; }
@@ -105,6 +111,7 @@ public:
     Q_INVOKABLE void inspectCached(const QString &urlOrPath);
     Q_INVOKABLE bool restoreCachedStats(const QString &urlOrPath);
     Q_INVOKABLE void invalidateCachedStats(const QString &urlOrPath);
+    Q_INVOKABLE void verifyCachedStats(const QString &urlOrPath);
     Q_INVOKABLE void inspectSelection(const QStringList &urls);
     Q_INVOKABLE void cancelInspection();
     Q_INVOKABLE bool setFolderIcon(const QString &iconName);
@@ -140,6 +147,7 @@ private:
 
     bool reuseStatsOrWait(const QStringList &paths, bool selection, int generation);
     void inspectInternal(const QString &urlOrPath, bool cached);
+    void attachSizeIndex();
     static FilePropertiesManager *cachedStats(const QString &path, bool lookupOnly = false);
     QPointer<FilePropertiesManager> m_cachedSource;
     QMetaObject::Connection m_cachedPropertiesConnection, m_cachedCalculatingConnection;
@@ -147,6 +155,11 @@ private:
     QPointer<FilePropertiesManager> m_statsSource;
     QMetaObject::Connection m_statsConnection;
     bool m_statsReady = false;
+    bool m_statsAvailable = false;
+    bool m_indexOwner = false;
+    QString m_statsState, m_statsError;
+    QMetaObject::Connection m_indexConnection;
+    quint64 m_indexSelection = 0;
     bool m_backgroundStats = false;
     QVariantMap m_childStats;
     QString m_path;

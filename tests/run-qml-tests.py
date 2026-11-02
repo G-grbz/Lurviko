@@ -51,6 +51,40 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
         (artwork_folder / f"Folder-{index:03d}").mkdir()
     for name in [".hidden-file.txt", "visible-file.txt", "lurviko.pkg.tar.zst", "archive.tar.lz4"]:
         (artwork_folder / name).write_text("Artwork test fixture\n")
+    git_folder = root / "git-management-fixture"
+    git_folder.mkdir()
+    git_env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null")
+    def fixture_git(*args):
+        subprocess.run(["git", "-C", str(git_folder), *args], env=git_env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    fixture_git("init", "-q", "-b", "main")
+    fixture_git("config", "user.name", "QML fixture")
+    fixture_git("config", "user.email", "qml@example.invalid")
+    (git_folder / "tracked.txt").write_text("original\n")
+    (git_folder / "child").mkdir()
+    (git_folder / "child/nested.txt").write_text("nested\n")
+    fixture_git("add", ".")
+    fixture_git("commit", "-qm", "Fixture commit")
+    (git_folder / "tracked.txt").write_text("changed\n")
+    (git_folder / "untracked.txt").write_text("untracked\n")
+    # Exercise sharing UI against isolated definitions, without a Samba server,
+    # privileged setup, network credentials or the developer's real shares.
+    helpers = root / "test-bin"
+    helpers.mkdir()
+    shared_folder = root / "shared-folder"
+    shared_folder.mkdir()
+    fake_net = helpers / "net"
+    fake_net.write_text('''#!/usr/bin/python3
+import os, sys
+if sys.argv[1:] != ['--long', '--', 'usershare', 'info']:
+    raise SystemExit('Unexpected Samba mutation in a QML test')
+print('[Fixture share #1]')
+print('path=' + os.environ['LURVIKO_QML_SHARED_FOLDER'])
+print('comment=Isolated QML fixture')
+print('usershare_acl=Everyone:R,')
+print('guest_ok=n')
+''')
+    fake_net.chmod(0o755)
     main = (repo / "src/main.cpp").read_text()
     includes = "\n".join(line for line in main.splitlines() if line.startswith('#include "'))
     registration = main[main.index("    qmlRegisterType<StorageModel>"):
@@ -76,6 +110,7 @@ with tempfile.TemporaryDirectory(prefix="gfile-qml-tests-") as temporary:
 #include <QStyleOption>
 #include <QFontDatabase>
 #include <KIconTheme>
+#include <KProtocolInfo>
 #include <QtQuickTest/quicktest.h>
 ''' + includes + '''
 class ThemeProbeStyle : public QProxyStyle {
@@ -109,6 +144,9 @@ class Setup : public QObject {
     const QPalette savedPalette = QApplication::palette();
     const QString savedStyle = QApplication::style()->objectName();
 public slots:
+    bool networkProtocolSupported(const QString &protocol) const {
+        return KProtocolInfo::isKnownProtocol(protocol);
+    }
     void setSystemThemeTestAppearance(bool dark, bool translucent) {
         QApplication::setStyle(new ThemeProbeStyle(translucent));
         QPalette palette;
@@ -205,6 +243,8 @@ public slots:
         engine->rootContext()->setContextProperty("inputTestHelper", this);
         engine->rootContext()->setContextProperty("fileArtworkFixtureUrl",
             QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_ARTWORK_FIXTURE")));
+        engine->rootContext()->setContextProperty("gitManagementFixtureUrl",
+            QUrl::fromLocalFile(qEnvironmentVariable("LURVIKO_QML_GIT_FIXTURE")));
         engine->rootContext()->setContextProperty("bundledIconNames",
             qEnvironmentVariable("LURVIKO_QML_BUNDLED_ICONS").split(';', Qt::SkipEmptyParts));
         engine->rootContext()->setContextProperty("musicHoverFixtureUrl",
@@ -256,6 +296,8 @@ int main(int argc, char **argv) {
     subprocess.run(link, cwd=build, check=True)
     report = root / "results.txt"
     environment = dict(os.environ,
+        PATH=str(helpers) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+        LURVIKO_QML_SHARED_FOLDER=str(shared_folder),
         QT_QPA_PLATFORM=os.environ.get("LURVIKO_QML_TEST_QPA", "offscreen"),
         QT_QUICK_BACKEND=os.environ.get("LURVIKO_QML_TEST_BACKEND", "software"),
         # This test executable has no installed desktop identity and never
@@ -265,6 +307,7 @@ int main(int argc, char **argv) {
         LURVIKO_QML_COVERED_FIXTURE=str(covered_fixture),
         LURVIKO_QML_RENAME_FIXTURE=str(rename_fixture),
         LURVIKO_QML_ARTWORK_FIXTURE=str(artwork_folder),
+        LURVIKO_QML_GIT_FIXTURE=str(git_folder),
         XDG_CONFIG_HOME=str(root / "config"), XDG_DATA_HOME=str(root / "data"),
         XDG_CACHE_HOME=str(root / "cache"),
         PULSE_SERVER="unix:" + str(root / "no-pulse-server"))

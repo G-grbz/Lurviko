@@ -27,6 +27,7 @@ Rectangle {
         || miniMusicPopup.visible || favoriteEditPopup.visible || sidebarFolderPropertiesPopup.visible
     readonly property real drawerContentHeight: navigationSections.implicitHeight
         + (controlsHost ? 28 : footerControls.implicitHeight + 57)
+    function openWatermarkEditor() { watermarkDialog.open() }
     function showsSection(key) { return sectionFilter.length === 0 || sectionFilter === key }
     onSectionFilterChanged: {
         sidebarWheelScrollAnimation.stop()
@@ -404,16 +405,18 @@ Rectangle {
         anchors.rightMargin: 12
         spacing: 12
 
-        SidebarItem {
+        ExploreNavigationCard {
             objectName: "sidebarExploreItem"
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(38, implicitHeight)
+            Layout.preferredHeight: implicitHeight
             visible: !sidebar.drawerPresentation
             title: lang.t("dashboard")
+            subtitle: lang.language === "tr" ? "Ana sayfa" : "Home overview"
             iconSource: sidebar.sidebarItemIcon(sidebar.systemItems[0])
             active: sidebar.currentLocation.length === 0
-            propertiesEnabled: true
             propertiesText: lang.t("properties")
+            watermarkEditText: lang.language === "tr" ? "Filigranı düzenle…" : "Edit watermark…"
+            onWatermarkEditorRequested: watermarkDialog.open()
             onInteractionChanged: function(active) {
                 sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
             }
@@ -961,6 +964,14 @@ Rectangle {
                 GToolTip { text: parent.Accessible.name }
             }
         }
+
+    // The Discover card is shared across destinations, so the same editor is
+    // available whether Home, a folder, a category or the vault is active.
+    ExploreWatermarkDialog {
+        id: watermarkDialog
+        objectName: "exploreWatermarkDialog"
+        lang: sidebar.lang
+    }
 
     GPopupDismissHandler { popup: miniMusicPopup; opener: miniMusicButton }
 

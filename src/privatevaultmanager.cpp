@@ -1,8 +1,12 @@
+#include "directorysizeindex.h"
 #include "privatevaultmanager.h"
 #include "vaultsecurity.h"
 #include "vaultrecovery.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
+#include <QMetaObject>
+#include <QtConcurrent>
 #include <QBuffer>
 #include <QImage>
 #include <QImageReader>
@@ -28,6 +32,7 @@
 #include <KWallet>
 #include <QUuid>
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <utility>
 #include <cerrno>
@@ -53,6 +58,10 @@ constexpr char kThumbMagic[] = "GFTHMB01";
 constexpr qsizetype kThumbMagicSize = 8;
 constexpr qsizetype kBlobMagicSize = 8;
 constexpr qint64 kChunkSize = 1024 * 1024;
+// The encrypted manifest lives inside vault.json. A 64 KiB read limit made
+// successfully imported large directories impossible to unlock on restart.
+// Keep a bounded but practical ceiling and enforce it on BOTH reads and writes.
+constexpr qint64 kMaxVaultHeaderBytes = 8LL * 1024 * 1024;
 
 QString securityMessage(const char *english, const char *turkish)
 {
@@ -82,8 +91,20 @@ QString urlToLocalPath(const QVariant &value)
 }
 
 PrivateVaultManager::PrivateVaultManager(QObject *parent)
-    : QAbstractListModel(parent)
+    : PrivateVaultManager(parent, false)
 {
+}
+
+PrivateVaultManager::PrivateVaultManager(QObject *parent, bool importWorker)
+    : QAbstractListModel(parent), m_importWorker(importWorker)
+{
+    // The thread-local worker must not run global runtime cleanup or open a
+    // second KWallet session. It receives only detached encrypted state.
+    if (m_importWorker)
+        return;
+    connect(this, &PrivateVaultManager::operationFinished, this, [] {
+        if (auto* sizes = DirectorySizeIndex::existing()) sizes->invalidateAllCached();
+    });
     ensureStorageLayout();
     VaultSecurity::cleanupStaleRuntimeDirectories(VaultSecurity::runtimeCleanupParents(
         QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation)));
@@ -105,6 +126,14 @@ PrivateVaultManager::PrivateVaultManager(QObject *parent)
 
 PrivateVaultManager::~PrivateVaultManager()
 {
+    // Never destroy the receiver or clear its key while the worker might
+    // still publish progress or finish a durable manifest transaction.
+    if (m_importFuture.isRunning())
+        m_importFuture.waitForFinished();
+    // Its queued UI-thread completion may never run during application exit.
+    // Force final key/preview cleanup here, after the worker has finished.
+    m_transferActive = false;
+    m_busy = false;
     lock();
     m_runtimeDirectory.reset();
     m_runtimeRoot.clear();
@@ -212,6 +241,44 @@ void PrivateVaultManager::setBusy(bool value)
         return;
     m_busy = value;
     emit busyChanged();
+}
+
+// Progress updates are throttled and forwarded from the isolated background
+// importer to the UI thread. The legacy synchronous path is retained only for
+// compatibility with callers that still perform tiny direct imports.
+void PrivateVaultManager::publishTransferProgress(bool force)
+{
+    if (!m_transferActive)
+        return;
+    if (!force && m_transferClock.isValid() && m_transferClock.elapsed() < 70)
+        return;
+    m_transferClock.restart();
+    if (m_importWorker) {
+        if (m_progressPublisher)
+            m_progressPublisher(m_transferBytesDone, m_transferBytesTotal,
+                                m_transferFilesDone, m_transferFilesTotal,
+                                m_transferCurrentFile, m_transferPhase);
+        return;
+    }
+    emit transferProgressChanged();
+    // Other small synchronous imports still use the existing UI update path.
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers);
+}
+
+void PrivateVaultManager::finishTransfer(bool success, const QString &message)
+{
+    if (!m_transferActive)
+        return;
+    m_transferActive = false;
+    m_transferPhase.clear();
+    m_transferCurrentFile.clear();
+    emit transferProgressChanged();
+    // A running import suspends the automatic lock countdown so that the key
+    // cannot disappear halfway through encryption or before saving the index.
+    startAutoLockCountdown();
+    if (auto* sizes = DirectorySizeIndex::existing())
+        QMetaObject::invokeMethod(sizes, &DirectorySizeIndex::invalidateAllCached, Qt::QueuedConnection);
+    emit transferFinished(success, message);
 }
 
 void PrivateVaultManager::setError(const QString &message)
@@ -437,10 +504,10 @@ bool PrivateVaultManager::aesGcmDecrypt(const QByteArray &cipher, const QByteArr
 bool PrivateVaultManager::readHeader(QJsonObject *header) const
 {
     QFile file(headerPath());
-    if (!file.open(QIODevice::ReadOnly) || file.size() > 65536)
+    if (!file.open(QIODevice::ReadOnly) || file.size() > kMaxVaultHeaderBytes)
         return false;
-    const QByteArray bytes = file.read(65537);
-    if (bytes.size() > 65536 || file.error() != QFileDevice::NoError || !file.atEnd())
+    const QByteArray bytes = file.read(kMaxVaultHeaderBytes + 1);
+    if (bytes.size() > kMaxVaultHeaderBytes || file.error() != QFileDevice::NoError || !file.atEnd())
         return false;
     QJsonParseError error;
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
@@ -477,11 +544,15 @@ bool PrivateVaultManager::writeHeader(QJsonObject &header, const QJsonObject *ex
     } else if (expected) {
         return false;
     }
+    // Reject oversized metadata BEFORE touching the durable vault header.
+    // This must match readHeader(): never persist a vault we cannot reopen.
+    const QByteArray bytes = QJsonDocument(header).toJson(QJsonDocument::Compact);
+    if (bytes.size() > kMaxVaultHeaderBytes)
+        return false;
     QSaveFile file(headerPath());
     if (!file.open(QIODevice::WriteOnly))
         return false;
     if (!file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)) return false;
-    const QByteArray bytes = QJsonDocument(header).toJson(QJsonDocument::Compact);
     if (file.write(bytes) != bytes.size())
         return false;
     if (!file.commit())
@@ -771,6 +842,7 @@ void PrivateVaultManager::removeMasterKeyFromWallet()
 
 bool PrivateVaultManager::setKWalletEnabled(bool enabled)
 {
+    if (m_busy) return false;
     clearStatus();
     if (!m_unlocked) {
         setError(tr("KWallet ayarı için önce kasanın kilidini aç."));
@@ -800,6 +872,7 @@ bool PrivateVaultManager::setKWalletEnabled(bool enabled)
 
 bool PrivateVaultManager::setAutoLockEnabled(bool enabled)
 {
+    if (m_busy) return false;
     if (!m_unlocked)
         return false;
     m_autoLockEnabled = enabled;
@@ -812,6 +885,7 @@ bool PrivateVaultManager::setAutoLockEnabled(bool enabled)
 
 bool PrivateVaultManager::setAutoLockMinutes(int minutes)
 {
+    if (m_busy) return false;
     if (!m_unlocked || (minutes != 5 && minutes != 15 && minutes != 30 && minutes != 60))
         return false;
     m_autoLockMinutes = minutes;
@@ -824,6 +898,7 @@ bool PrivateVaultManager::setAutoLockMinutes(int minutes)
 
 bool PrivateVaultManager::changePassword(const QString &currentPassword, const QString &newPassword)
 {
+    if (m_busy) return false;
     clearStatus();
     if (!m_unlocked || m_masterKey.size() != KeySize) {
         setError(tr("Parolayı değiştirmek için kasa açık olmalı."));
@@ -1118,10 +1193,16 @@ bool PrivateVaultManager::saveManifest()
         OPENSSL_cleanse(plain.data(), static_cast<size_t>(plain.size()));
     if (!encrypted)
         return false;
-    m_header.insert(QStringLiteral("manifestIv"), QString::fromUtf8(b64(iv)));
-    m_header.insert(QStringLiteral("manifestCipher"), QString::fromUtf8(b64(cipher)));
-    m_header.insert(QStringLiteral("manifestTag"), QString::fromUtf8(b64(tag)));
-    return writeHeader(m_header);
+    // Stage metadata in a copy: a failed atomic save must NOT leave an
+    // unsaved manifest envelope in memory and poison a subsequent write.
+    QJsonObject updatedHeader = m_header;
+    updatedHeader.insert(QStringLiteral("manifestIv"), QString::fromUtf8(b64(iv)));
+    updatedHeader.insert(QStringLiteral("manifestCipher"), QString::fromUtf8(b64(cipher)));
+    updatedHeader.insert(QStringLiteral("manifestTag"), QString::fromUtf8(b64(tag)));
+    if (!writeHeader(updatedHeader))
+        return false;
+    m_header = updatedHeader;
+    return true;
 }
 
 bool PrivateVaultManager::createVault(const QString &password, bool recovery)
@@ -1284,6 +1365,8 @@ bool PrivateVaultManager::unlock(const QString &password)
     m_unlocked = true;
     loadSecurityPreferences();
     m_currentFolderId = QStringLiteral("root");
+    m_backHistory.clear();
+    m_forwardHistory.clear();
     cleanupOrphanBlobs();
     cleanupOrphanThumbnails();
     setBusy(false);
@@ -1297,8 +1380,66 @@ bool PrivateVaultManager::unlock(const QString &password)
     return true;
 }
 
+bool PrivateVaultManager::deleteVault()
+{
+    if (m_busy) {
+        setError(tr("Kasa meşgulken silinemez."));
+        return false;
+    }
+    clearStatus();
+    if (!exists()) {
+        setError(tr("Silinecek bir kasa bulunamadı."));
+        return false;
+    }
+    const QFileInfo rootInfo(vaultRoot());
+    // Never traverse a replacement symlink or an unexpected filesystem target.
+    if (rootInfo.isSymLink() || !rootInfo.isDir()) {
+        setError(tr("Güvensiz kasa dizini; silme işlemi durduruldu."));
+        return false;
+    }
+
+    setBusy(true);
+    // Stop viewers, shred in-memory keys and clear plaintext previews first.
+    lock();
+    // Remove any stored KWallet entry for this vault when KWallet is usable.
+    if (m_kwalletEnabled)
+        removeMasterKeyFromWallet();
+    const bool removed = QDir(vaultRoot()).removeRecursively();
+    if (!removed) {
+        setBusy(false);
+        loadSecurityPreferences();
+        loadAuthenticationState();
+        emit securitySettingsChanged();
+        emit stateChanged();
+        setError(tr("Kasa dosyalarının tümü silinemedi. Dizin izinlerini denetleyin."));
+        return false;
+    }
+
+    m_backHistory.clear();
+    m_forwardHistory.clear();
+    m_failedPasswordAttempts = 0;
+    m_passwordLockoutUntil = 0;
+    m_passwordRetryUntil = 0;
+    loadSecurityPreferences();
+    setBusy(false);
+    emit authenticationStateChanged();
+    emit securitySettingsChanged();
+    emit currentFolderChanged();
+    emit stateChanged();
+    setStatus(tr("Kasa ve içindeki tüm veriler silindi. Yeni kasa oluşturabilirsiniz."));
+    emit operationFinished(true, m_statusMessage);
+    return true;
+}
+
 void PrivateVaultManager::lock()
 {
+    // Leaving the vault page during background encryption must not erase the
+    // live session before it has durably committed/rolled back. Lock as soon
+    // as the worker reports completion instead.
+    if (m_transferActive && m_busy && !m_importWorker) {
+        m_lockAfterTransfer = true;
+        return;
+    }
     if (m_autoLockTimer)
         m_autoLockTimer->stop();
     // Give Lurviko-owned viewers/players a chance to stop and release their
@@ -1314,6 +1455,8 @@ void PrivateVaultManager::lock()
     m_header = {};
     m_manifest = {};
     m_currentFolderId = QStringLiteral("root");
+    m_backHistory.clear();
+    m_forwardHistory.clear();
     const bool wasUnlocked = m_unlocked;
     m_unlocked = false;
     if (wasUnlocked) {
@@ -1687,17 +1830,28 @@ bool PrivateVaultManager::deleteItem(const QString &objectId)
         if (!runtimeThumb.isEmpty())
             QFile::remove(runtimeThumb);
     }
+    m_backHistory.removeIf([&removeSet](const QString &id) { return removeSet.contains(id); });
+    m_forwardHistory.removeIf([&removeSet](const QString &id) { return removeSet.contains(id); });
+    if (removeSet.contains(m_currentFolderId))
+        m_currentFolderId = QStringLiteral("root");
     refreshVisibleItems();
     return true;
 }
 
+bool PrivateVaultManager::validFolder(const QString &folderId) const
+{
+    if (folderId == QStringLiteral("root"))
+        return true;
+    const QJsonObject item = itemById(folderId);
+    return !item.isEmpty() && item.value(QStringLiteral("dir")).toBool();
+}
+
 bool PrivateVaultManager::enterFolder(const QString &objectId)
 {
-    if (!m_unlocked)
+    if (!m_unlocked || m_busy || !validFolder(objectId) || objectId == m_currentFolderId)
         return false;
-    const QJsonObject item = itemById(objectId);
-    if (item.isEmpty() || !item.value(QStringLiteral("dir")).toBool())
-        return false;
+    m_backHistory.append(m_currentFolderId);
+    m_forwardHistory.clear();
     m_currentFolderId = objectId;
     refreshVisibleItems();
     return true;
@@ -1705,25 +1859,62 @@ bool PrivateVaultManager::enterFolder(const QString &objectId)
 
 bool PrivateVaultManager::goUp()
 {
-    if (!m_unlocked || m_currentFolderId == QStringLiteral("root"))
+    if (!m_unlocked || m_busy || m_currentFolderId == QStringLiteral("root"))
         return false;
     const QJsonObject current = itemById(m_currentFolderId);
-    m_currentFolderId = current.value(QStringLiteral("parent")).toString();
-    if (m_currentFolderId.isEmpty()) m_currentFolderId = QStringLiteral("root");
-    refreshVisibleItems();
-    return true;
+    const QString parent = current.value(QStringLiteral("parent")).toString();
+    if (!validFolder(parent))
+        return false;
+    return enterFolder(parent);
 }
 
 void PrivateVaultManager::goRoot()
 {
-    if (!m_unlocked)
-        return;
-    m_currentFolderId = QStringLiteral("root");
-    refreshVisibleItems();
+    if (m_unlocked && !m_busy && m_currentFolderId != QStringLiteral("root"))
+        enterFolder(QStringLiteral("root"));
+}
+
+bool PrivateVaultManager::goBack()
+{
+    if (!m_unlocked || m_busy)
+        return false;
+    while (!m_backHistory.isEmpty()) {
+        const QString destination = m_backHistory.takeLast();
+        if (!validFolder(destination))
+            continue;
+        m_forwardHistory.append(m_currentFolderId);
+        m_currentFolderId = destination;
+        refreshVisibleItems();
+        return true;
+    }
+    return false;
+}
+
+bool PrivateVaultManager::goForward()
+{
+    if (!m_unlocked || m_busy)
+        return false;
+    while (!m_forwardHistory.isEmpty()) {
+        const QString destination = m_forwardHistory.takeLast();
+        if (!validFolder(destination))
+            continue;
+        m_backHistory.append(m_currentFolderId);
+        m_currentFolderId = destination;
+        refreshVisibleItems();
+        return true;
+    }
+    return false;
+}
+
+void PrivateVaultManager::refresh()
+{
+    if (m_unlocked && !m_busy)
+        refreshVisibleItems();
 }
 
 bool PrivateVaultManager::encryptFileToBlob(const QString &sourcePath, const QString &objectId,
-                                            const QString &blobName, const QByteArray &key) const
+                                            const QString &blobName, const QByteArray &key,
+                                            const std::function<void(qint64)> &onBytes) const
 {
     QFile in(sourcePath);
     if (!in.open(QIODevice::ReadOnly) || in.size() > VaultSecurity::MaxGcmPlaintextBytes)
@@ -1763,6 +1954,8 @@ bool PrivateVaultManager::encryptFileToBlob(const QString &sourcePath, const QSt
             ok = false; break;
         }
         if (len > 0 && out.write(output.constData(), len) != len) { ok = false; break; }
+        if (onBytes)
+            onBytes(read);
     }
     if (ok) {
         ok = EVP_EncryptFinal_ex(ctx, reinterpret_cast<unsigned char *>(output.data()), &len) == 1;
@@ -1848,7 +2041,9 @@ bool PrivateVaultManager::decryptBlobToFile(const QString &objectId, const QStri
     return ok;
 }
 
-bool PrivateVaultManager::importPathRecursive(const QString &path, const QString &parentId, QStringList *createdBlobNames)
+bool PrivateVaultManager::importPathRecursive(const QString &path, const QString &parentId,
+                                              QStringList *createdBlobNames,
+                                              const std::function<void(qint64, const QString &)> &onProgress)
 {
     const QFileInfo info(path);
     if (!info.exists())
@@ -1870,7 +2065,7 @@ bool PrivateVaultManager::importPathRecursive(const QString &path, const QString
         m_manifest.insert(QStringLiteral("items"), items);
         const QFileInfoList children = QDir(path).entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot, QDir::Name);
         for (const QFileInfo &child : children) {
-            if (!importPathRecursive(child.absoluteFilePath(), folderId, createdBlobNames))
+            if (!importPathRecursive(child.absoluteFilePath(), folderId, createdBlobNames, onProgress))
                 return false;
         }
         return true;
@@ -1884,7 +2079,8 @@ bool PrivateVaultManager::importPathRecursive(const QString &path, const QString
     }
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QString blob = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    if (!encryptFileToBlob(info.absoluteFilePath(), id, blob, m_masterKey))
+    if (!encryptFileToBlob(info.absoluteFilePath(), id, blob, m_masterKey,
+                           [&](qint64 bytes) { if (onProgress) onProgress(bytes, info.fileName()); }))
         return false;
     if (createdBlobNames)
         createdBlobNames->append(blob);
@@ -1902,6 +2098,8 @@ bool PrivateVaultManager::importPathRecursive(const QString &path, const QString
         { QStringLiteral("blob"), blob }
     });
     m_manifest.insert(QStringLiteral("items"), items);
+    if (onProgress)
+        onProgress(0, info.fileName());
     return true;
 }
 
@@ -1944,6 +2142,346 @@ bool PrivateVaultManager::importUrls(const QVariantList &urls)
     setBusy(false);
     refreshVisibleItems();
     setStatus(tr("%1 öğe Sana Özel kasasına şifrelenerek eklendi.").arg(imported));
+    emit operationFinished(true, m_statusMessage);
+    return true;
+}
+
+bool PrivateVaultManager::importToReceived(const QVariantList &urls, bool removeOriginals)
+{
+    if (!m_importWorker) {
+        if (!m_unlocked || m_busy || m_masterKey.size() != KeySize) {
+            setError(securityMessage("Unlock the vault before sending files.",
+                                     "Dosya göndermek için kasanın kilidini açın."));
+            return false;
+        }
+        if (urls.isEmpty()) {
+            setError(securityMessage("No files selected.", "Gönderilecek dosya seçilmedi."));
+            return false;
+        }
+        clearStatus();
+        setBusy(true);
+        m_lockAfterTransfer = false;
+        m_transferActive = true;
+        m_transferBytesDone = 0;
+        m_transferBytesTotal = 0;
+        m_transferFilesDone = 0;
+        m_transferFilesTotal = 0;
+        m_transferCurrentFile.clear();
+        m_transferPhase = securityMessage("Checking source files…", "Kaynaklar kontrol ediliyor…");
+        if (m_autoLockTimer)
+            m_autoLockTimer->stop();
+        emit transferProgressChanged();
+
+        // Snapshot all mutable vault data on its owner (UI) thread. Never
+        // operate on this QObject or the live model in the worker thread.
+        QJsonObject manifestSnapshot = m_manifest;
+        QJsonObject headerSnapshot = m_header;
+        QByteArray keySnapshot = m_masterKey;
+        keySnapshot.detach();
+        m_importFuture = QtConcurrent::run(
+            [this, urls, removeOriginals, manifestSnapshot = std::move(manifestSnapshot),
+             headerSnapshot = std::move(headerSnapshot), keySnapshot = std::move(keySnapshot)]() mutable {
+                PrivateVaultManager worker(nullptr, true);
+                worker.m_unlocked = true;
+                worker.m_manifest = std::move(manifestSnapshot);
+                worker.m_header = std::move(headerSnapshot);
+                worker.m_masterKey = keySnapshot;
+                worker.m_masterKey.detach();
+                worker.secureClear(keySnapshot);
+                worker.m_progressPublisher = [this](qint64 done, qint64 total,
+                                                     int filesDone, int filesTotal,
+                                                     const QString &file, const QString &phase) {
+                    QMetaObject::invokeMethod(this,
+                        [this, done, total, filesDone, filesTotal, file, phase]() {
+                            if (!m_transferActive)
+                                return;
+                            m_transferBytesDone = done;
+                            m_transferBytesTotal = total;
+                            m_transferFilesDone = filesDone;
+                            m_transferFilesTotal = filesTotal;
+                            m_transferCurrentFile = file;
+                            m_transferPhase = phase;
+                            emit transferProgressChanged();
+                        }, Qt::QueuedConnection);
+                };
+                // This existing import implementation runs entirely on the
+                // isolated worker's state, including validation, encryption,
+                // header commit, and optional source deletion. The UI remains
+                // responsive; the ordinary manager remains busy to serialize
+                // mutations and block a second simultaneous import.
+                const bool success = worker.importToReceived(urls, removeOriginals);
+                QJsonObject committedManifest = worker.m_manifest;
+                QJsonObject committedHeader = worker.m_header;
+                const QString message = success ? worker.m_statusMessage : worker.m_lastError;
+                worker.m_progressPublisher = {};
+                worker.lock();
+                QMetaObject::invokeMethod(this,
+                    [this, success, message, committedManifest = std::move(committedManifest),
+                     committedHeader = std::move(committedHeader)]() mutable {
+                        // Even when deletion fails after successful encryption,
+                        // the new encrypted header was committed and must be
+                        // reflected in the live model.
+                        m_manifest = std::move(committedManifest);
+                        m_header = std::move(committedHeader);
+                        refreshVisibleItems();
+                        setBusy(false);
+                        if (success)
+                            setStatus(message);
+                        else
+                            setError(message);
+                        finishTransfer(success, message);
+                        emit operationFinished(success, message);
+                        if (m_lockAfterTransfer) {
+                            m_lockAfterTransfer = false;
+                            lock();
+                        }
+                    }, Qt::QueuedConnection);
+            });
+        // A started transfer is accepted; completion/errors arrive by signal.
+        return true;
+    }
+
+    if (!m_unlocked || m_busy) {
+        setError(securityMessage("Unlock the vault before sending files.",
+                                 "Dosya göndermek için kasanın kilidini açın."));
+        return false;
+    }
+    clearStatus();
+    if (urls.isEmpty()) {
+        setError(securityMessage("No files selected.", "Gönderilecek dosya seçilmedi."));
+        return false;
+    }
+
+    setBusy(true);
+    m_transferActive = true;
+    m_transferBytesDone = 0;
+    m_transferBytesTotal = 0;
+    m_transferFilesDone = 0;
+    m_transferFilesTotal = 0;
+    m_transferCurrentFile.clear();
+    m_transferPhase = securityMessage("Checking source files…", "Kaynaklar kontrol ediliyor…");
+    if (m_autoLockTimer)
+        m_autoLockTimer->stop();
+    m_transferClock.invalidate();
+    publishTransferProgress(true);
+
+    // Never recursively import a directory that contains the vault itself.
+    // Also reject links and special files: the existing importer's deliberate
+    // symlink-skipping policy must NEVER turn into silent loss of originals.
+    const QString protectedRoot = QDir::cleanPath(QFileInfo(vaultRoot()).absoluteFilePath());
+    QStringList sources;
+    struct SourceFingerprint {
+        QString path;
+        dev_t device;
+        ino_t inode;
+        off_t size;
+        mode_t mode;
+        timespec modified;
+    };
+    QVector<SourceFingerprint> fingerprints;
+    const auto unchanged = [](const SourceFingerprint &item) {
+        struct stat actual {};
+        if (::lstat(QFile::encodeName(item.path).constData(), &actual) != 0)
+            return false;
+        return actual.st_dev == item.device && actual.st_ino == item.inode
+            && actual.st_size == item.size && actual.st_mode == item.mode
+            && actual.st_mtim.tv_sec == item.modified.tv_sec
+            && actual.st_mtim.tv_nsec == item.modified.tv_nsec;
+    };
+    QString invalidPath;
+    std::function<bool(const QString &)> inspect = [&](const QString &path) {
+        struct stat info {};
+        if (::lstat(QFile::encodeName(path).constData(), &info) != 0
+                || (!S_ISDIR(info.st_mode) && !S_ISREG(info.st_mode))) {
+            invalidPath = path;
+            return false;
+        }
+        const QFileInfo file(path);
+        if (!file.isReadable() || (S_ISDIR(info.st_mode) && !file.isExecutable())) {
+            invalidPath = path;
+            return false;
+        }
+        fingerprints.append({ path, info.st_dev, info.st_ino, info.st_size, info.st_mode, info.st_mtim });
+        m_transferCurrentFile = file.fileName();
+        if (S_ISREG(info.st_mode)) {
+            ++m_transferFilesTotal;
+            // Defend against overflow while sizing a very large source tree.
+            if (info.st_size > std::numeric_limits<qint64>::max() - m_transferBytesTotal) {
+                invalidPath = path;
+                return false;
+            }
+            m_transferBytesTotal += info.st_size;
+        }
+        publishTransferProgress();
+        if (S_ISDIR(info.st_mode)) {
+            const QFileInfoList children = QDir(path).entryInfoList(
+                QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot, QDir::Name);
+            for (const QFileInfo &child : children) {
+                if (!inspect(child.absoluteFilePath()))
+                    return false;
+            }
+        }
+        return true;
+    };
+    for (const QVariant &value : urls) {
+        const QString raw = value.toString();
+        const QUrl url(raw);
+        const QString path = url.isLocalFile() ? url.toLocalFile()
+            : (url.scheme().isEmpty() ? raw : QString());
+        const QString absolute = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+        if (path.isEmpty() || !QDir::isAbsolutePath(path) || absolute == QStringLiteral("/")
+                || absolute == protectedRoot || absolute.startsWith(protectedRoot + QLatin1Char('/'))
+                || protectedRoot.startsWith(absolute + QLatin1Char('/'))) {
+            invalidPath = raw;
+            break;
+        }
+        // Do not follow directory symlinks embedded in the path to an item.
+        QString ancestor = absolute;
+        bool linkedAncestor = false;
+        while (ancestor != QStringLiteral("/")) {
+            if (QFileInfo(ancestor).isSymLink()) { linkedAncestor = true; break; }
+            ancestor = QFileInfo(ancestor).absolutePath();
+        }
+        if (linkedAncestor) { invalidPath = raw; break; }
+        bool overlaps = false;
+        for (const QString &previous : std::as_const(sources)) {
+            if (previous == absolute || previous.startsWith(absolute + QLatin1Char('/'))
+                    || absolute.startsWith(previous + QLatin1Char('/'))) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (overlaps || !inspect(absolute)) {
+            if (invalidPath.isEmpty()) invalidPath = raw;
+            break;
+        }
+        sources.append(absolute);
+    }
+    if (!invalidPath.isEmpty() || sources.size() != urls.size()) {
+        setError(securityMessage("Unable to safely import the selection. Check inaccessible items, links, special files or overlapping paths: ",
+                                 "Seçim güvenli biçimde aktarılamadı. Erişilemeyen öğe, bağlantı, özel dosya veya iç içe yolları kontrol edin: ")
+                 + invalidPath);
+        setBusy(false);
+        finishTransfer(false, m_lastError);
+        emit operationFinished(false, m_lastError);
+        return false;
+    }
+
+    m_transferPhase = securityMessage("Encrypting files…", "Dosyalar şifreleniyor…");
+    m_transferCurrentFile.clear();
+    publishTransferProgress(true);
+    const QJsonObject previousManifest = m_manifest;
+    QStringList createdBlobs;
+    auto rollback = [&]() {
+        for (const QString &blob : std::as_const(createdBlobs))
+            QFile::remove(QDir(objectsRoot()).filePath(blob));
+        m_manifest = previousManifest;
+        cleanupOrphanThumbnails();
+        setBusy(false);
+        if (m_lastError.isEmpty())
+            setError(securityMessage("Vault import failed; original files were kept.",
+                                     "Kasaya aktarım başarısız; kaynak dosyalar korundu."));
+        finishTransfer(false, m_lastError);
+        emit operationFinished(false, m_lastError);
+        return false;
+    };
+
+    // Remember the inbox's stable ID in the encrypted manifest so names can be
+    // changed in the UI without creating a new Received folder each time.
+    QString receivedId = m_manifest.value(QStringLiteral("receivedFolderId")).toString();
+    QJsonObject received = itemById(receivedId);
+    if (!received.value(QStringLiteral("dir")).toBool()
+            || received.value(QStringLiteral("parent")).toString() != QStringLiteral("root")) {
+        receivedId.clear();
+        const QJsonArray entries = m_manifest.value(QStringLiteral("items")).toArray();
+        for (const QJsonValue &entry : entries) {
+            const QJsonObject item = entry.toObject();
+            if (item.value(QStringLiteral("dir")).toBool()
+                    && item.value(QStringLiteral("parent")).toString() == QStringLiteral("root")
+                    && item.value(QStringLiteral("name")).toString() == QStringLiteral("Alınanlar")) {
+                receivedId = item.value(QStringLiteral("id")).toString();
+                break;
+            }
+        }
+        if (receivedId.isEmpty()) {
+            receivedId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            QJsonArray entries = m_manifest.value(QStringLiteral("items")).toArray();
+            entries.append(QJsonObject {
+                { QStringLiteral("id"), receivedId }, { QStringLiteral("parent"), QStringLiteral("root") },
+                { QStringLiteral("name"), uniqueName(QStringLiteral("root"), QStringLiteral("Alınanlar")) },
+                { QStringLiteral("dir"), true }, { QStringLiteral("size"), 0 },
+                { QStringLiteral("mime"), QStringLiteral("inode/directory") },
+                { QStringLiteral("modifiedMs"), static_cast<double>(QDateTime::currentMSecsSinceEpoch()) }
+            });
+            m_manifest.insert(QStringLiteral("items"), entries);
+        }
+    }
+    m_manifest.insert(QStringLiteral("receivedFolderId"), receivedId);
+    for (const QString &source : std::as_const(sources)) {
+        if (!importPathRecursive(source, receivedId, &createdBlobs,
+                [&](qint64 bytes, const QString &fileName) {
+                    if (bytes == 0)
+                        ++m_transferFilesDone;
+                    else
+                        m_transferBytesDone += bytes;
+                    m_transferCurrentFile = fileName;
+                    publishTransferProgress();
+                }))
+            return rollback();
+    }
+    m_transferPhase = securityMessage("Saving encrypted index…", "Şifreli dizin kaydediliyor…");
+    m_transferCurrentFile.clear();
+    publishTransferProgress(true);
+    // If a file changed while being encrypted, do not ever remove it. The
+    // newly encrypted copies are rolled back before committing the manifest.
+    for (const SourceFingerprint &item : std::as_const(fingerprints)) {
+        if (!unchanged(item)) {
+            setError(securityMessage("A source changed during import. Nothing was deleted.",
+                                     "Aktarım sırasında kaynak değişti. Hiçbir şey silinmedi."));
+            return rollback();
+        }
+    }
+    if (!saveManifest()) {
+        setError(securityMessage("Could not save the encrypted vault index.",
+                                 "Şifreli kasa dizini kaydedilemedi."));
+        return rollback();
+    }
+    refreshVisibleItems();
+    if (removeOriginals) {
+        m_transferPhase = securityMessage("Removing originals…", "Kaynaklar siliniyor…");
+        publishTransferProgress(true);
+        // Recheck the full source tree before ANY deletion. The encrypted
+        // manifest is already durable; deletion errors must never roll it back.
+        for (const SourceFingerprint &item : std::as_const(fingerprints)) {
+            if (!unchanged(item)) {
+                setBusy(false);
+                setError(securityMessage("Files were encrypted, but a source changed. Originals were kept.",
+                                         "Dosyalar kasaya aktarıldı ancak kaynak değişti. Orijinaller korundu."));
+                finishTransfer(false, m_lastError);
+                emit operationFinished(false, m_lastError);
+                return false;
+            }
+        }
+        for (const QString &source : std::as_const(sources)) {
+            const QFileInfo info(source);
+            const bool removed = info.isDir() ? QDir(source).removeRecursively() : QFile::remove(source);
+            if (!removed) {
+                setBusy(false);
+                setError(securityMessage("Encrypted copies are safe, but one or more originals could not be completely deleted: ",
+                                         "Şifreli kopyalar kasada, ancak bazı kaynaklar tamamen silinemedi: ") + source);
+                finishTransfer(false, m_lastError);
+                emit operationFinished(false, m_lastError);
+                return false;
+            }
+        }
+    }
+    setBusy(false);
+    setStatus(removeOriginals
+        ? securityMessage("Encrypted in Received and removed from original locations (not moved to Trash).",
+                          "Alınanlar'a şifrelenerek aktarıldı, kaynaklar çöpe gönderilmeden silindi.")
+        : securityMessage("Encrypted copies added to the Received folder.",
+                          "Şifreli kopyalar Alınanlar klasörüne eklendi."));
+    finishTransfer(true, m_statusMessage);
     emit operationFinished(true, m_statusMessage);
     return true;
 }

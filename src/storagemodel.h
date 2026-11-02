@@ -118,7 +118,6 @@ private:
     QFutureWatcher<QVector<Entry>> m_refreshWatcher;
     QFutureWatcher<QVector<NetworkCapacity>> m_networkWatcher;
     QProcess m_udevMonitor;
-    QTimer m_pollTimer;
     QTimer m_refreshDebounce;
     bool m_refreshQueued = false;
     bool m_networkRefreshQueued = false;

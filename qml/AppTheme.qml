@@ -17,6 +17,8 @@ QtObject {
         property bool kioProgressEnabled: false
         property bool operationAutoHide: true
         property int operationAutoHideSeconds: 8
+        // Only relevant when automatically minimizing transfer progress.
+        property bool operationShowOnCompletion: false
         property int sidebarIconSize: 19
         property int homeIconSize: 28
         property int systemSidebarIconSize: 22
@@ -24,6 +26,86 @@ QtObject {
         property int wheelScrollStep: 250
         property int fileTitleLines: 1
         property int fileSubtitleLines: 1
+    }
+
+    // Discover navigation watermark. Values are shared by every sidebar/page
+    // and are persisted only after an explicit Save in the live editor.
+    property Settings discoverWatermarkSettings: Settings {
+        category: "DiscoverWatermark"
+        property string iconName: "watermark.png"
+        property real scale: 1.5
+        property real angle: -10
+        property real opacityValue: 0.25
+        property real offsetX: -15
+        property real offsetY: 0
+        // One-time migration changes only the previous factory preset.
+        // Existing customized watermark settings remain untouched.
+        property int presetVersion: 0
+    }
+    property string discoverWatermarkIcon: discoverWatermarkSettings.iconName
+    property real discoverWatermarkScale: discoverWatermarkSettings.scale
+    property real discoverWatermarkAngle: discoverWatermarkSettings.angle
+    property real discoverWatermarkOpacity: discoverWatermarkSettings.opacityValue
+    property real discoverWatermarkOffsetX: discoverWatermarkSettings.offsetX
+    property real discoverWatermarkOffsetY: discoverWatermarkSettings.offsetY
+    readonly property url discoverWatermarkSource: icon(discoverWatermarkIcon, accent)
+
+    Component.onCompleted: migrateDiscoverWatermarkPreset()
+    function migrateDiscoverWatermarkPreset() {
+        if (discoverWatermarkSettings.presetVersion >= 1)
+            return
+        const oldPreset = discoverWatermarkSettings.iconName === "home.svg"
+            && Math.abs(discoverWatermarkSettings.scale - 1.5) < 0.0001
+            && Math.abs(discoverWatermarkSettings.angle + 12) < 0.0001
+            && Math.abs(discoverWatermarkSettings.opacityValue - 0.08) < 0.0001
+            && Math.abs(discoverWatermarkSettings.offsetX) < 0.0001
+            && Math.abs(discoverWatermarkSettings.offsetY) < 0.0001
+        if (oldPreset) {
+            discoverWatermarkSettings.iconName = "watermark.png"
+            discoverWatermarkSettings.scale = 1.5
+            discoverWatermarkSettings.angle = -10
+            discoverWatermarkSettings.opacityValue = 0.25
+            discoverWatermarkSettings.offsetX = -15
+            discoverWatermarkSettings.offsetY = 0
+        }
+        discoverWatermarkSettings.presetVersion = 1
+        discoverWatermarkSettings.sync()
+        // The live card reads these draft properties, not the Settings object.
+        restoreDiscoverWatermark()
+    }
+
+    function watermarkClamped(value, minimum, maximum, fallback) {
+        const number = Number(value)
+        return isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback
+    }
+    function setDiscoverWatermarkDraft(iconName, scale, angle, alpha, x, y) {
+        const raw = String(iconName || "watermark.png")
+        // Only local files and bundled SVG/PNG icon names may be loaded.
+        discoverWatermarkIcon = localIconSource(raw).length || /^[A-Za-z0-9._+-]+\.(?:svg|png)$/.test(raw)
+            ? raw : "watermark.png"
+        discoverWatermarkScale = watermarkClamped(scale, 0.5, 2.5, 1.5)
+        discoverWatermarkAngle = watermarkClamped(angle, -45, 45, -10)
+        discoverWatermarkOpacity = watermarkClamped(alpha, 0.01, 0.4, 0.25)
+        discoverWatermarkOffsetX = watermarkClamped(x, -90, 90, -15)
+        discoverWatermarkOffsetY = watermarkClamped(y, -35, 35, 0)
+    }
+    function saveDiscoverWatermark() {
+        discoverWatermarkSettings.iconName = discoverWatermarkIcon
+        discoverWatermarkSettings.scale = discoverWatermarkScale
+        discoverWatermarkSettings.angle = discoverWatermarkAngle
+        discoverWatermarkSettings.opacityValue = discoverWatermarkOpacity
+        discoverWatermarkSettings.offsetX = discoverWatermarkOffsetX
+        discoverWatermarkSettings.offsetY = discoverWatermarkOffsetY
+        discoverWatermarkSettings.sync()
+    }
+    function restoreDiscoverWatermark() {
+        setDiscoverWatermarkDraft(discoverWatermarkSettings.iconName,
+            discoverWatermarkSettings.scale, discoverWatermarkSettings.angle,
+            discoverWatermarkSettings.opacityValue, discoverWatermarkSettings.offsetX,
+            discoverWatermarkSettings.offsetY)
+    }
+    function resetDiscoverWatermarkDraft() {
+        setDiscoverWatermarkDraft("watermark.png", 1.5, -10, 0.25, -15, 0)
     }
 
     // Role settings are independent of the palette: empty color and zero px
@@ -183,7 +265,9 @@ QtObject {
     readonly property bool kioProgressEnabled: settings.kioProgressEnabled
     readonly property bool operationAutoHide: settings.operationAutoHide
     readonly property int operationAutoHideSeconds: Math.max(1, Math.min(300, settings.operationAutoHideSeconds))
+    readonly property bool operationShowOnCompletion: settings.operationShowOnCompletion
     function setOperationAutoHide(enabled) { settings.operationAutoHide = !!enabled }
+    function setOperationShowOnCompletion(enabled) { settings.operationShowOnCompletion = !!enabled }
     function setOperationAutoHideSeconds(seconds) {
         if (isFinite(seconds)) settings.operationAutoHideSeconds = Math.max(1, Math.min(300, Math.round(seconds)))
     }
@@ -263,6 +347,11 @@ QtObject {
     readonly property color accentHover: useQtTheme ? mix(qtColors.highlight, qtColors.text, 0.12) : (dark ? "#9E92FA" : "#5548D8")
     readonly property color accentSoft: useQtTheme ? mix(qtColors.base, qtColors.highlight, 0.13) : (dark ? "#29254B" : "#EEECFF")
     readonly property color accentBorder: useQtTheme ? mix(qtColors.mid, qtColors.highlight, 0.50) : (dark ? "#504889" : "#D9D5FF")
+    // A single outline tone for the selected tab AND the entire page below.
+    // Existing built-in theme tab outlines remain unchanged; Qt follows the
+    // desktop highlight brush at half the previous outline opacity.
+    readonly property real qtActiveOutlineOpacity: 0.175
+    readonly property color activeTabOutline: useQtTheme ? tint(accent, qtActiveOutlineOpacity) : border
     readonly property color success: dark ? "#54D6A0" : "#18885B"
     readonly property color warning: dark ? "#F2BD66" : "#B56C09"
     readonly property color danger: dark ? "#FF8089" : "#D84B57"
@@ -593,7 +682,7 @@ QtObject {
             return icon("folder.svg")
         // Explicitly selected UI glyphs only: category artwork and logos keep
         // their original colors. Include the color in the URL for Qt's cache.
-        const monochrome = ["history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
+        const monochrome = ["home.svg", "history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
             "edit-cut.svg", "edit-copy.svg", "edit-paste.svg", "edit-rename.svg", "delete.svg", "properties.svg",
             "nav-back.svg", "nav-forward.svg", "nav-up.svg",
             "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "split-view.svg", "split-view-off.svg", "view-layout.svg",

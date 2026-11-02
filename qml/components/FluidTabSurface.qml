@@ -8,6 +8,9 @@ Item {
     property bool hovered: false
     property bool dropTarget: false
     property bool administrator: false
+    // In the main window, the selected tab and page share ONE contour.
+    // Keep normal tab outlines for standalone previews and unselected tabs.
+    property bool pageOutlineJoined: false
     property color navigationColor: AppTheme.surface
     property real tabOverlap: 0
     property bool occludedOnLeft: false
@@ -33,10 +36,8 @@ Item {
     readonly property color fillColor: dropTarget ? AppTheme.accentSoft
         : AppTheme.mix(passiveColor, activeColor, selectionProgress)
     readonly property color outlineColor: dropTarget ? AppTheme.accent
-        : administrator ? AppTheme.warning
-        : AppTheme.useQtTheme
-            ? AppTheme.mix(AppTheme.border, AppTheme.tint(AppTheme.accent, 0.70), selectionProgress)
-            : AppTheme.border
+        : administrator ? (AppTheme.useQtTheme ? AppTheme.tint(AppTheme.warning, AppTheme.qtActiveOutlineOpacity) : AppTheme.warning)
+        : AppTheme.mix(AppTheme.border, AppTheme.activeTabOutline, selectionProgress)
     Component.onCompleted: animationReady = true
     Behavior on selectionProgress {
         enabled: surface.animationReady && surface.visible
@@ -155,7 +156,8 @@ Item {
         }
         Contour {
             fillColor: "transparent"
-            strokeColor: surface.outlineColor
+            strokeColor: surface.pageOutlineJoined && surface.selected
+                    ? "transparent" : surface.outlineColor
             strokeWidth: surface.dropTarget ? 1.5 : surface.administrator ? 0.8 : 1
             // Keep the navigation join open, including during transitions.
             closeBottom: false

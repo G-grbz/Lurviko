@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(lurviko_git_operations_tests LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Concurrent Test)
+add_executable(git-operations-tests git_operations_tests.cpp ../../src/gitoperations.cpp ../../src/gitoperations.h ../../src/gitstatuscache.cpp ../../src/gitstatuscache.h)
+target_include_directories(git-operations-tests PRIVATE ../../src)
+target_link_libraries(git-operations-tests PRIVATE Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Test)

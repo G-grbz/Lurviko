@@ -61,6 +61,9 @@
 #include "onedrivemanager.h"
 #include "iconpickermanager.h"
 #include "filepropertiesmanager.h"
+#include "sambasharemanager.h"
+#include "gitoperations.h"
+#include "directorysizeindex.h"
 #include "filemanager1interface.h"
 #include "tmdbmetadatamanager.h"
 #include "dlnamediamanager.h"
@@ -406,6 +409,8 @@ int main(int argc, char *argv[])
     qmlRegisterType<OneDriveManager>("Lurviko.Backend", 1, 0, "OneDriveManager");
     qmlRegisterType<IconPickerManager>("Lurviko.Backend", 1, 0, "IconPickerManager");
     qmlRegisterType<FilePropertiesManager>("Lurviko.Backend", 1, 0, "FilePropertiesManager");
+    qmlRegisterType<GitOperations>("Lurviko.Backend", 1, 0, "GitOperations");
+    qmlRegisterType<SambaShareManager>("Lurviko.Backend", 1, 0, "SambaShareManager");
     qmlRegisterType<TmdbMetadataManager>("Lurviko.Backend", 1, 0, "TmdbMetadataManager");
     qmlRegisterType<DlnaMediaManager>("Lurviko.Backend", 1, 0, "DlnaMediaManager");
     qmlRegisterType<FrameRateMatchClient>("Lurviko.Backend", 1, 0, "FrameRateMatchClient");
@@ -707,6 +712,7 @@ int main(int argc, char *argv[])
                                       Q_ARG(QVariant, QVariant(target)));
         }
     }
+
 
     return app.exec();
 }

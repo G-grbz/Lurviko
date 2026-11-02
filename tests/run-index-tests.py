@@ -17,11 +17,13 @@ parser.add_argument('--baseline', type=Path)
 parser.add_argument('--home-settings', type=Path)
 args = parser.parse_args()
 flags = shlex.split(subprocess.check_output(
-    ['pkg-config', '--cflags', '--libs', 'Qt6Core', 'Qt6Concurrent'], text=True))
+    ['pkg-config', '--cflags', '--libs', 'Qt6Core', 'Qt6Concurrent', 'Qt6Sql'], text=True))
 with tempfile.TemporaryDirectory(prefix='lurviko-index-tests-') as temporary:
     root = Path(temporary)
     subprocess.run(['/usr/lib/qt6/moc', str(repo / 'src/contentindexmodel.h'),
                     '-o', str(root / 'moc.cpp')], check=True)
+    subprocess.run(['/usr/lib/qt6/moc', str(repo / 'src/directorysizeindex.h'),
+                    '-o', str(root / 'moc_size.cpp')], check=True)
     environment = dict(os.environ, XDG_CONFIG_HOME=str(root / 'config'),
         XDG_DATA_HOME=str(root / 'data'), XDG_CACHE_HOME=str(root / 'cache'))
     sources = [('current', repo / 'src/contentindexmodel.cpp')]
@@ -31,7 +33,8 @@ with tempfile.TemporaryDirectory(prefix='lurviko-index-tests-') as temporary:
         (root / 'index_source.cpp').write_text(source.read_text())
         subprocess.run(['c++', '-O2', '-fPIC', '-std=c++17', '-I' + str(root), '-I' + str(repo / 'src'),
                         *(['-DBASELINE'] if name == 'baseline' else []),
-                        str(repo / 'tests/index/index_scan.cpp'), str(root / 'moc.cpp'),
+                        str(repo / 'tests/index/index_scan.cpp'), str(root / 'moc.cpp'), str(root / 'moc_size.cpp'),
+                        str(repo / 'src/directorysizeindex.cpp'), str(repo / 'src/directorysizestore.cpp'),
                         '-o', str(root / name), *flags], check=True)
         print(name + ':', flush=True)
         subprocess.run([str(root / name)], env=environment, check=True, timeout=90)

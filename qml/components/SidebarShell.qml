@@ -31,6 +31,7 @@ Item {
             return railFont.advanceWidth(section.title)
         })) + (titleOnly ? 20 : 44))
     readonly property alias panel: sidebarPanel
+    function openWatermarkEditor() { sidebarPanel.openWatermarkEditor() }
     readonly property alias sectionPopup: sectionPopup
     property string activeSection: "places"
     property string hoveredSection: ""
@@ -64,10 +65,12 @@ Item {
         topPadding: 4; bottomPadding: 4
         background: Rectangle {
             radius: AppTheme.radiusSmall
-            color: shell.iconOnly ? "transparent"
+            color: shell.iconOnly
+                ? (railBadge.selected ? AppTheme.accentSoft
+                                      : (railBadge.hovered ? AppTheme.surfaceHover : "transparent"))
                 : railBadge.hovered || railBadge.selected ? AppTheme.accentSoft : AppTheme.surfaceRaised
             border.color: railBadge.selected ? AppTheme.accentBorder : AppTheme.border
-            border.width: shell.iconOnly ? 0 : 0.75
+            border.width: shell.iconOnly ? (railBadge.selected ? 0.75 : 0) : 0.75
             border.pixelAligned: false
         }
         contentItem: Item {

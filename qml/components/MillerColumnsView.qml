@@ -83,6 +83,14 @@ Item {
                     required property string columnLocation
                     required property string columnSelection
                     required property int columnWidth
+                    Binding {
+                        target: column.columnDirectory
+                        property: "monitoringEnabled"
+                        restoreMode: Binding.RestoreNone
+                        value: view.visible && column.x + column.width > horizontal.contentX
+                               && column.x < horizontal.contentX + horizontal.width
+                    }
+                    Component.onDestruction: if (column.columnDirectory) column.columnDirectory.monitoringEnabled = false
                     property alias listView: entries
                     width: columnWidth
                     height: columnRow.height

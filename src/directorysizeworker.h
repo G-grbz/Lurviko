@@ -13,6 +13,7 @@ struct DirectorySizeResult {
 };
 
 struct DirectorySizeProgress {
+    std::atomic<quint64> activeRequest{0};
     std::atomic<qint64> bytes{0};
     std::atomic<int> files{0};
     std::atomic<int> folders{0};

@@ -50,30 +50,70 @@ Their navigation and workspace use the regular light, dark or Qt palette.
 
 Local directory footers show the recursive logical file size beside the item
 count, in IEC units (KiB, MiB, GiB). The calculation includes hidden descendants
-and skips symbolic links. It runs in the background. A short delay avoids
+on the same volume and skips symbolic links. It runs in the background. A short delay avoids
 scanning locations passed through during navigation; transfers take priority
 over automatic recalculation.
-The application shares running scans and completed totals for up to 32 recent
-directories. Leaving a pane detaches its display; returning resumes the same
-scan or immediately shows the cached total. Automatic workers use low priority,
-a CPU-time budget of roughly 10% of one core, and at most two worker threads.
-Waiting on storage does not consume that CPU budget. Refreshes during a scan
-are coalesced rather than repeatedly cancelling and restarting the tree walk.
-During long scans, `≥` marks the size found so far, updated at most twice a
-second. It is replaced by the final total when scanning finishes. A completed
-total remains visible during the delay before a refresh starts.
+Directory monitoring is centralized in one nonblocking inotify instance wired to
+Qt's event loop. Only visible normal/list/grid panels and onscreen Miller columns
+subscribe to directories. Shared paths have one watch; leaving removes the last
+subscription. Scanning descendants never installs recursive watches or per-file
+watches. Category indexing consumes the same visible-directory events, rather
+than registering its own recursive tree. Its four-second media-root probe and
+the storage list's five-second polling refresh have been removed; device events
+and explicit refresh remain available.
 
-Properties shares this calculation and its immediate-child subtotals. Selecting
-all visible items therefore reuses the ready result, or waits for the same
-in-flight scan, rather than starting another recursive walk. Hidden items that
-are not selected are excluded from selection totals. Opening Properties gives
-the shared scan foreground priority; closing it releases that priority.
-Results are in-memory snapshots. Lurviko file operations and changes to a
-directory's own modification time invalidate relevant totals; Refresh forces
-recalculation. Completed snapshots expire after five minutes when requested
-again. External changes deep inside a cached tree may therefore require
-Refresh. Subtotals are limited to 4,096 immediate children per cached directory;
-larger subset selections use a normal Properties calculation.
+The size service performs no automatic startup scan of `/`, home, USB or network volumes. A visible
+pane requests its needed total after navigation settles. Uncached totals show
+`…`, followed by partial progress while a bounded worker calculates them. The
+last reader leaving cooperatively cancels unnecessary work; the latest requested
+location takes priority. Generation checks prevent late results changing a new
+view. Already completed totals survive navigation in the shared persistent cache.
+A separate bounded reader retrieves cached totals while a calculation is active.
+Mounted volumes have independent totals, and virtual filesystems are excluded.
+
+Existing category-index notifications, visible-directory monitoring and KIO
+results feed filesystem changes to the service. It applies actual size
+differences to the affected parents. Duplicate notifications do not apply a
+change twice. Removing a file from a category by changing its filters does not
+subtract a file that still exists on disk. Known moves with source/destination
+information reuse subtree totals. Newly introduced directories are scanned;
+a notification naming only a directory reconciles that directory's contents.
+
+The serial calculation worker keeps database work and filesystem enumeration off
+the UI thread. Updates are batched, pending queues and memory caches are bounded,
+and completed work does not leave a periodic full-scan timer running. During an
+ordinary scan it runs without artificial sleeps; an active transfer retains
+priority. Navigation validates cached directory metadata on demand; unchanged delegates
+and selections do not start new recursive scans. Hidden dirty entries are
+invalidated without scanning and recomputed only when needed. Explicit full
+verification streams metadata in bounded batches without rewriting unchanged
+file records or relisting unchanged directories. During an
+initial scan, `≥` marks the size found so far. `≈` marks a previous or partially
+monitored total. Inaccessible locations retain their last known size; an
+unavailable result is not reported as zero. Initial-scan progress is published at
+most twice a second.
+
+Properties uses the same stored totals, including arbitrary selections spanning
+different directories. Selecting a folder and its child does not count the child
+twice; unselected hidden items are excluded. The service retains at most 64 hot snapshots, each with a 64 KiB budget for
+immediate-child subtotals and reads other selection totals from
+the persistent index. Opening Properties gives shared work foreground priority;
+closing it releases that demand. Direct disk Properties requests also use this
+service, without a separate background size pool.
+
+Visible subscriptions are bounded to 256 distinct directories, and external changes on
+network filesystems may not produce local notifications. An incomplete watch
+scope is displayed as a cached total. **Refresh** forces verification of the
+selected directory tree, including changes made while monitoring was unavailable.
+Changes to unmonitored files while Lurviko is closed can remain in the cached
+total until an existing index/listing notification or Refresh verifies them.
+Lost events request verification rather than guessed arithmetic. Symbolic links
+encountered in a tree are skipped; hard links count once per selected directory
+entry, preserving logical-size semantics. The service's own cache files are
+accounted for when totals are published without recursively indexing its writes.
+
+Measured fixtures, regression coverage and known limits are documented in
+[directory size performance validation](directory-size-performance.md).
 
 ## Video titles and episodes
 

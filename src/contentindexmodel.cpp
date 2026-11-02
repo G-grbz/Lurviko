@@ -1,4 +1,5 @@
 #include "contentindexmodel.h"
+#include "directorysizeindex.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -273,15 +274,6 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
     loadCategorySettings();
     loadMediaRootSettings();
     loadIgnoreRuleSettings();
-    for (auto it = m_mediaRoots.constBegin(); it != m_mediaRoots.constEnd(); ++it) {
-        for (const QString &root : it.value())
-            m_mediaRootAvailability.insert(root, QFileInfo(root).isDir());
-    }
-
-    m_mediaRootProbeTimer.setInterval(4000);
-    m_mediaRootProbeTimer.setSingleShot(false);
-    connect(&m_mediaRootProbeTimer, &QTimer::timeout, this, &ContentIndexModel::probeMediaRootAvailability);
-    m_mediaRootProbeTimer.start();
 
     m_changeDebounce.setSingleShot(true);
     m_changeDebounce.setInterval(260);
@@ -291,13 +283,6 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
     m_saveDebounce.setInterval(900);
     connect(&m_saveDebounce, &QTimer::timeout, this, &ContentIndexModel::saveIndex);
 
-    // Register recursive directory watches incrementally. QFileSystemWatcher::addPaths()
-    // can block the GUI for a noticeable amount of time when thousands of paths
-    // are installed in one call. Small batches keep the event loop responsive.
-    m_watchInstallTimer.setSingleShot(true);
-    m_watchInstallTimer.setInterval(12);
-    connect(&m_watchInstallTimer, &QTimer::timeout, this, &ContentIndexModel::installWatcherBatch);
-
     connect(&m_saveWatcher, &QFutureWatcher<void>::finished, this, [this] {
         if (m_savePending) {
             m_savePending = false;
@@ -305,8 +290,9 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
         }
     });
 
-    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &path) {
+    connect(DirectorySizeIndex::instance(), &DirectorySizeIndex::directoryChanged, this, [this](const QString &path) {
         const QString clean = normalizedPath(path);
+        if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeDirectory(clean);
         if (!clean.isEmpty())
             m_pendingRoots.insert(clean);
         m_changeDebounce.start();
@@ -374,8 +360,6 @@ ContentIndexModel::~ContentIndexModel()
         m_scanCancel->store(true, std::memory_order_relaxed);
     m_changeDebounce.stop();
     m_saveDebounce.stop();
-    m_watchInstallTimer.stop();
-    m_mediaRootProbeTimer.stop();
     m_loadWatcher.disconnect(this);
     m_scanWatcher.disconnect(this);
     m_saveWatcher.disconnect(this);
@@ -711,40 +695,6 @@ bool ContentIndexModel::setCategoryIndexSettings(const QString &category, const 
             changed = true;
         }
         break;
-    }
-
-    QSet<QString> configured;
-    for (auto it = m_mediaRoots.constBegin(); it != m_mediaRoots.constEnd(); ++it) {
-        for (const QString &root : it.value()) {
-            configured.insert(root);
-            if (!m_mediaRootAvailability.contains(root))
-                m_mediaRootAvailability.insert(root, QFileInfo(root).isDir());
-        }
-    }
-    for (auto it = m_mediaRootAvailability.begin(); it != m_mediaRootAvailability.end();) {
-        if (!configured.contains(it.key()))
-            it = m_mediaRootAvailability.erase(it);
-        else
-            ++it;
-    }
-
-    if (changed) {
-        QStringList obsoleteWatches;
-        for (const QString &watched : m_watcher.directories()) {
-            bool stillCovered = false;
-            for (auto rootsIt = m_mediaRoots.constBegin(); rootsIt != m_mediaRoots.constEnd() && !stillCovered; ++rootsIt) {
-                for (const QString &configuredRoot : rootsIt.value()) {
-                    if (pathWithinRoot(watched, configuredRoot)) {
-                        stillCovered = true;
-                        break;
-                    }
-                }
-            }
-            if (!stillCovered)
-                obsoleteWatches.push_back(watched);
-        }
-        if (!obsoleteWatches.isEmpty())
-            m_watcher.removePaths(obsoleteWatches);
     }
 
     if (!changed)
@@ -1541,34 +1491,6 @@ void ContentIndexModel::startPendingScan()
     }));
 }
 
-void ContentIndexModel::probeMediaRootAvailability()
-{
-    QSet<QString> configured;
-    QSet<QString> changedCategories;
-    for (auto it = m_mediaRoots.constBegin(); it != m_mediaRoots.constEnd(); ++it) {
-        for (const QString &root : it.value()) {
-            configured.insert(root);
-            const bool available = QFileInfo(root).isDir();
-            if (!m_mediaRootAvailability.contains(root) || m_mediaRootAvailability.value(root) != available) {
-                m_mediaRootAvailability.insert(root, available);
-                changedCategories.insert(it.key());
-            }
-        }
-    }
-    for (auto it = m_mediaRootAvailability.begin(); it != m_mediaRootAvailability.end();) {
-        if (!configured.contains(it.key()))
-            it = m_mediaRootAvailability.erase(it);
-        else
-            ++it;
-    }
-    for (const QString &category : changedCategories) {
-        if (m_scanRunning)
-            m_pendingCategoryRefreshes.insert(category);
-        else
-            startCategoryScan(category, false);
-    }
-}
-
 void ContentIndexModel::notifyCountsChanged(const QSet<QString> &changedCategories)
 {
     if (!m_categories.isEmpty())
@@ -1580,6 +1502,7 @@ void ContentIndexModel::notifyCountsChanged(const QSet<QString> &changedCategori
 
 void ContentIndexModel::applyFullScan(const ScanResult &result)
 {
+    reportSizeChanges(result);
     bool changed = m_files.size() != result.files.size();
     if (!changed) {
         for (auto it = m_files.constBegin(); it != m_files.constEnd(); ++it) {
@@ -1600,7 +1523,6 @@ void ContentIndexModel::applyFullScan(const ScanResult &result)
     m_scanVisitedEntries = qMax(m_scanVisitedEntries, m_files.size());
     m_scanMatchedFiles = m_files.size();
     emit scanProgressChanged();
-    rebuildWatchers(result.directories);
     // An unchanged startup scan must not tear down/reload an open category
     // or rewrite the same JSON cache. Publish only actual file changes.
     if (changed) {
@@ -1611,6 +1533,7 @@ void ContentIndexModel::applyFullScan(const ScanResult &result)
 
 void ContentIndexModel::applyCategoryScan(const QString &category, const ScanResult &result)
 {
+    reportSizeChanges(result, {}, category);
     bool changed = false;
     int oldCount = 0;
     for (auto it = m_files.constBegin(); it != m_files.constEnd(); ++it) {
@@ -1649,11 +1572,11 @@ void ContentIndexModel::applyCategoryScan(const QString &category, const ScanRes
     m_scanPendingDirectories = 0;
     m_scanMatchedFiles = result.files.size();
     emit scanProgressChanged();
-    addWatchers(result.directories);
 }
 
 void ContentIndexModel::applySubtreeScan(const QString &rootPath, const ScanResult &result)
 {
+    reportSizeChanges(result, rootPath);
     const QString prefix = QDir::cleanPath(rootPath) + QLatin1Char('/');
     bool changed = false;
     QSet<QString> changedCategories;
@@ -1677,8 +1600,7 @@ void ContentIndexModel::applySubtreeScan(const QString &rootPath, const ScanResu
     }
     changed = changed || oldCount != result.files.size();
     if (!changed) {
-        addWatchers(result.directories);
-        return;
+            return;
     }
 
     for (auto it = m_files.begin(); it != m_files.end();) {
@@ -1699,87 +1621,30 @@ void ContentIndexModel::applySubtreeScan(const QString &rootPath, const ScanResu
         m_counts[it->category] = m_counts.value(it->category, 0) + 1;
     }
 
-    addWatchers(result.directories);
 
     m_saveDebounce.start();
     notifyCountsChanged(changedCategories);
 }
 
-void ContentIndexModel::rebuildWatchers(const QStringList &directories)
+void ContentIndexModel::reportSizeChanges(const ScanResult &result, const QString &root, const QString &category)
 {
-    // Watch visible directories first. Explicitly enabled hidden trees can be
-    // enormous, so keep a fixed ceiling and remove watches made obsolete by
-    // changed indexing preferences.
-    QStringList selected;
-    selected.reserve(qMin(kMaxWatchedDirectories, directories.size()));
-    QSet<QString> selectedSet;
-    for (int pass = 0; pass < 2 && selected.size() < kMaxWatchedDirectories; ++pass) {
-        for (const QString &path : directories) {
-            if (isHiddenWithinHome(path) != (pass == 1) || selectedSet.contains(path))
-                continue;
-            selected.push_back(path);
-            selectedSet.insert(path);
-            if (selected.size() == kMaxWatchedDirectories)
-                break;
-        }
+    auto *sizes = DirectorySizeIndex::existing();
+    if (!sizes) return;
+    QStringList changes;
+    const auto report = [&](const QString &path) {
+        changes.push_back(path);
+        if (changes.size() >= 256) { sizes->observePaths(changes); changes.clear(); }
+    };
+    for (auto it = m_files.cbegin(); it != m_files.cend(); ++it) {
+        if (!category.isEmpty() && it->category != category) continue;
+        if (!root.isEmpty() && it.key() != root && !it.key().startsWith(root + '/')) continue;
+        const auto fresh = result.files.constFind(it.key());
+        if (fresh == result.files.cend() || fresh->size != it->size || fresh->modifiedMs != it->modifiedMs)
+            report(it.key());
     }
-
-    m_watchQueue.clear();
-    m_queuedWatchers.clear();
-    QStringList obsolete;
-    for (const QString &path : m_watcher.directories()) {
-        if (!selectedSet.contains(path))
-            obsolete.push_back(path);
-    }
-    if (!obsolete.isEmpty())
-        m_watcher.removePaths(obsolete);
-    queueWatchers(selected);
-}
-
-void ContentIndexModel::addWatchers(const QStringList &directories)
-{
-    queueWatchers(directories);
-}
-
-void ContentIndexModel::queueWatchers(const QStringList &directories)
-{
-    QSet<QString> known = m_queuedWatchers;
-    const QStringList watchedDirectories = m_watcher.directories();
-    for (const QString &path : watchedDirectories)
-        known.insert(path);
-
-    for (const QString &path : directories) {
-        if (known.size() >= kMaxWatchedDirectories)
-            break;
-        if (path.isEmpty() || known.contains(path))
-            continue;
-        m_watchQueue.push_back(path);
-        m_queuedWatchers.insert(path);
-        known.insert(path);
-    }
-
-    if (!m_watchQueue.isEmpty() && !m_watchInstallTimer.isActive())
-        m_watchInstallTimer.start();
-}
-
-void ContentIndexModel::installWatcherBatch()
-{
-    constexpr int kWatchBatchSize = 16;
-    if (m_watchQueue.isEmpty())
-        return;
-
-    QStringList batch;
-    batch.reserve(qMin(kWatchBatchSize, m_watchQueue.size()));
-    for (int i = 0; i < kWatchBatchSize && !m_watchQueue.isEmpty(); ++i) {
-        const QString path = m_watchQueue.takeFirst();
-        m_queuedWatchers.remove(path);
-        if (QFileInfo(path).isDir())
-            batch.push_back(path);
-    }
-
-    if (!batch.isEmpty())
-        m_watcher.addPaths(batch);
-
-    if (!m_watchQueue.isEmpty())
-        m_watchInstallTimer.start();
+    for (auto it = result.files.cbegin(); it != result.files.cend(); ++it)
+        if (!m_files.contains(it.key())) report(it.key());
+    // These are hints about filesystem paths, not index removals. The size
+    // worker checks the real file, so a category filter cannot subtract bytes.
+    if (!changes.isEmpty()) sizes->observePaths(changes);
 }

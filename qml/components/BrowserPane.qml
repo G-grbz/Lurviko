@@ -57,8 +57,76 @@ Rectangle {
     required property var cloudIntegrationPreferences
     required property var googleDrive
     required property var oneDrive
+    property var privateVault: null
+    property var operationPresentation: null
+    readonly property var effectivePresentation: operationPresentation || standaloneOperationPresentation
+    property alias fileOperations: fileOps
+    property bool vaultRemovePending: false
+    property string vaultRemoveOriginLocation: ""
+    Connections {
+        target: root.privateVault
+        function onTransferFinished(success, message) {
+            if (!root.vaultRemovePending)
+                return
+            const origin = root.vaultRemoveOriginLocation
+            root.vaultRemovePending = false
+            root.vaultRemoveOriginLocation = ""
+            // The import call is asynchronous. Refresh the original directory
+            // only AFTER the encrypted commit / optional deletion is finished.
+            if (root.currentLocation === origin) {
+                if (success)
+                    root.clearSelection()
+                directory.refresh()
+            }
+        }
+    }
     signal locationChangedByUser(string location)
     signal requestToast(string message)
+    property bool gitDialogRequested: false
+    function updateGitContext() {
+        if (!paneGit.busy && !(gitDialog.visible && gitDialog.controller === paneGit))
+            paneGit.setContext(root.visible && root.navigationVisible ? root.currentLocation : "")
+    }
+    function openGitAction(action, source) {
+        // Let the complete submenu chain dismiss before giving the modal focus.
+        root.gitDialogRequested = true
+        Qt.callLater(function() { gitDialog.show(source, action); root.gitDialogRequested = false })
+    }
+    function releaseGitMenuContext() {
+        Qt.callLater(function() {
+            if (!root.gitDialogRequested && !gitDialog.visible && !contextGit.busy
+                    && !itemContextMenu.visible && !backgroundContextMenu.visible)
+                contextGit.setContext("")
+        })
+    }
+    function gitOperationFinished(operation, success, message) {
+        root.requestToast(message.replace(/</g, "‹").replace(/>/g, "›"))
+        root.updateGitContext()
+        root.releaseGitMenuContext()
+    }
+    GitOperations {
+        id: paneGit
+        objectName: "paneGitOperations"
+        onOperationFinished: function(operation, success, message) { root.gitOperationFinished(operation, success, message) }
+        onRepositoryMutated: function(repository, commonDirectory, paths) { fileOps.notifyGitChanges(repository, commonDirectory, paths) }
+    }
+    GitOperations {
+        id: contextGit
+        objectName: "contextGitOperations"
+        onOperationFinished: function(operation, success, message) { root.gitOperationFinished(operation, success, message) }
+        onRepositoryMutated: function(repository, commonDirectory, paths) { fileOps.notifyGitChanges(repository, commonDirectory, paths) }
+    }
+    Connections {
+        target: root
+        function onCurrentLocationChanged() { root.updateGitContext() }
+        function onVisibleChanged() { root.updateGitContext() }
+        function onNavigationVisibleChanged() { root.updateGitContext() }
+    }
+    GitDialog {
+        id: gitDialog
+        lang: root.lang
+        onClosed: { root.updateGitContext(); if (!contextGit.busy) contextGit.setContext("") }
+    }
     signal requestNewTab(string location)
     signal requestRevealInNewTab(string location, string itemUrl)
     signal viewportScrollChanged(string location, real offset)
@@ -1839,6 +1907,21 @@ Rectangle {
         return urls
     }
 
+    function sendSelectionToPrivateVault(removeOriginals) {
+        if (!root.privateVault || !root.privateVault.unlocked || root.privateVault.busy)
+            return
+        const urls = root.localUploadSelectionUrls()
+        if (!urls.length || urls.length !== root.selectedCount)
+            return
+        // The application-level vault transfer card receives progress and
+        // completion/error signals. Avoid showing a second overlapping toast.
+        const started = root.privateVault.importToReceived(urls, !!removeOriginals)
+        if (started && removeOriginals) {
+            root.vaultRemoveOriginLocation = root.currentLocation
+            root.vaultRemovePending = true
+        }
+    }
+
     function shareSelectionContainsDirectory() {
         const items = selectedItemsInViewOrder()
         for (let i = 0; i < items.length; ++i) {
@@ -2666,7 +2749,8 @@ Rectangle {
     }
 
     function refreshDirectory() {
-        directoryProperties.invalidateCachedStats(directory.location)
+        if (localSambaSharesPanel.active) localSambaSharesPanel.refresh()
+        directoryProperties.verifyCachedStats(directory.location)
         if (root.isCategoryLocation && root.contentIndexModel)
             root.contentIndexModel.refreshCategory(root.categoryKey)
         else
@@ -3499,6 +3583,7 @@ Rectangle {
     }
 
     DirectoryModel {
+        monitoringEnabled: root.visible
         id: baseDirectory
         heavyIoBusy: fileOps.ioBusy
         folderPreviewsEnabled: root.columnsMode ? false : root.folderPreviewsEnabled
@@ -3659,11 +3744,11 @@ Rectangle {
         if (changed) directorySizeNeedsRefresh = true
         if (!root.visible || !root.currentLocationIsLocal || directory.searchActive) {
             directorySizeTimer.stop()
-            if (directoryProperties.calculating) directoryProperties.cancelInspection()
+            if (directoryProperties.calculating || directoryProperties.statsReady) directoryProperties.cancelInspection()
             return
         }
-        // Navigation detaches this view, not the shared worker. Restore an
-        // existing result/progress immediately, without another debounce/scan.
+        // Restore existing shared results immediately. A worker remains needed
+        // only while another visible consumer still requests its directory.
         if (directoryProperties.calculating) return
         if ((!directoryProperties.statsReady
                 || !root.locationsEquivalent(directoryProperties.path, directory.location))
@@ -3738,6 +3823,7 @@ Rectangle {
         // the first location signal so a Home -> disk transition does not
         // accidentally create a phantom history entry that consumes Back once.
         Qt.callLater(function() { root.userLocationSignalsReady = true })
+        root.updateGitContext()
     }
 
     Component.onDestruction: {
@@ -4197,6 +4283,29 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            GButton {
+                id: gitIndicator
+                objectName: "gitRepositoryIndicator"
+                visible: paneGit.available
+                Layout.preferredWidth: Math.min(185, implicitWidth)
+                implicitHeight: root.navigationControlHeight
+                readonly property string summary: {
+                    const info = paneGit.info
+                    let value = String(info.branch || "Git")
+                    if (info.detached) value += " · HEAD"
+                    else if (!info.upstream) value += lang.language === "tr" ? " · upstream yok" : " · no upstream"
+                    else if (info.countsKnown) value += info.ahead === 0 && info.behind === 0 ? " ✓" : " ↑" + info.ahead + " ↓" + info.behind
+                    else value += " · ?"
+                    if (info.dirtyKnown && info.dirty) value += " *"
+                    if (paneGit.busy) value += " …"
+                    return value
+                }
+                text: summary
+                onClicked: root.openGitAction("info", paneGit)
+                GToolTip { text: (gitIndicator.summary + "\n" + String(paneGit.info.upstream || "") + "\n" + String(paneGit.info.root || "")).replace(/</g, "‹").replace(/>/g, "›") }
+                contentItem: GText { text: gitIndicator.summary; textFormat: Text.PlainText; basePixelSize: 11; baseColor: AppTheme.text; elide: Text.ElideMiddle; verticalAlignment: Text.AlignVCenter }
             }
 
             GButton {
@@ -4700,6 +4809,16 @@ Rectangle {
                 GToolTip { text: parent.Accessible.name }
                 onClicked: root.openCategorySettings()
             }
+        }
+
+        LocalSambaShares {
+            id: localSambaSharesPanel
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            visible: root.visible && ["smb:", "smb:/", "smb://", "smb:///"].indexOf(String(root.currentLocation).toLowerCase()) >= 0
+            active: visible
+            lang: root.lang
+            onOpenShare: function(url) { root.openLocationInput(url) }
         }
 
         StackLayout {
@@ -6260,13 +6379,17 @@ Rectangle {
 
                 Rectangle {
                     id: musicCategoryHeader
+                    objectName: "musicCategoryHeader"
                     visible: root.groupedCategory
                     anchors.top: parent.top
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    height: visible ? (root.categoryKey === "music" ? 34 + musicTabs.implicitHeight + 40 : 42) : 0
-                    radius: 12
-                    color: AppTheme.surface
+                    height: visible ? (root.categoryKey === "music" ? 44 + musicTabs.implicitHeight + 58 : 42) : 0
+                    // Music already sits inside the workspace surface. A second
+                    // rounded panel here created the nested-card appearance.
+                    radius: root.categoryKey === "music" ? 0 : 12
+                    color: root.categoryKey === "music" ? "transparent" : AppTheme.surface
+                    border.width: root.categoryKey === "music" ? 0 : 1
                     border.color: AppTheme.border
 
                     RowLayout {
@@ -6274,9 +6397,10 @@ Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
+                        anchors.topMargin: root.categoryKey === "music" ? 6 : 0
                         anchors.leftMargin: 14
                         anchors.rightMargin: 14
-                        height: root.categoryKey === "music" ? 34 : 40
+                        height: root.categoryKey === "music" ? 38 : 40
                         spacing: 10
                         Rectangle {
                             Layout.preferredWidth: 34
@@ -6332,9 +6456,10 @@ Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: categoryHeaderTopRow.bottom
+                        anchors.topMargin: 4
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
-                        spacing: 5
+                        spacing: 6
                         Repeater {
                             model: root.musicTabLabels
                             delegate: GButton {
@@ -6349,8 +6474,7 @@ Rectangle {
                                     radius: 8
                                     color: parent.checked ? AppTheme.accentSoft
                                                           : (parent.hovered ? AppTheme.surfaceHover : "transparent")
-                                    border.width: parent.checked ? 1 : 0
-                                    border.color: parent.checked ? AppTheme.accentBorder : "transparent"
+                                    border.width: 0
                                 }
                                 contentItem: GText {
         typographyRole: "menu"
@@ -6371,10 +6495,11 @@ Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 8
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
-                        height: 37
-                        spacing: 6
+                        height: 36
+                        spacing: 8
 
                         GTextField {
                             id: musicFilterField
@@ -6415,6 +6540,15 @@ Rectangle {
                             onModelChanged: Qt.callLater(syncSelection)
                             onActivated: root.musicYearFilter = currentIndex <= 0 ? "" : currentText
                         }
+                    }
+                    Rectangle {
+                        visible: root.categoryKey === "music"
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: AppTheme.border
+                        opacity: 0.58
                     }
                 }
 
@@ -6549,7 +6683,9 @@ Rectangle {
         }
 
         Rectangle {
-            visible: !directory.searchActive || (!AppTheme.kioProgressEnabled && operationPresentation.activeCount > 0)
+            visible: !directory.searchActive
+                || (root.navigationVisible && root.effectivePresentation
+                    && root.effectivePresentation.activeCount > 0)
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 30 : 0
             color: "transparent"
@@ -6559,6 +6695,14 @@ Rectangle {
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
                 spacing: 18
+
+                Rectangle {
+                    visible: root.selectedCount > 0 && directory.storageTotalBytes > 0
+                             && !(root.categoryKey === "videos" && root.dlnaViewActive)
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 14
+                    color: AppTheme.border
+                }
 
                 GText {
                     Layout.fillWidth: true
@@ -6667,37 +6811,60 @@ Rectangle {
                         objectName: "directorySizeLabel"
                         visible: root.currentLocationIsLocal && !directory.searchActive
                         readonly property bool ready: directoryProperties.statsReady
+                                && directoryProperties.statsState !== "cached"
                                 && root.locationsEquivalent(directoryProperties.path, directory.location)
+                        readonly property bool cached: directoryProperties.statsAvailable && !ready
+                                && root.locationsEquivalent(directoryProperties.path, directory.location)
+                        readonly property bool failed: !directoryProperties.statsAvailable
+                                && (directoryProperties.statsState === "unavailable" || directoryProperties.statsState === "error"
+                                    || directoryProperties.statsState === "excluded")
                         readonly property bool partial: !ready && directoryProperties.calculating
                                 && root.locationsEquivalent(directoryProperties.path, directory.location)
                                 && (directoryProperties.fileCount > 0 || directoryProperties.folderCount > 0)
                         text: "· " + (ready ? root.formatTransferBytes(directoryProperties.totalSize)
+                                          : cached ? "≈ " + root.formatTransferBytes(directoryProperties.totalSize)
+                                          : failed ? "—"
                                           : partial ? "≥ " + root.formatTransferBytes(directoryProperties.totalSize) : "…")
                         baseColor: AppTheme.textMuted
                         basePixelSize: 10
                         HoverHandler { id: directorySizeHover }
                         GToolTip {
                             visible: directorySizeHover.hovered
-                            text: parent.partial
+                            text: directoryProperties.statsState === "excluded"
+                                    ? (lang.language === "tr" ? "Sanal dosya sistemleri boyut hesabına katılmaz."
+                                                             : "Virtual filesystems are excluded from size accounting.")
+                                    : parent.failed
+                                    ? (lang.language === "tr" ? "Boyut hesaplanamadı. Konuma erişimi kontrol edip yeniden deneyin."
+                                                             : "The size could not be calculated. Check access to this location and try again.")
+                                    : parent.cached
+                                    ? (lang.language === "tr" ? "Önbellekteki toplam boyut. Algılanan değişiklikler işlenir; tam doğrulama için Yenile'yi kullanın. Bağlı ve sanal dosya sistemleri ayrı tutulur."
+                                                             : "Cached total size. Detected changes are applied; use Refresh for full verification. Mounted and virtual filesystems are accounted for separately.")
+                                    : parent.partial
                                     ? (lang.language === "tr" ? "Hesaplanıyor. Şu ana kadar bulunan boyut gösteriliyor; tarama bitince toplam boyut görünecek."
                                                              : "Calculating. Showing the size found so far; the final total appears when the scan finishes.")
-                                    : (lang.language === "tr" ? "Alt klasörler ve gizli dosyalar dahil toplam boyut; sembolik bağlantılar izlenmez."
-                                                             : "Total size including subfolders and hidden files; symbolic links are not followed.")
+                                    : (lang.language === "tr" ? "Alt klasörler ve gizli dosyalar dahil toplam boyut; bağlantılar, bağlı hacimler ve sanal dosya sistemleri ayrı tutulur."
+                                                             : "Total size including subfolders and hidden files; symbolic links, mounted volumes and virtual filesystems are kept separate.")
                         }
                     }
                 }
                 GToolButton {
                     objectName: "operationProgressToggle"
-                    visible: !AppTheme.kioProgressEnabled && operationPresentation.activeCount > 0
+                    visible: root.navigationVisible && root.effectivePresentation
+                        && root.effectivePresentation.activeCount > 0
+                        && (!AppTheme.kioProgressEnabled || !!root.operationPresentation)
                     implicitWidth: 48; implicitHeight: 24
                     leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
-                    text: String(operationPresentation.activeCount)
+                    text: String(root.effectivePresentation ? root.effectivePresentation.activeCount : 0)
                     basePixelSize: 10
                     icon.width: 13; icon.height: 13
-                    icon.source: AppTheme.icon(operationPresentation.minimized ? "music-queue.svg" : "music-minimize.svg")
-                    primary: operationPresentation.minimized
-                    onClicked: operationPresentation.toggle()
-                    GToolTip { visible: parent.hovered; text: lang.t(operationPresentation.minimized ? "operation_restore" : "operation_minimize") }
+                    icon.source: AppTheme.icon(root.effectivePresentation && root.effectivePresentation.minimized
+                                               ? "music-queue.svg" : "music-minimize.svg")
+                    primary: root.effectivePresentation && root.effectivePresentation.minimized
+                    onClicked: if (root.effectivePresentation) root.effectivePresentation.toggle()
+                    GToolTip {
+                        text: lang.t(root.effectivePresentation && root.effectivePresentation.minimized
+                                     ? "operation_restore" : "operation_minimize")
+                    }
                 }
             }
         }
@@ -7212,6 +7379,18 @@ Rectangle {
         }
     }
 
+    TextEditMenu {
+        id: propertiesTextEditMenu
+        objectName: "propertiesTextEditMenu"
+        parent: root
+        maximumPopupHeight: Math.max(180, Math.min(620, root.hostWindow ? root.hostWindow.height - 24 : root.height - 24))
+        // ContextMenu reparents this shared, application-styled menu to the
+        // field that requested it, including fields inside the modal overlay.
+        editor: parent && parent.selectedText !== undefined ? parent : null
+        langManager: root.lang
+        positioningBounds: Overlay.overlay
+    }
+
     GMenu {
         id: breadcrumbContextMenu
         parent: root
@@ -7258,6 +7437,9 @@ Rectangle {
         parent: root
         onOpened: {
             root.submenuActivationReady = false
+            itemGitMenu.close()
+            if (!contextGit.busy)
+                contextGit.setContext(root.selectedCount === 1 ? root.selectedLocalPath : (root.isCategoryLocation ? "" : root.currentLocation), root.selectedCount !== 1 || root.selectedIsDir)
             copyActionsMenu.close()
             applicationServiceMenu.close()
             compressMenu.close()
@@ -7270,6 +7452,8 @@ Rectangle {
         }
         onClosed: {
             root.submenuActivationReady = false
+            itemGitMenu.close()
+            root.releaseGitMenuContext()
             copyActionsMenu.close()
             applicationServiceMenu.close()
             compressMenu.close()
@@ -7508,6 +7692,28 @@ Rectangle {
             enabled: uploadUrls.length > 0 && uploadUrls.length === root.selectedCount
                      && root.submenuActivationReady
 
+            // Keep both actions discoverable; they become available only while
+            // the private vault is unlocked (and is not processing another job).
+            GMenuItem {
+                objectName: "shareToPrivateVault"
+                icon.source: AppTheme.icon("dashboard.svg")
+                text: lang.language === "tr" ? "Kasaya Gönder" : "Send to Private Vault"
+                enabled: root.privateVault && root.privateVault.unlocked && !root.privateVault.busy
+                         && shareMenu.uploadUrls.length === root.selectedCount
+                onTriggered: root.sendSelectionToPrivateVault(false)
+            }
+
+            GMenuItem {
+                objectName: "shareToPrivateVaultAndDelete"
+                icon.source: AppTheme.icon("delete.svg")
+                text: lang.language === "tr" ? "Kasaya Gönder ve Sil" : "Send to Private Vault and Delete"
+                enabled: root.privateVault && root.privateVault.unlocked && !root.privateVault.busy
+                         && shareMenu.uploadUrls.length === root.selectedCount
+                onTriggered: root.sendSelectionToPrivateVault(true)
+            }
+
+            GMenuSeparator {}
+
             property bool hasCloudTarget:
                 root.cloudShareTargetAvailable("google")
                 || root.cloudShareTargetAvailable("onedrive")
@@ -7590,7 +7796,9 @@ Rectangle {
                           : "Send to " + modelData.name + " with KDE Connect"
                     onTriggered: fileOps.shareViaKdeConnect(shareMenu.uploadUrls, modelData.id)
                 }
-                onObjectAdded: function(index, object) { shareMenu.insertItem(index + 9, object) }
+                // Two vault actions and their separator precede the original
+                // nine cloud/separator slots in this menu.
+                onObjectAdded: function(index, object) { shareMenu.insertItem(index + 12, object) }
                 onObjectRemoved: function(index, object) { shareMenu.removeItem(object) }
             }
 
@@ -7791,6 +7999,12 @@ Rectangle {
                     root.trashSelection()
             }
         }
+        GitActionsMenu {
+            id: itemGitMenu
+            controller: contextGit
+            lang: root.lang
+            onRequested: function(action, source) { root.openGitAction(action, source) }
+        }
         GMenuSeparator { visible: root.selectedCount > 0 }
 
         GMenuItem {
@@ -7803,14 +8017,19 @@ Rectangle {
 
     GMenu {
         id: backgroundContextMenu
+        objectName: "backgroundContextMenu"
         maximumPopupHeight: Math.max(180, Math.min(620, root.height - 24))
         parent: root
         closePolicy: Popup.CloseOnEscape
         onOpened: {
+                backgroundGitMenu.close()
+                if (!contextGit.busy) contextGit.setContext(root.currentLocation)
                 sortMenu.close()
                 newItemMenu.close()
         }
         onClosed: {
+                backgroundGitMenu.close()
+                root.releaseGitMenuContext()
                 sortMenu.close()
                 newItemMenu.close()
         }
@@ -7908,6 +8127,12 @@ Rectangle {
         }
 
         GMenuSeparator {}
+        GitActionsMenu {
+            id: backgroundGitMenu
+            controller: contextGit
+            lang: root.lang
+            onRequested: function(action, source) { root.openGitAction(action, source) }
+        }
         GMenuItem { icon.source: AppTheme.icon("refresh.svg"); text: lang.t("refresh"); onTriggered: root.refreshDirectory() }
     }
 
@@ -8077,7 +8302,10 @@ Rectangle {
             })
         }
         onOpened: propertiesWheel.reset()
-        onClosed: { propertiesWheel.reset(); fileProperties.cancelAccess(); fileProperties.cancelInspection() }
+        onClosed: {
+            propertiesTextEditMenu.close()
+            propertiesWheel.reset(); fileProperties.cancelAccess(); fileProperties.cancelInspection()
+        }
         background: GModalSurface { }
 
         ColumnLayout {
@@ -8241,9 +8469,13 @@ Rectangle {
                                 GBusyIndicator { visible: fileProperties.calculating; running: visible; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
                                 GText {
                                     text: propertiesDialog.localSelection
-                                          ? (fileProperties.calculating
+                                          ? ((fileProperties.statsState === "unavailable" || fileProperties.statsState === "error"
+                                              || fileProperties.statsState === "excluded") && !fileProperties.statsAvailable
+                                             ? (lang.language === "tr" ? "Kullanılamıyor" : "Unavailable")
+                                             : fileProperties.calculating && !fileProperties.statsAvailable
                                              ? (lang.language === "tr" ? "Hesaplanıyor…" : "Calculating…")
-                                             : fileProperties.formatBytes(fileProperties.totalSize))
+                                             : ((fileProperties.calculating || fileProperties.statsState === "cached" || fileProperties.statsState === "unavailable") ? "≈ " : "")
+                                                + fileProperties.formatBytes(fileProperties.totalSize))
                                           : propertiesDialog.multiple ? (lang.language === "tr" ? "Kullanılamıyor" : "Unavailable") : directory.formatBytes(root.selectedSize)
                                     baseColor: AppTheme.text; basePixelSize: 11
                                 }
@@ -8305,6 +8537,7 @@ Rectangle {
                                     GText { text: lang.language === "tr" ? "Sahibi" : "Owner"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                                     GAccountPicker {
                                         id: permissionOwnerPicker
+                                        textEditMenu: propertiesTextEditMenu
                                         objectName: "permissionOwnerCombo"
                                         Layout.fillWidth: true
                                         implicitWidth: 160
@@ -8327,6 +8560,7 @@ Rectangle {
                                     GText { text: lang.language === "tr" ? "Grup" : "Group"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                                     GAccountPicker {
                                         id: permissionGroupPicker
+                                        textEditMenu: propertiesTextEditMenu
                                         objectName: "permissionGroupCombo"
                                         Layout.fillWidth: true
                                         implicitWidth: 160
@@ -8348,6 +8582,8 @@ Rectangle {
                                     GText { text: lang.language === "tr" ? "İzin kodu" : "Mode"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                                     GTextField {
                                         id: permissionModeInput
+                                        persistentSelection: true
+                                        ContextMenu.menu: propertiesTextEditMenu
                                         objectName: "permissionModeInput"
                                         Layout.preferredWidth: 76
                                         implicitHeight: 34
@@ -8582,6 +8818,18 @@ Rectangle {
                         }
                     }
 
+                    SambaSharePanel {
+                        textEditMenu: propertiesTextEditMenu
+                        objectName: "sambaSharePanel"
+                        Layout.fillWidth: true
+                        visible: propertiesDialog.localSelection && !propertiesDialog.multiple
+                        active: visible && propertiesDialog.opened
+                        folder: fileProperties.directory
+                        location: fileProperties.path
+                        lang: root.lang
+                        onNotify: function(message) { root.requestToast(message) }
+                    }
+
                     GText {
                         visible: propertiesDialog.localSelection && fileProperties.linkType.length > 0
                         text: lang.language === "tr" ? "BAĞLANTI" : "LINK"
@@ -8675,6 +8923,9 @@ Rectangle {
 
                             GTextField {
                                 id: linkTargetInput
+                                objectName: "propertyLinkTargetInput"
+                                persistentSelection: true
+                                ContextMenu.menu: propertiesTextEditMenu
                                 Layout.fillWidth: true
                                 placeholderText: fileProperties.linkType === "hardlink"
                                                  ? (lang.language === "tr" ? "Yeni bağlanacak dosyanın yolu" : "Path of the file to link to")
@@ -9775,253 +10026,28 @@ Rectangle {
         onRejected: root.pendingArchiveUrl = ""
     }
 
+
+    // Standalone BrowserPane (QML tests/embedded uses) still uses the exact
+    // same renderer; production receives the window-wide presentation.
     OperationPresentation {
-        id: operationPresentation
+        id: standaloneOperationPresentation
         objectName: "operationPresentation"
         operations: fileOps.operations
         nativeProgress: AppTheme.kioProgressEnabled
         autoHide: AppTheme.operationAutoHide
+        showOnCompletion: AppTheme.operationShowOnCompletion
         hideDelayMs: AppTheme.operationAutoHideSeconds * 1000
-        hovered: operationCardsHover.hovered
+        hovered: standaloneOperationToast.cardsHovered
     }
-    Column {
-        id: operationCards
-        objectName: "operationCards"
-        visible: operationPresentation.visibleOperations.length > 0
-        z: 30000
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: 14
-        anchors.bottomMargin: 42
-        width: Math.min(350, root.width - 28)
-        spacing: 8
-
-        HoverHandler { id: operationCardsHover }
-        Repeater {
-            model: Math.min(3, operationPresentation.visibleOperations.length)
-            delegate: GOverlaySurface {
-                id: operationCard
-                sourceItem: browserContent
-                required property int index
-                readonly property var operation: operationPresentation.visibleOperations[Math.max(0, operationPresentation.visibleOperations.length - 3) + index] || ({id: -1, finished: false, detail: ""})
-                readonly property real shownPercent: root.transferPercent(operation)
-                property real completionCountdown: 1.0
-                property int trackedOperationId: -1
-                property bool completionInitialized: false
-                width: operationCards.width
-                height: operation.finished ? 108 : (operation.controllable === false ? 140 : 174)
-
-                function syncCompletionState() {
-                    const currentId = Number(operation && operation.id !== undefined ? operation.id : -1)
-                    if (currentId !== trackedOperationId) {
-                        completionCountdownAnimation.stop()
-                        completionCountdown = 1.0
-                        completionInitialized = false
-                        trackedOperationId = currentId
-                    }
-                    if (!operation || !operation.finished) {
-                        completionCountdownAnimation.stop()
-                        completionCountdown = 1.0
-                        completionInitialized = false
-                        return
-                    }
-                    if (completionInitialized)
-                        return
-                    completionInitialized = true
-                    completionCountdown = 1.0
-                    if (cardHover.hovered) {
-                        fileOps.setOperationDismissPaused(operation.id, true)
-                    } else {
-                        completionCountdownAnimation.restart()
-                    }
-                }
-
-                onOperationChanged: syncCompletionState()
-                Component.onCompleted: syncCompletionState()
-
-                NumberAnimation {
-                    id: completionCountdownAnimation
-                    target: operationCard
-                    property: "completionCountdown"
-                    from: 1.0
-                    to: 0.0
-                    duration: 5000
-                    easing.type: Easing.Linear
-                }
-
-                HoverHandler {
-                    id: cardHover
-                    onHoveredChanged: {
-                        if (!operation || !operation.finished)
-                            return
-                        completionCountdownAnimation.stop()
-                        completionCountdown = 1.0
-                        fileOps.setOperationDismissPaused(operation.id, hovered)
-                        if (!hovered)
-                            completionCountdownAnimation.restart()
-                    }
-                }
-
-                Behavior on height { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                radius: 14
-                customColor: cardHover.hovered && operation.finished ? AppTheme.surfaceHover : AppTheme.surface
-                border.color: cardHover.hovered && operation.finished ? AppTheme.accentBorder : AppTheme.borderStrong
-                border.width: 1
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 6
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        GText {
-                            Layout.fillWidth: true
-                            baseColor: AppTheme.text
-                            basePixelSize: 12
-                            baseBold: true
-                            text: operation.finished
-                                  ? (operation.success
-                                     ? (operation.kind === "copy" ? (lang.language === "tr" ? "Kopyalama tamamlandı" : "Copy complete")
-                                        : operation.kind === "clipboard" ? (lang.language === "tr" ? "Panoya hazırlandı" : "Clipboard ready")
-                                        : operation.kind === "move" ? (lang.language === "tr" ? "Taşıma tamamlandı" : "Move complete")
-                                        : operation.kind === "trash" ? (lang.language === "tr" ? "Çöpe taşıma tamamlandı" : "Moved to Trash")
-                                        : operation.kind === "duplicate" ? (lang.language === "tr" ? "Klonlama tamamlandı" : "Duplication complete")
-                                        : operation.kind === "delete" ? (lang.language === "tr" ? "Silme tamamlandı" : "Deletion complete")
-                                        : operation.kind === "restore" ? (lang.language === "tr" ? "Geri yükleme tamamlandı" : "Restore complete")
-                                        : operation.kind === "rename" ? (lang.language === "tr" ? "Yeniden adlandırıldı" : "Renamed")
-                                        : operation.kind === "inspect" ? (lang.language === "tr" ? "Arşiv incelendi" : "Archive inspected")
-                                        : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuldu" : "Archive created")
-                                        : (lang.language === "tr" ? "Arşiv çıkarıldı" : "Extraction complete"))
-                                     : operation.cancelled ? (lang.language === "tr" ? "İptal edildi" : "Cancelled")
-                                     : (lang.language === "tr" ? "İşlem tamamlanamadı" : "Operation failed"))
-                                  : operation.kind === "copy" ? (lang.language === "tr" ? "Kopyalanıyor" : "Copying")
-                                  : operation.kind === "clipboard" ? (lang.language === "tr" ? "Pano hazırlanıyor" : "Preparing clipboard")
-                                  : operation.kind === "move" ? (lang.language === "tr" ? "Taşınıyor" : "Moving")
-                                  : operation.kind === "trash" ? (lang.language === "tr" ? "Çöpe taşınıyor" : "Moving to Trash")
-                                  : operation.kind === "duplicate" ? (lang.language === "tr" ? "Klonlanıyor" : "Duplicating")
-                                  : operation.kind === "delete" ? (lang.language === "tr" ? "Siliniyor" : "Deleting")
-                                  : operation.kind === "restore" ? (lang.language === "tr" ? "Geri yükleniyor" : "Restoring")
-                                  : operation.kind === "rename" ? (lang.language === "tr" ? "Yeniden adlandırılıyor" : "Renaming")
-                                  : operation.kind === "inspect" ? (lang.language === "tr" ? "Arşiv inceleniyor" : "Inspecting archive")
-                                  : operation.kind === "compress" ? (lang.language === "tr" ? "Arşiv oluşturuluyor" : "Creating archive")
-                                  : (lang.language === "tr" ? "Arşiv çıkarılıyor" : "Extracting archive")
-                        }
-                        GText {
-                            text: operation.finished ? (operation.success ? "✓" : "!")
-                                                     : (shownPercent >= 0 ? Math.round(shownPercent) + "%" : "…")
-                            baseColor: operation.finished ? (operation.success ? AppTheme.success : AppTheme.danger) : AppTheme.accent
-                            basePixelSize: 11
-                            baseBold: true
-                        }
-                        GToolButton {
-                            objectName: "operationCardMinimize"
-                            visible: !operation.finished && !AppTheme.kioProgressEnabled
-                            implicitWidth: 24; implicitHeight: 24
-                            text: "−"
-                            onClicked: operationPresentation.minimize()
-                            GToolTip { visible: parent.hovered; text: lang.t("operation_minimize") }
-                        }
-                        Rectangle {
-                            id: dismissButton
-                            visible: operation.finished
-                            Layout.preferredWidth: 24
-                            Layout.preferredHeight: 24
-                            radius: 8
-                            color: dismissHover.hovered ? AppTheme.surfaceHover : "transparent"
-                            border.width: dismissHover.hovered ? 1 : 0
-                            border.color: AppTheme.accentBorder
-
-                            CrispIcon {
-                                anchors.centerIn: parent
-                                width: 15
-                                height: 15
-                                source: AppTheme.icon("close-ui.svg")
-                                opacity: dismissHover.hovered ? 1.0 : 0.82
-                            }
-                            HoverHandler { id: dismissHover }
-                            TapHandler {
-                                acceptedButtons: Qt.LeftButton
-                                onTapped: fileOps.dismissOperation(operation.id)
-                            }
-                        }
-                    }
-                    GText {
-                        Layout.fillWidth: true
-                        text: operation.detail
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 11
-                        elide: Text.ElideMiddle
-                    }
-                    GText {
-                        Layout.fillWidth: true
-                        text: root.transferMetrics(operation)
-                        baseColor: AppTheme.text
-                        basePixelSize: 10
-                        elide: Text.ElideRight
-                    }
-                    Rectangle {
-                        id: progressTrack
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 7
-                        radius: 4
-                        color: AppTheme.surfaceHover
-                        clip: true
-                        Rectangle {
-                            property real indeterminateX: 0
-                            x: !operation.finished && shownPercent < 0 ? indeterminateX : 0
-                            width: operation.finished ? progressTrack.width * completionCountdown
-                                  : shownPercent < 0 ? progressTrack.width * 0.28
-                                  : progressTrack.width * shownPercent / 100
-                            height: parent.height
-                            radius: parent.radius
-                            color: operation.finished ? (operation.success ? AppTheme.success : AppTheme.danger) : AppTheme.accent
-                            SequentialAnimation on indeterminateX {
-                                running: !operation.finished && shownPercent < 0 && !operation.paused
-                                loops: Animation.Infinite
-                                NumberAnimation { from: 0; to: progressTrack.width * 0.72; duration: 1050; easing.type: Easing.InOutSine }
-                                NumberAnimation { from: progressTrack.width * 0.72; to: 0; duration: 1050; easing.type: Easing.InOutSine }
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: !operation.finished
-                        GText {
-                            Layout.fillWidth: true
-                            text: root.transferRemaining(operation)
-                            baseColor: AppTheme.textMuted
-                            basePixelSize: 10
-                            elide: Text.ElideRight
-                        }
-                        GText {
-                            visible: !operation.paused && Number(operation.speed || 0) > 0
-                            text: root.formatTransferBytes(operation.speed) + (lang.language === "tr" ? "/sn" : "/s")
-                            baseColor: AppTheme.text
-                            basePixelSize: 10
-                            baseBold: true
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: !operation.finished && operation.controllable !== false
-                        Item { Layout.fillWidth: true }
-                        GButton {
-                            visible: operation.canPause !== false
-                            text: operation.paused ? (lang.language === "tr" ? "Sürdür" : "Resume")
-                                                   : (lang.language === "tr" ? "Duraklat" : "Pause")
-                            onClicked: fileOps.toggleOperationPause(operation.id)
-                        }
-                        GButton {
-                            visible: operation.canCancel !== false
-                            text: lang.language === "tr" ? "İptal" : "Cancel"
-                            onClicked: fileOps.cancelOperation(operation.id)
-                        }
-                    }
-                }
-            }
-        }
+    OperationToastLayer {
+        id: standaloneOperationToast
+        anchors.fill: parent
+        visible: !root.operationPresentation
+        lang: root.lang
+        presentation: standaloneOperationPresentation
+        operationSources: [fileOps]
+        backdropSource: browserContent
+        bottomMargin: 42
     }
 
 }

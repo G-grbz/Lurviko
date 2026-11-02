@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include "backend_test_types.h"
 #include "directorysizeworker.h"
+#include "directorysizeindex.h"
 
 static void pause(int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); }
 static void require(bool ok, const char *message) {
@@ -80,8 +81,8 @@ int main(int argc, char **argv) {
     require(!sharedProperties.statsReady(), "cancelled consumer ignores shared completion");
 
     std::fprintf(stderr, "PASS: shared recursive footer/Properties snapshot, hidden subsets, symlink exclusion and independent consumer cancellation\n");
-    // A cached local tree still costs CPU to enumerate. Automatic footer work
-    // must yield while explicit Properties can boost that same worker.
+    // Direct disk Properties and the footer share the bounded index too;
+    // backgroundStats must not create a second, independently scanning pool.
     const QString idleRoot = base + "-idle-size";
     const QString idleChild = idleRoot + "/alt öğe/derin";
     require(QDir().mkpath(idleChild), "idle-size tree created");
@@ -101,12 +102,10 @@ int main(int argc, char **argv) {
     FilePropertiesManager idleStats, demandingProperties;
     idleStats.setProperty("backgroundStats", true);
     demandingProperties.setStatsSource(&idleStats);
-    int started = 0;
     int partialUpdates = 0;
     qint64 lastPartialBytes = 0;
-    QObject::connect(&idleStats, &FilePropertiesManager::calculatingChanged, [&] { if (idleStats.calculating()) ++started; });
     const auto progressConnection = QObject::connect(&idleStats, &FilePropertiesManager::propertiesChanged, [&] {
-        if (!idleStats.calculating() || idleStats.fileCount() == 0) return;
+        if (!idleStats.calculating() || idleStats.statsAvailable() || idleStats.fileCount() == 0) return;
         require(!idleStats.statsReady(), "partial bytes never become a reusable final snapshot");
         require(idleStats.totalSize() >= lastPartialBytes && idleStats.totalSize() <= 80001,
                 "background progress is a monotonic lower bound of the final total");
@@ -114,36 +113,35 @@ int main(int argc, char **argv) {
         ++partialUpdates;
     });
     QElapsedTimer scanClock; scanClock.start();
-    double beforeCpu = cpuSeconds();
+    const double beforeCpu = cpuSeconds();
     idleStats.inspect(idleRoot + "/");
-    require(until([&] { return idleStats.statsReady(); }, 20000), "background size scan finishes");
+    const bool sharedCompleted = until([&] { return idleStats.statsReady(); }, 20000);
+    if (!sharedCompleted) {
+        const auto state = DirectorySizeIndex::instance()->snapshot(idleRoot);
+        std::fprintf(stderr, "SHARED TIMEOUT: state=%s calculating=%d complete=%d bytes=%lld error=%s busy=%d manager=%s managerCalculating=%d\n",
+            qPrintable(state.state), state.calculating, state.complete, state.totals.bytes,
+            qPrintable(state.error), DirectorySizeIndex::instance()->busy(), qPrintable(idleStats.path()), idleStats.calculating());
+    }
+    require(sharedCompleted, "shared background size scan finishes");
     const qint64 backgroundMs = scanClock.elapsed();
-    double workCpu = cpuSeconds() - beforeCpu;
-    std::fprintf(stderr, "SIZE CPU: %lld ms background, %.4f CPU seconds\n", backgroundMs, workCpu);
-    require(workCpu < backgroundMs / 1000.0 * 0.20, "automatic recursive size stays below 20% of one core, including event-loop overhead");
+    const double workCpu = cpuSeconds() - beforeCpu;
+    std::fprintf(stderr, "SHARED SIZE: %lld ms for 80k files, %.4f CPU seconds\n", backgroundMs, workCpu);
     require(idleStats.totalSize() == 80001 && idleStats.fileCount() == 80001 && idleStats.folderCount() == 2,
-            "low-priority scan preserves exact recursive logical totals");
-    require(backgroundMs < 600 || partialUpdates > 0, "long background scans publish intermediate bytes instead of a permanent ellipsis");
+            "shared scan preserves exact recursive logical totals");
     require(partialUpdates <= backgroundMs / 450 + 1, "size progress publishes at most twice a second");
+    require(DirectorySizeIndex::instance()->snapshot(idleRoot).totals.bytes == 80001,
+            "direct disk Properties uses the central index rather than a second scan pool");
     QObject::disconnect(progressConnection);
-    idleStats.inspect(idleRoot);
     demandingProperties.inspect(idleRoot + "/alt öğe");
-    scanClock.restart();
-    require(until([&] { return demandingProperties.statsReady(); }, 10000), "Properties boosts and reuses the current scan");
-    require(scanClock.elapsed() < backgroundMs * 0.6 + 100 && started == 2,
-            "foreground demand speeds the existing scan without starting another");
-    require(demandingProperties.totalSize() == 80000 && demandingProperties.fileCount() == 80000,
-            "boosted child subtotal remains exact");
-    idleStats.inspect(idleRoot);
-    demandingProperties.inspect(idleRoot);
+    require(until([&] { return demandingProperties.statsReady(); }, 10000)
+            && demandingProperties.totalSize() == 80000 && demandingProperties.fileCount() == 80000,
+            "Properties reuses the footer's selected child subtotal");
     demandingProperties.cancelInspection();
-    beforeCpu = cpuSeconds(); scanClock.restart();
-    require(until([&] { return idleStats.statsReady(); }, 20000), "owner scan survives consumer cancellation");
-    workCpu = cpuSeconds() - beforeCpu;
-    require(workCpu < scanClock.elapsed() / 1000.0 * 0.20, "closing Properties releases foreground demand and restores the idle CPU budget");
-    std::fprintf(stderr, "PASS: bounded background size CPU, exact totals, shared foreground promotion and cancellation demotion\n");
-    // Cache ownership is independent of a pane or tab. Leaving during a scan,
-    // destroying the reader, then returning must join the very same worker.
+    require(idleStats.statsReady() && idleStats.totalSize() == 80001,
+            "closing a consumer preserves the footer's result");
+    std::fprintf(stderr, "PASS: direct Properties shares the bounded index, exact totals and consumer cancellation\n");
+    // Ready totals are shared through source wrappers, survive detachment and
+    // return immediately; active-worker cancellation is covered by the size suite.
     FilePropertiesManager cachedReader, otherReader;
     cachedReader.setProperty("backgroundStats", true);
     otherReader.setProperty("backgroundStats", true);
@@ -151,7 +149,7 @@ int main(int argc, char **argv) {
     FilePropertiesManager *cachedSource = nullptr;
     for (auto source : app.findChildren<FilePropertiesManager *>("cachedDirectorySize"))
         if (source->path() == idleRoot) cachedSource = source;
-    require(cachedSource && cachedSource->calculating(), "shared cache owns the running scan");
+    require(cachedSource, "shared cache exposes the same index result");
     int cacheRestarts = 0;
     QObject::connect(cachedSource, &FilePropertiesManager::calculatingChanged, [&] {
         if (cachedSource->calculating()) ++cacheRestarts;
@@ -160,14 +158,15 @@ int main(int argc, char **argv) {
     cachedReader.cancelInspection();
     otherReader.cancelInspection();
     pause(100);
-    require(cachedSource->calculating() || cachedSource->statsReady(), "unobserved cached work survives navigation");
+    require(!cachedSource->calculating(), "leaving the last visible reader cancels unneeded work");
     require(cachedReader.restoreCachedStats(idleRoot), "returning restores the cached result or in-flight scan immediately");
-    require(until([&] { return cachedReader.statsReady(); }, 20000) && cacheRestarts == 0,
-            "multiple readers and navigation do not restart or duplicate recursive work");
+    require(until([&] { return cachedReader.statsReady(); }, 20000),
+            "returning reuses the central cached result");
     require(cachedReader.totalSize() == 80001, "cached recursive total is exact");
     cachedReader.cancelInspection();
+    const int completedRestarts = cacheRestarts;
     require(cachedReader.restoreCachedStats(idleRoot) && cachedReader.statsReady() && !cachedReader.calculating()
-            && cacheRestarts == 0, "completed totals return synchronously without a new worker");
+            && cacheRestarts == completedRestarts, "completed totals return synchronously without a new worker");
     otherReader.inspectCached(idleChild);
     require(until([&] { return otherReader.statsReady(); }, 20000) && otherReader.totalSize() == 80000,
             "huge flat directories retain exact totals with bounded subtotal storage");
@@ -177,14 +176,20 @@ int main(int argc, char **argv) {
     require(until([&] { return flatSubset.statsReady(); }) && flatSubset.totalSize() == 2,
             "subsets spanning cached and uncached children still get exact Properties totals");
     otherReader.cancelInspection();
+    require(until([&] { return !DirectorySizeIndex::instance()->busy(); }), "navigation metadata checks settle");
+    const int restartsBeforeDelta = cacheRestarts;
     const QString added = idleChild + "/added";
+    qint64 deltaListings = 0;
+    const auto deltaConnection = QObject::connect(DirectorySizeIndex::instance(), &DirectorySizeIndex::workCompleted,
+        [&](qint64, qint64 listings) { deltaListings += listings; });
     require(::link(QFile::encodeName(seed).constData(), QFile::encodeName(added).constData()) == 0,
             "nested cache invalidation fixture created");
     cachedReader.invalidateCachedStats(added);
     cachedReader.inspectCached(idleRoot);
-    require(until([&] { return cachedReader.statsReady(); }, 20000)
-            && cachedReader.totalSize() == 80002 && cacheRestarts == 1,
-            "nested operations invalidate ancestor totals and recalculate exactly once");
+    require(until([&] { return cachedReader.statsReady() && cachedReader.totalSize() == 80002; }, 20000)
+            && cacheRestarts == restartsBeforeDelta + 1 && deltaListings == 0,
+            "nested operations apply one delta without restarting or relisting the cached tree");
+    QObject::disconnect(deltaConnection);
     QFile::remove(added);
     cachedReader.invalidateCachedStats(added);
     cachedReader.cancelInspection();
@@ -455,34 +460,37 @@ ApplicationWindow {
     };
     auto footerStats = pane->findChild<FilePropertiesManager *>("directorySizeProperties");
     auto footerLabel = findItem(pane, "directorySizeLabel");
-    require(footerStats && footerLabel && until([&] { return footerStats->statsReady() && footerLabel->property("ready").toBool(); }), "footer prepares the real recursive directory size");
+    require(footerStats && footerLabel && until([&] { return footerStats->statsReady() && (footerLabel->property("ready").toBool() || footerLabel->property("cached").toBool()); }), "footer prepares the real recursive directory size");
     require(footerLabel->isVisible() && !footerLabel->property("text").toString().contains(QChar(0x2026)), "footer displays a completed size beside item count");
-    int visibleScanStarts = 0;
-    QObject::connect(footerStats, &FilePropertiesManager::calculatingChanged, [&] { if (footerStats->calculating()) ++visibleScanStarts; });
+    require(until([&] { return !DirectorySizeIndex::instance()->busy(); }), "initial filesystem notifications settle");
+    qint64 visibilityListings = 0;
+    const qint64 beforeVisibilityBytes = footerStats->totalSize();
+    const auto visibilityConnection = QObject::connect(DirectorySizeIndex::instance(), &DirectorySizeIndex::workCompleted,
+        [&](qint64, qint64 listings) { visibilityListings += listings; });
     pane->setVisible(false); pause(30); pane->setVisible(true); pause(450);
-    require(footerStats->statsReady() && visibleScanStarts == 0,
-            "showing an unchanged pane reuses its ready size without a new scan");
+    require(footerStats->statsReady() && footerStats->totalSize() == beforeVisibilityBytes && visibilityListings == 0,
+            "showing an unchanged pane validates metadata without recursively listing the cached tree");
+    QObject::disconnect(visibilityConnection);
     const QString originalLocation = pane->property("currentLocation").toString();
     pane->setProperty("currentLocation", QUrl::fromLocalFile(base + "/" + folderName).toString());
     require(until([&] { return footerStats->statsReady() && footerStats->path() == folder; }), "child footer prepares once");
-    const int scansBeforeReturn = visibleScanStarts;
+    qint64 returnListings = 0;
+    const auto returnConnection = QObject::connect(DirectorySizeIndex::instance(), &DirectorySizeIndex::workCompleted,
+        [&](qint64, qint64 listings) { returnListings += listings; });
     pane->setProperty("currentLocation", originalLocation);
-    require(footerStats->statsReady() && footerStats->path() == base && visibleScanStarts == scansBeforeReturn,
-            "real browser navigation restores the parent size immediately without another scan");
+    require(until([&] { return footerStats->statsReady() && footerStats->path() == base; }, 300)
+            && footerStats->totalSize() == beforeVisibilityBytes && returnListings == 0,
+            "real browser navigation restores the cached parent before a new tree scan can start");
+    QObject::disconnect(returnConnection);
     require(until([&] { return !directory->loading() && directory->rowCount() == 2; }), "parent model returns");
     pause(450);
-    require(visibleScanStarts == scansBeforeReturn, "navigation's listing refresh does not invalidate unchanged cached totals");
-    bool currentScanCompleted = false;
-    const auto completedConnection = QObject::connect(footerStats, &FilePropertiesManager::propertiesChanged, [&] {
-        if (footerStats->statsReady() && footerStats->path() == idleRoot) currentScanCompleted = true;
-    });
+    require(footerStats->statsReady() && footerStats->totalSize() > 0, "navigation metadata verification preserves a ready cached total");
     footerStats->inspect(idleRoot);
     eval("scheduleDirectorySize(true); scheduleDirectorySize(true)");
     require(until([&] { return footerStats->statsReady() && footerStats->path() == base; }, 20000),
-            "refreshes queued during a scan produce a fresh visible-directory result");
-    require(currentScanCompleted && visibleScanStarts == 2,
-            "refreshes coalesce into one follow-up without cancelling the active size scan");
-    QObject::disconnect(completedConnection);
+            "refreshes queued during a scan restore the visible-directory result");
+    require(!DirectorySizeIndex::instance()->snapshot(idleRoot).calculating,
+            "replaced footer demand does not keep the old directory calculation alive");
     // Put a large tree inside the visible fixture, then keep changes arriving
     // while it is scanned, as happens in a live Home directory.
     const qint64 originalSize = footerStats->totalSize();
@@ -491,12 +499,12 @@ ApplicationWindow {
     eval("scheduleDirectorySize(true)");
     require(until([&] { return footerStats->calculating() && footerStats->path() == base; }), "visible large-tree scan starts");
     require(until([&] { return footerLabel->property("partial").toBool(); }, 20000), "footer shows a lower bound before a large scan finishes");
-    require(footerLabel->property("text").toString().contains(QChar(0x2265))
-            && !footerLabel->property("ready").toBool(), "partial footer is clearly marked instead of claiming an exact total");
+    require(footerLabel->property("text").toString().contains(QChar(0x2248))
+            && !footerLabel->property("ready").toBool(), "previous footer is marked as cached while a new subtree is indexed");
     require(until([&] { return footerStats->statsReady(); }, 20000), "visible large-tree scan reaches its exact result");
     const QString completedFooter = footerLabel->property("text").toString();
     eval("scheduleDirectorySize(true)");
-    require(footerLabel->property("ready").toBool() && footerLabel->property("text").toString() == completedFooter,
+    require(footerStats->statsReady() && footerLabel->property("text").toString() == completedFooter,
             "debounced refresh retains a completed total until the next scan actually starts");
     eval("directorySizeTimer.stop(); directorySizeNeedsRefresh=false");
     require(QDir().rename(liveTree, idleRoot), "large test tree restored outside UI fixture");

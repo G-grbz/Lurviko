@@ -1,5 +1,6 @@
 #include "filepropertiesmanager.h"
 #include "directorysizeworker.h"
+#include "directorysizeindex.h"
 
 #include <QDir>
 #include <QCoreApplication>
@@ -40,10 +41,7 @@ using FolderStats = DirectorySizeResult;
 struct SizeCache : QObject {
     struct Entry {
         QPointer<FilePropertiesManager> source;
-        struct stat stamp{};
         quint64 used = 0;
-        qint64 completed = 0;
-        bool dirty = false;
     };
     QHash<QString, Entry> entries;
     quint64 serial = 0;
@@ -55,20 +53,6 @@ SizeCache *sizeCache()
     static QPointer<SizeCache> cache;
     if (!cache) cache = new SizeCache(QCoreApplication::instance());
     return cache;
-}
-
-QThreadPool *sizePool()
-{
-    // Process-lifetime pool, like decorative image rendering. Cache owners
-    // cancel their workers at shutdown without blocking the GUI on slow I/O.
-    static QThreadPool *pool = [] {
-        auto *pool = new QThreadPool;
-        pool->setMaxThreadCount(2);
-        pool->setThreadPriority(QThread::LowPriority);
-        pool->setExpiryTimeout(1500);
-        return pool;
-    }();
-    return pool;
 }
 
 QString localPathFromInput(const QString &value, const QString &baseDirectory)
@@ -147,11 +131,19 @@ void FilePropertiesManager::cancelInspection()
     }
     if (m_statsProgressTimer) m_statsProgressTimer->stop();
     disconnect(m_statsConnection);
+    disconnect(m_indexConnection);
+    if (auto *index = DirectorySizeIndex::existing()) index->release(this);
+    if (m_indexSelection) {
+        if (auto *index = DirectorySizeIndex::existing()) index->cancelSelection(m_indexSelection);
+        m_indexSelection = 0;
+    }
     if (m_waitingStatsDemand) {
         m_waitingStatsDemand->fetch_sub(1, std::memory_order_relaxed);
         m_waitingStatsDemand.reset();
     }
     m_statsReady = false;
+    m_statsAvailable = false;
+    m_statsState.clear(); m_statsError.clear();
     m_childStats.clear();
     if (m_statsCancelled) m_statsCancelled->store(true);
     setCalculating(false);
@@ -200,6 +192,8 @@ bool FilePropertiesManager::reuseStatsOrWait(const QStringList &paths, bool sele
     }
     m_totalSize = bytes; m_fileCount = files; m_folderCount = folders;
     m_statsReady = true;
+    m_statsState = source->m_statsState;
+    m_statsError = source->m_statsError;
     setCalculating(false); emit propertiesChanged();
     return true;
 }
@@ -226,14 +220,16 @@ void FilePropertiesManager::invalidateCachedStats(const QString &urlOrPath)
 {
     const QUrl url = QUrl::fromUserInput(urlOrPath);
     if (!url.isLocalFile()) return;
-    const auto path = QDir::cleanPath(url.toLocalFile());
-    auto *cache = sizeCache();
-    for (auto it = cache->entries.begin(); it != cache->entries.end(); ++it) {
-        const auto root = it.key();
-        if (root == path || path.startsWith(root.endsWith('/') ? root : root + '/')
-                || root.startsWith(path.endsWith('/') ? path : path + '/'))
-            it->dirty = true;
-    }
+    auto *index = DirectorySizeIndex::instance();
+    if (!index->snapshot(url.toLocalFile()).path.isEmpty())
+        index->observeDirectory(url.toLocalFile());
+    else
+        index->observePaths({url.toLocalFile()});
+}
+
+void FilePropertiesManager::verifyCachedStats(const QString &urlOrPath)
+{
+    DirectorySizeIndex::instance()->request(urlOrPath, true);
 }
 
 FilePropertiesManager *FilePropertiesManager::cachedStats(const QString &path, bool lookupOnly)
@@ -243,8 +239,7 @@ FilePropertiesManager *FilePropertiesManager::cachedStats(const QString &path, b
     if (!cache->entries.contains(path) && cache->entries.size() >= 32) {
         auto oldest = cache->entries.end();
         for (auto it = cache->entries.begin(); it != cache->entries.end(); ++it) {
-            if (it->source && (it->source->m_cachedReaders > 0
-                    || (it->source->m_statsDemand && it->source->m_statsDemand->load() > 0))) continue;
+            if (it->source && it->source->m_cachedReaders > 0) continue;
             const bool running = it->source && it->source->calculating();
             const bool oldestRunning = oldest != cache->entries.end() && oldest->source && oldest->source->calculating();
             if (oldest == cache->entries.end() || (oldestRunning && !running)
@@ -260,27 +255,42 @@ FilePropertiesManager *FilePropertiesManager::cachedStats(const QString &path, b
         entry.source = new FilePropertiesManager(cache);
         entry.source->setObjectName(QStringLiteral("cachedDirectorySize"));
         entry.source->m_backgroundStats = true;
-        connect(entry.source, &FilePropertiesManager::calculatingChanged, cache, [cache, path] {
-            auto it = cache->entries.find(path);
-            if (it != cache->entries.end() && it->source && it->source->statsReady()) {
-                it->completed = QDateTime::currentMSecsSinceEpoch();
-            }
-        });
-    }
-    struct stat stamp{};
-    ::stat(QFile::encodeName(path).constData(), &stamp);
-    const bool replaced = entry.stamp.st_dev != stamp.st_dev || entry.stamp.st_ino != stamp.st_ino;
-    const bool changed = replaced || entry.stamp.st_mtim.tv_sec != stamp.st_mtim.tv_sec
-            || entry.stamp.st_mtim.tv_nsec != stamp.st_mtim.tv_nsec;
-    const bool expired = entry.completed && QDateTime::currentMSecsSinceEpoch() - entry.completed > 300000;
-    if ((replaced || !entry.source->calculating())
-            && (!entry.source->statsReady() || entry.dirty || changed || expired)) {
-        if (lookupOnly) return nullptr;
-        entry.stamp = stamp;
-        entry.dirty = false;
+        entry.source->m_indexOwner = true;
         entry.source->inspect(path);
     }
+    DirectorySizeIndex::instance()->request(path);
     return entry.source;
+}
+
+void FilePropertiesManager::attachSizeIndex()
+{
+    auto *index = DirectorySizeIndex::instance();
+    if (!m_indexOwner) index->retain(this, m_path);
+    m_statsDemand = index->foregroundDemand();
+    if (!m_backgroundStats) {
+        m_waitingStatsDemand = m_statsDemand;
+        m_waitingStatsDemand->fetch_add(1, std::memory_order_relaxed);
+    }
+    const auto generation = m_generation;
+    const auto update = [this, index, generation] {
+        if (generation != m_generation) return;
+        const auto snapshot = index->snapshot(m_path);
+        m_totalSize = snapshot.totals.bytes; m_fileCount = snapshot.totals.files;
+        m_folderCount = snapshot.totals.folders; m_childStats = snapshot.totals.children;
+        m_statsReady = snapshot.complete && !snapshot.calculating && snapshot.state != "unavailable";
+        m_statsAvailable = snapshot.available;
+        m_statsState = snapshot.state; m_statsError = snapshot.error;
+        setCalculating(snapshot.calculating);
+        emit propertiesChanged();
+    };
+    m_indexConnection = connect(index, &DirectorySizeIndex::snapshotChanged, this,
+        [this, update](const QString &path) { if (path == m_path) update(); });
+    if (!index->request(m_path)) {
+        m_statsState = "error";
+        m_statsError = "Too many active directory-size requests.";
+        setCalculating(false); emit propertiesChanged(); return;
+    }
+    update();
 }
 
 void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cached)
@@ -295,6 +305,12 @@ void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cache
     const auto cancelled = m_statsCancelled;
     const int generation = m_generation;
     const QUrl url = QUrl::fromUserInput(urlOrPath);
+    if (m_indexOwner && url.isLocalFile()) {
+        m_path = QDir::cleanPath(url.toLocalFile()); m_selection = {m_path};
+        m_directory = m_localFile = true;
+        attachSizeIndex();
+        return;
+    }
     m_localFile = url.isLocalFile();
     const QString local = url.isLocalFile() ? url.toLocalFile() : urlOrPath;
     const QFileInfo info(local);
@@ -305,7 +321,7 @@ void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cache
     m_inode = 0;
     m_linkCount = 1;
 
-    m_path = info.absoluteFilePath();
+    m_path = QDir::cleanPath(info.absoluteFilePath());
     m_selection = {m_path};
     m_commonLocation = info.absolutePath();
     m_selectedFolders = info.isDir() && !info.isSymLink() ? 1 : 0;
@@ -350,14 +366,9 @@ void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cache
     refreshPermissions();
     emit propertiesChanged();
 
-    if (!m_directory || (info.isSymLink() && !m_backgroundStats) || !info.exists()) {
-        setCalculating(false);
-        return;
-    }
-
-    if (reuseStatsOrWait({m_path}, false, generation)) return;
-    if (cached && m_localFile) {
+    if (cached && m_localFile && (m_directory || !info.exists())) {
         if (auto *source = cachedStats(m_path)) {
+            DirectorySizeIndex::instance()->retain(this, m_path);
             m_cachedSource = source;
             ++source->m_cachedReaders;
             const auto update = [this, source, generation] {
@@ -367,6 +378,8 @@ void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cache
                 m_folderCount = source->m_folderCount;
                 m_childStats = source->m_childStats;
                 m_statsReady = source->m_statsReady;
+                m_statsAvailable = source->m_statsAvailable;
+                m_statsState = source->m_statsState; m_statsError = source->m_statsError;
                 m_statsDemand = source->m_statsDemand;
                 setCalculating(source->calculating());
                 emit propertiesChanged();
@@ -376,6 +389,19 @@ void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cache
             update();
             return;
         }
+    }
+    if (!m_directory || (info.isSymLink() && !m_backgroundStats) || !info.exists()) {
+        setCalculating(false);
+        return;
+    }
+    if (reuseStatsOrWait({m_path}, false, generation)) return;
+    if (cached && m_localFile) {
+        attachSizeIndex();
+        return;
+    }
+    if (m_localFile) {
+        attachSizeIndex();
+        return;
     }
     setCalculating(true);
     auto *watcher = new QFutureWatcher<FolderStats>(this);
@@ -413,7 +439,7 @@ void FilePropertiesManager::inspectInternal(const QString &urlOrPath, bool cache
     const QString root = m_path;
     const bool background = m_backgroundStats;
     const auto demand = m_statsDemand;
-    watcher->setFuture(QtConcurrent::run(background ? sizePool() : QThreadPool::globalInstance(),
+    watcher->setFuture(QtConcurrent::run(QThreadPool::globalInstance(),
         [root, cancelled, background, demand, progress] {
             return scanDirectorySize(root, cancelled, demand, progress, background);
         }));
@@ -465,35 +491,21 @@ void FilePropertiesManager::inspectSelection(const QStringList &urls)
     if (!m_localFile) { setCalculating(false); return; }
     if (reuseStatsOrWait(selection, true, generation)) return;
     setCalculating(true);
-    auto *watcher = new QFutureWatcher<FolderStats>(this);
-    connect(watcher, &QFutureWatcher<FolderStats>::finished, this, [this, watcher, generation] {
-        const auto stats = watcher->result(); watcher->deleteLater();
-        if (generation != m_generation) return;
-        m_totalSize = stats.bytes; m_fileCount = stats.files; m_folderCount = stats.folders;
-        m_statsReady = true;
-        setCalculating(false); emit propertiesChanged();
-    });
-    watcher->setFuture(QtConcurrent::run([selection, cancelled] {
-        FolderStats stats;
-        QSet<QString> visited;
-        auto count = [&](const QString &path, const QFileInfo &info) {
-            if (visited.contains(path) || info.isSymLink()) return;
-            visited.insert(path);
-            if (info.isDir()) ++stats.folders;
-            else if (info.isFile()) { ++stats.files; stats.bytes += info.size(); }
-        };
-        for (const auto &path : selection) {
-            if (cancelled->load()) break;
-            const QFileInfo info(path);
-            if (info.isSymLink()) continue;
-            count(path, info);
-            if (!info.isDir()) continue;
-            QDirIterator it(path, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
-                            QDirIterator::Subdirectories);
-            while (!cancelled->load() && it.hasNext()) { it.next(); count(it.filePath(), it.fileInfo()); }
-        }
-        return stats;
-    }));
+    auto *index = DirectorySizeIndex::instance();
+    m_statsDemand = index->foregroundDemand();
+    m_waitingStatsDemand = m_statsDemand;
+    m_waitingStatsDemand->fetch_add(1, std::memory_order_relaxed);
+    m_indexConnection = connect(index, &DirectorySizeIndex::selectionReady, this,
+        [this, generation](quint64 request, const DirectorySizeSnapshot &snapshot) {
+            if (generation != m_generation || request != m_indexSelection) return;
+            m_indexSelection = 0;
+            m_totalSize = snapshot.totals.bytes; m_fileCount = snapshot.totals.files;
+            m_folderCount = snapshot.totals.folders;
+            m_statsReady = snapshot.complete; m_statsAvailable = snapshot.available;
+            m_statsState = snapshot.state; m_statsError = snapshot.error;
+            setCalculating(false); emit propertiesChanged();
+        });
+    m_indexSelection = index->inspectSelection(selection);
 }
 
 void FilePropertiesManager::refreshPermissions()

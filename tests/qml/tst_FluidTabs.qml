@@ -141,7 +141,7 @@ Item {
             verify(contour.activeColor !== contour.navigationColor,
                 "Administrator tabs keep their warning tint without tinting the navigation surface")
             compare(contour.activeColor, AppTheme.dark ? "#3a2a18" : "#fff0d8")
-            compare(contour.outlineColor, AppTheme.warning)
+            compare(contour.outlineColor, data.qt ? AppTheme.tint(AppTheme.warning, AppTheme.qtActiveOutlineOpacity) : AppTheme.warning)
         }
         function test_translucent_neighbors_do_not_show_through_the_front_tab_data() {
             const cases = []

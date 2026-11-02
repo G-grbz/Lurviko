@@ -76,7 +76,10 @@ int main(int argc, char **argv) {
     require(popup && remember, "shared close confirmation exists");
     const auto page = [&] { return stack->property("currentItem").value<QObject *>(); };
     if (mode == "defaults" || mode == "disabled" || mode == "activation") {
-        require(!root->findChild<QQuickItem *>("browserChromeHost")->isVisible(),
+        // Explore now shares the header with the browser. Header visibility
+        // does not mean a saved file-browser session has been restored.
+        require(!root->property("browsingFiles").toBool()
+                && (!page() || page()->metaObject()->indexOfProperty("tabs") < 0),
                 "default/disabled and explicit file-manager activation start without restored tabs");
         if (mode == "defaults") require(!preferences->property("resumeSession").toBool()
                 && preferences->property("warnOnMultipleTabs").toBool(), "resume defaults off, close warning defaults on");

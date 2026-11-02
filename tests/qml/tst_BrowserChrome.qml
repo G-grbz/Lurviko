@@ -282,6 +282,36 @@ Item {
                     page.switchToTab(savedCurrent, true)
                 }
             }
+            function test_new_tab_immediately_rebinds_joined_page_outline() {
+                const savedTabs = page.tabs
+                const savedCurrent = page.currentTab
+                const location = String(fileArtworkFixtureUrl)
+                try {
+                    page.tabs = [page.makeTab(location)]
+                    page.switchToTab(0, true)
+                    verify(inputTestHelper.settleQmlCreations(page))
+                    compare(page.activeTabSurface, findChild(visualTab(0), "fluidTabSurface"))
+                    verify(page.activeTabSurface.pageOutlineJoined)
+                    const generationBefore = page.activeSurfaceGeneration
+
+                    page.addTab(location, true)
+                    verify(inputTestHelper.settleQmlCreations(page))
+                    tryCompare(page, "currentTab", 1)
+                    verify(page.activeSurfaceGeneration > generationBefore,
+                        "A new delegate must notify the page outline immediately")
+                    compare(page.activeTabSurface, findChild(visualTab(1), "fluidTabSurface"))
+                    verify(page.activeTabSurface.selected && page.activeTabSurface.pageOutlineJoined)
+                    fuzzyCompare(page.activeTabSurface.mapToItem(topHost, 0,
+                        page.activeTabSurface.base).y, page.tabStripHeight, 0.1)
+                    page.switchToTab(0, true)
+                    compare(page.activeTabSurface, findChild(visualTab(0), "fluidTabSurface"))
+                    page.switchToTab(1, true)
+                    compare(page.activeTabSurface, findChild(visualTab(1), "fluidTabSurface"))
+                } finally {
+                    page.tabs = savedTabs
+                    page.switchToTab(savedCurrent, true)
+                }
+            }
             function test_context_menu_opens_encryption_for_selected_local_items() {
                 const pane = page.activePane
                 pane.selectAll()

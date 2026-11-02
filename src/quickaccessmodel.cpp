@@ -195,8 +195,14 @@ QString QuickAccessModel::safeIcon(const QString &icon)
 {
     const QString trimmed = icon.trimmed();
     const QString local = IconReference::localFile(trimmed);
-    if (!local.isEmpty())
-        return local;
+    if (!local.isEmpty()) {
+        // Old shortcuts may refer to a manually selected SVG that has since
+        // been removed. Do not ask QtQuick Image to open a missing file on
+        // every page visit (which emits repeated "Cannot open" warnings).
+        // Keep the shortcut itself and replace only its missing artwork.
+        const QFileInfo file(QUrl(local).toLocalFile());
+        return file.isFile() && file.isReadable() ? local : QStringLiteral("folder.svg");
+    }
     static const QStringList allowed = {
         QStringLiteral("folder.svg"), QStringLiteral("home-folder.svg"),
         QStringLiteral("desktop.svg"), QStringLiteral("downloads.svg"),
@@ -435,7 +441,13 @@ void QuickAccessModel::load()
         const QVariantMap map = item.toMap();
         QString location = normalize(map.value(QStringLiteral("location")).toString());
         const QString title = map.value(QStringLiteral("title")).toString();
-        const QString icon = safeIcon(map.value(QStringLiteral("icon")).toString());
+        const QString savedIcon = map.value(QStringLiteral("icon")).toString();
+        const QString icon = safeIcon(savedIcon);
+        // Persist cleanup once so a missing custom SVG is not retried on
+        // future launches. No user location or favorite is removed.
+        if (icon == QStringLiteral("folder.svg")
+                && !IconReference::localFile(savedIcon).isEmpty())
+            migrated = true;
         const QString normalizedHome = normalize(QDir::homePath());
         if (icon == QStringLiteral("downloads.svg") && location == normalizedHome) {
             location = normalize(QDir(QDir::homePath()).filePath(QStringLiteral("Downloads")));

@@ -15,6 +15,7 @@
 #include <functional>
 #include <unistd.h>
 #include "fileoperations.h"
+#include "directorysizeindex.h"
 #include "archiveinspectionjob.h"
 #include "archiveoutput.h"
 
@@ -111,23 +112,48 @@ int main(int argc,char **argv) {
     // Actual local KIO paths use the same tracker as remote jobs.
     QDir().mkpath(root+"/source"); QDir().mkpath(root+"/destination"); QDir().mkpath(root+"/moved");
     const QString source=root+"/source/item.txt", destination=root+"/destination"; write(source,"source data");
+    auto *sizes = DirectorySizeIndex::instance();
+    QObject sourceReader, destinationReader, movedReader;
+    sizes->retain(&sourceReader, root+"/source");
+    sizes->retain(&destinationReader, destination);
+    sizes->retain(&movedReader, root+"/moved");
+    sizes->setWatchedDirectories(&sourceReader,{root+"/source"});
+    sizes->setWatchedDirectories(&destinationReader,{destination});
+    sizes->setWatchedDirectories(&movedReader,{root+"/moved"});
+    require(until([&]{return sizes->activeWatchCount()==3;}),"three visible roots share the central watcher");
+    const auto exactSize = [&](const QString &path, qint64 expected) {
+        const bool matched = until([&] {
+            const auto snapshot = sizes->snapshot(path);
+            return !sizes->busy() && snapshot.complete && !snapshot.calculating
+                && snapshot.totals.bytes == expected;
+        });
+        if (!matched) { const auto s=sizes->snapshot(path); std::fprintf(stderr,"SIZE: %s expected=%lld actual=%lld state=%s complete=%d calc=%d busy=%d error=%s\n",qPrintable(path),(long long)expected,(long long)s.totals.bytes,qPrintable(s.state),s.complete,s.calculating,sizes->busy(),qPrintable(s.error)); }
+        require(matched, "shared size index matches actual KIO results");
+    };
+    sizes->request(root+"/source"); sizes->request(destination); sizes->request(root+"/moved");
+    exactSize(root+"/source", 11); exactSize(destination, 0); exactSize(root+"/moved", 0);
     finished=false; resultUrls.clear(); ops.copyItem(url(source),url(destination));
     require(ops.ioBusy()&&!finished,"copy starts asynchronously");
     require(until([&]{return finished;})&&success,"real KIO copy completes");
     require(read(destination+"/item.txt")=="source data"&&QFile::exists(source),"copy preserves source and content");
     require(resultUrls==QStringList{url(destination+"/item.txt")},"selection results contain actual copied destination");
+    exactSize(destination, 11); exactSize(root+"/source", 11);
     write(destination+"/item.txt","keep existing"); finished=false; resultUrls.clear();
     auto *skip=KIO::copy(QUrl::fromLocalFile(source),QUrl::fromLocalFile(destination),KIO::HideProgressInfo); skip->setAutoSkip(true);
     FileOperationsTestAccess::copy(ops,skip,QUrl::fromLocalFile(source),QUrl::fromLocalFile(destination));
     require(until([&]{return finished;})&&success&&read(destination+"/item.txt")=="keep existing"&&resultUrls.isEmpty(),"Skip preserves existing file and never reports a guessed destination");
+    exactSize(destination, 13);
     finished=false;
     auto *overwrite=KIO::copy(QUrl::fromLocalFile(source),QUrl::fromLocalFile(destination),KIO::HideProgressInfo|KIO::Overwrite);
     FileOperationsTestAccess::copy(ops,overwrite,QUrl::fromLocalFile(source),QUrl::fromLocalFile(destination));
     require(until([&]{return finished;})&&success&&read(destination+"/item.txt")=="source data"&&read(source)=="source data","confirmed overwrite replaces destination, preserves source");
+    exactSize(destination, 11);
     finished=false; ops.moveItem(url(destination+"/item.txt"),url(root+"/moved"));
     require(until([&]{return finished;})&&success&&QFile::exists(root+"/moved/item.txt")&&!QFile::exists(destination+"/item.txt"),"real KIO move completes");
+    exactSize(destination, 0); exactSize(root+"/moved", 11);
     finished=false; ops.duplicateItem(url(source));
     require(until([&]{return finished;})&&success&&resultUrls.size()==1&&read(QUrl(resultUrls.first()).toLocalFile())=="source data","duplicate uses actual auto-renamed destination");
+    exactSize(root+"/source", 22);
     finished=false; ops.copyItem(url(source),url(destination));
     const int realCancel=ops.operations().last().toMap().value("id").toInt();
     require(ops.cancelOperation(realCancel),"real KIO copy cancels before writing");
@@ -149,15 +175,19 @@ int main(int argc,char **argv) {
     const bool trashDone=until([&]{return finished;});
     if(!trashDone||!success) std::fprintf(stderr,"TRASH RESULT: finished=%d success=%d %s\n",finished,success,qPrintable(lastMessage));
     require(trashDone&&success&&!QFile::exists(trashed),"actual trash succeeds");
+    exactSize(root+"/source", 22);
     require(!trashUrl.isEmpty(),"KIO reports actual trash URL including its volume id");
     finished=false; ops.restoreFromTrash({trashUrl});
     require(ops.ioBusy(),"restore is tracked immediately");
     const bool restored=until([&]{return finished;});
     if(!restored||!success) std::fprintf(stderr,"RESTORE RESULT: %s %s\n",qPrintable(trashUrl),qPrintable(lastMessage));
     require(restored&&success&&read(trashed)=="restore me","actual trash restore succeeds and is tracked");
+    exactSize(root+"/source", 32);
     finished=false; ops.removeItem(url(trashed));
     require(ops.ioBusy()&&ops.operations().last().toMap().value("kind")=="delete","permanent deletion is tracked");
     require(until([&]{return finished;})&&success&&!QFile::exists(trashed),"actual permanent delete succeeds");
+    exactSize(root+"/source", 22);
+    std::fprintf(stderr,"PASS: shared size totals follow real KIO copy/move, skip/overwrite, duplicate, trash/restore and deletion without forced scans\n");
     // Archive publication is exclusive, including a name that appeared while writing.
     const QString collision=root+"/collision.zip"; QString staging;
     { ArchiveOutput output(root,"collision",".zip"); require(output.valid(),"exclusive archive staging creates"); staging=output.path();

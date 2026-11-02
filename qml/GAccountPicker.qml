@@ -8,6 +8,7 @@ FocusScope {
     property string value: ""
     property bool allowKeep: false
     property string keepText: ""
+    property var textEditMenu: null
     readonly property int count: model.length
     readonly property bool acceptableInput: (allowKeep && value.length === 0)
         || model.slice(allowKeep ? 1 : 0).indexOf(value) !== -1
@@ -69,6 +70,8 @@ FocusScope {
         rightPadding: 32
         basePixelSize: 12
         focus: true
+        persistentSelection: true
+        ContextMenu.menu: control.textEditMenu
         text: control.value
         placeholderText: control.keepText
         Accessible.name: control.Accessible.name

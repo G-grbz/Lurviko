@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QAbstractListModel>
-#include <QFileSystemWatcher>
 #include <QFutureWatcher>
 #include <QStringList>
 #include <QHash>
@@ -145,14 +144,10 @@ private:
     void applyFullScan(const ScanResult &result);
     void applyCategoryScan(const QString &category, const ScanResult &result);
     void applySubtreeScan(const QString &rootPath, const ScanResult &result);
-    void rebuildWatchers(const QStringList &directories);
-    void addWatchers(const QStringList &directories);
-    void queueWatchers(const QStringList &directories);
-    void installWatcherBatch();
+    void reportSizeChanges(const ScanResult &result, const QString &rootPath = {}, const QString &category = {});
     void setIndexing(bool value);
     void setScanProgressVisible(bool visible);
     void notifyCountsChanged(const QSet<QString> &changedCategories = {});
-    void probeMediaRootAvailability();
     QString indexFilePath() const;
 
     QVector<Category> m_categories;
@@ -160,16 +155,10 @@ private:
     QHash<QString, QStringList> m_ignoreRules;
     QHash<QString, IndexedFile> m_files;
     QHash<QString, int> m_counts;
-    QFileSystemWatcher m_watcher;
     QTimer m_changeDebounce;
     QTimer m_saveDebounce;
-    QTimer m_watchInstallTimer;
-    QTimer m_mediaRootProbeTimer;
-    QStringList m_watchQueue;
-    QSet<QString> m_queuedWatchers;
     QSet<QString> m_pendingRoots;
     QSet<QString> m_pendingCategoryRefreshes;
-    QHash<QString, bool> m_mediaRootAvailability;
     bool m_indexing = false;
     bool m_scanProgressVisible = false;
     int m_scanProcessedDirectories = 0;

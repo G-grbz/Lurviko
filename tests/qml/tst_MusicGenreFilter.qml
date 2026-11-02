@@ -114,6 +114,15 @@ Item {
                 pane.musicLibraryTab = 5
                 tryCompare(pane, "categoryKey", "music")
             }
+            function test_music_header_uses_one_flat_workspace_surface() {
+                const header = findChild(pane, "musicCategoryHeader")
+                verify(header !== null)
+                compare(header.visible, true)
+                compare(header.border.width, 0)
+                compare(header.radius, 0)
+                verify(header.height >= 110, "Toolbar must reserve space for tabs and filters")
+                verify(findChild(pane, "musicGenreCombo") !== null)
+            }
             function test_genre_selection_lists_unplayed_tracks_and_counts() {
                 const combo = findChild(pane, "musicGenreCombo")
                 verify(combo !== null)

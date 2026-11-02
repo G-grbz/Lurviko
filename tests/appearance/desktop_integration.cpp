@@ -28,6 +28,14 @@ static void pause(int ms)
 {
     QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec();
 }
+static bool settleTransition(QObject *stack)
+{
+    // The first llvmpipe frame at fractional scale can exceed the nominal
+    // animation duration. Await actual completion with a finite deadline.
+    for (int attempt = 0; attempt < 150 && stack->property("busy").toBool(); ++attempt)
+        pause(20);
+    return !stack->property("busy").toBool();
+}
 static void verifyNativeBlurRegion(QWindow *window, bool enabled)
 {
 #if QT_CONFIG(xcb)
@@ -128,7 +136,8 @@ int main(int argc, char **argv)
     require(window, "production application window exists");
     pause(250);
     auto *chrome = root->findChild<QQuickItem *>("browserChromeHost");
-    require(chrome && !chrome->isVisible(), "Discover starts without browser tabs or navigation chrome");
+    require(chrome && chrome->isVisible() && !root->property("browsingFiles").toBool(),
+            "Discover uses the shared header without restoring a file-browser session");
     auto *pageStack = root->findChild<QQuickItem *>("pageStack");
     require(pageStack, "production navigation stack exists");
     auto *homePage = qobject_cast<QQuickItem *>(pageStack->property("currentItem").value<QObject *>());
@@ -146,11 +155,11 @@ int main(int argc, char **argv)
     verifyPixels(window, nativeBackground);
     // Exercise the actual browser's menu, not a transparent rectangle fixture.
     require(QMetaObject::invokeMethod(root, "browse", Q_ARG(QVariant, QDir::homePath())), "browse action invoked");
-    require(!pageStack->property("busy").toBool(),
-            "leaving Discover settles the header layout without animating the outgoing page");
-    pause(20);
-    require(homePage && !homePage->isVisible(), "Discover is hidden before the browser layout is presented");
+    // Both pages now own the shared chrome, so their normal transition is
+    // permitted. Check the final layout once that transition has completed.
     pause(250);
+    require(settleTransition(pageStack) && homePage && !homePage->isVisible(),
+            "leaving Discover finishes its transition and hides the outgoing page");
     require(chrome->isVisible() && chrome->height() >= 76,
             "browser chrome appears above the workspace on first navigation");
     auto *unified = root->findChild<QQuickItem *>("unifiedBrowserSurface");
@@ -184,8 +193,8 @@ int main(int argc, char **argv)
     const QColor tabFill = tabSurface->property("fillColor").value<QColor>();
     require(tabFill.alphaF() > 0.5 && tabFill.alphaF() < 0.8,
             "native active tabs have a stronger theme tint while retaining compositor translucency");
-    require(tabSurface->property("outlineColor").value<QColor>().alphaF() > 0.6,
-            "native active tab is distinguished by the desktop highlight outline");
+    require(qAbs(tabSurface->property("outlineColor").value<QColor>().alphaF() - 0.175) < 0.01,
+            "native active-tab highlight outline uses the requested half opacity");
     auto *effects = root->findChild<DesktopWindowEffects *>();
     require(effects && effects->window() == window && effects->enabled(), "KWin blur is requested for the complete native window including tabs");
     require(!tabSurface->findChild<QObject *>("fluidTabGlow"), "native tabs do not allocate a separate blur effect");
@@ -204,10 +213,10 @@ int main(int argc, char **argv)
     require(visibleHeaders == 1, "only the current page header is visible during a stack transition");
     pause(220);
     require(QMetaObject::invokeMethod(root, "showHome"), "Discover navigation returns home");
-    require(!pageStack->property("busy").toBool(),
-            "returning to Discover changes chrome in one layout, without a resized outgoing browser");
     pause(200);
-    require(!chrome->isVisible(), "Discover hides the shared header after browser navigation");
+    require(settleTransition(pageStack), "returning to Discover finishes its shared-chrome transition");
+    require(chrome->isVisible() && !root->property("browsingFiles").toBool(),
+            "Discover restores its shared header after browser navigation");
     require(homePage->isVisible() && homePage->opacity() == 1 && qAbs(homePage->x()) < 1,
             "Discover returns fully visible at its final position");
     require(QMetaObject::invokeMethod(root, "browse", Q_ARG(QVariant, QDir::homePath())), "browser reopens");

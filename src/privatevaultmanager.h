@@ -1,5 +1,10 @@
 #pragma once
 #include <memory>
+#include <functional>
+#include <algorithm>
+
+#include <QElapsedTimer>
+#include <QFuture>
 
 #include <QAbstractListModel>
 #include <QByteArray>
@@ -20,9 +25,19 @@ class PrivateVaultManager : public QAbstractListModel
     Q_PROPERTY(bool exists READ exists NOTIFY stateChanged)
     Q_PROPERTY(bool unlocked READ unlocked NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(bool transferActive READ transferActive NOTIFY transferProgressChanged)
+    Q_PROPERTY(int transferPercent READ transferPercent NOTIFY transferProgressChanged)
+    Q_PROPERTY(qint64 transferBytesDone READ transferBytesDone NOTIFY transferProgressChanged)
+    Q_PROPERTY(qint64 transferBytesTotal READ transferBytesTotal NOTIFY transferProgressChanged)
+    Q_PROPERTY(int transferFilesDone READ transferFilesDone NOTIFY transferProgressChanged)
+    Q_PROPERTY(int transferFilesTotal READ transferFilesTotal NOTIFY transferProgressChanged)
+    Q_PROPERTY(QString transferCurrentFile READ transferCurrentFile NOTIFY transferProgressChanged)
+    Q_PROPERTY(QString transferPhase READ transferPhase NOTIFY transferProgressChanged)
     Q_PROPERTY(int itemCount READ itemCount NOTIFY itemCountChanged)
     Q_PROPERTY(int totalItemCount READ totalItemCount NOTIFY itemCountChanged)
     Q_PROPERTY(QString currentFolderId READ currentFolderId NOTIFY currentFolderChanged)
+    Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY currentFolderChanged)
+    Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY currentFolderChanged)
     Q_PROPERTY(QString currentPathLabel READ currentPathLabel NOTIFY currentFolderChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
@@ -60,9 +75,20 @@ public:
     bool exists() const;
     bool unlocked() const { return m_unlocked; }
     bool busy() const { return m_busy; }
+    bool transferActive() const { return m_transferActive; }
+    int transferPercent() const { return m_transferBytesTotal > 0
+        ? static_cast<int>(std::min(99.0, static_cast<double>(m_transferBytesDone) * 100.0 / m_transferBytesTotal)) : -1; }
+    qint64 transferBytesDone() const { return m_transferBytesDone; }
+    qint64 transferBytesTotal() const { return m_transferBytesTotal; }
+    int transferFilesDone() const { return m_transferFilesDone; }
+    int transferFilesTotal() const { return m_transferFilesTotal; }
+    QString transferCurrentFile() const { return m_transferCurrentFile; }
+    QString transferPhase() const { return m_transferPhase; }
     int itemCount() const { return m_visibleItems.size(); }
     int totalItemCount() const;
     QString currentFolderId() const { return m_currentFolderId; }
+    bool canGoBack() const { return m_unlocked && !m_backHistory.isEmpty(); }
+    bool canGoForward() const { return m_unlocked && !m_forwardHistory.isEmpty(); }
     QString currentPathLabel() const;
     QString lastError() const { return m_lastError; }
     QString statusMessage() const { return m_statusMessage; }
@@ -89,6 +115,8 @@ public:
     Q_INVOKABLE bool unlock(const QString &password);
     Q_INVOKABLE bool quickUnlock();
     Q_INVOKABLE void lock();
+    // Explicit irreversible reset, allowed even when the password is lost.
+    Q_INVOKABLE bool deleteVault();
     Q_INVOKABLE bool changePassword(const QString &currentPassword, const QString &newPassword);
     Q_INVOKABLE bool setKWalletEnabled(bool enabled);
     Q_INVOKABLE bool setAutoLockEnabled(bool enabled);
@@ -100,8 +128,15 @@ public:
     Q_INVOKABLE bool deleteItem(const QString &objectId);
     Q_INVOKABLE bool enterFolder(const QString &objectId);
     Q_INVOKABLE bool goUp();
+    Q_INVOKABLE bool goBack();
+    Q_INVOKABLE bool goForward();
+    Q_INVOKABLE void refresh();
     Q_INVOKABLE void goRoot();
     Q_INVOKABLE bool importUrls(const QVariantList &urls);
+    // Import into the encrypted root-level Received folder, independently of
+    // whichever vault folder is open. Optionally remove originals only after
+    // all entries and the encrypted manifest have been saved successfully.
+    Q_INVOKABLE bool importToReceived(const QVariantList &urls, bool removeOriginals = false);
     Q_INVOKABLE bool exportItem(const QString &objectId, const QString &targetFolder);
     Q_INVOKABLE QString materializeForOpen(const QString &objectId);
     Q_INVOKABLE void releaseMaterialized(const QString &urlOrPath);
@@ -117,10 +152,15 @@ signals:
     void lastErrorChanged();
     void statusMessageChanged();
     void operationFinished(bool success, const QString &message);
+    void transferProgressChanged();
+    void transferFinished(bool success, const QString &message);
     void securitySettingsChanged();
     void authenticationStateChanged();
 
 private:
+    // Used only by the isolated, thread-local import engine. No timers,
+    // wallets, QML objects or runtime-directory cleanup are initialized.
+    explicit PrivateVaultManager(QObject *parent, bool importWorker);
     static constexpr int KeySize = 32;
     static constexpr int SaltSize = 16;
     static constexpr int IvSize = 12;
@@ -134,6 +174,8 @@ private:
     bool ensureRuntimeDirectory();
 
     void setBusy(bool value);
+    void publishTransferProgress(bool force = false);
+    void finishTransfer(bool success, const QString &message);
     void setError(const QString &message);
     void setStatus(const QString &message);
     void secureClear(QByteArray &bytes);
@@ -147,7 +189,8 @@ private:
                        QByteArray *iv, QByteArray *cipher, QByteArray *tag) const;
     bool aesGcmDecrypt(const QByteArray &cipher, const QByteArray &key, const QByteArray &aad,
                        const QByteArray &iv, const QByteArray &tag, QByteArray *plain) const;
-    bool encryptFileToBlob(const QString &sourcePath, const QString &objectId, const QString &blobName, const QByteArray &key) const;
+    bool encryptFileToBlob(const QString &sourcePath, const QString &objectId, const QString &blobName,
+                           const QByteArray &key, const std::function<void(qint64)> &onBytes = {}) const;
     bool decryptBlobToFile(const QString &objectId, const QString &blobName, const QString &targetPath, const QByteArray &key) const;
 
     bool readHeader(QJsonObject *header) const;
@@ -181,14 +224,27 @@ private:
     QString iconForItem(const QJsonObject &item) const;
     QString parentPathLabel(const QString &folderId) const;
     void refreshVisibleItems();
-    bool importPathRecursive(const QString &path, const QString &parentId, QStringList *createdBlobNames);
+    bool importPathRecursive(const QString &path, const QString &parentId, QStringList *createdBlobNames,
+                             const std::function<void(qint64, const QString &)> &onProgress = {});
     bool exportItemRecursive(const QJsonObject &item, const QString &targetDirectory);
     void collectDescendants(const QString &id, QStringList *ids) const;
 
+    bool m_importWorker = false;
+    bool m_lockAfterTransfer = false;
+    QFuture<void> m_importFuture;
+    std::function<void(qint64, qint64, int, int, const QString &, const QString &)> m_progressPublisher;
     bool m_unlocked = false;
     mutable QString m_runtimeRoot;
     mutable std::unique_ptr<VaultSecurity::RuntimeDirectory> m_runtimeDirectory;
     bool m_busy = false;
+    bool m_transferActive = false;
+    qint64 m_transferBytesDone = 0;
+    qint64 m_transferBytesTotal = 0;
+    int m_transferFilesDone = 0;
+    int m_transferFilesTotal = 0;
+    QString m_transferCurrentFile;
+    QString m_transferPhase;
+    QElapsedTimer m_transferClock;
     QByteArray m_masterKey;
     QByteArray m_pendingRecoveryKey; // Never persisted; consumed once or wiped on lock.
     QJsonObject m_pendingRecoveryHeader;
@@ -198,6 +254,9 @@ private:
     QJsonObject m_manifest;
     QList<QJsonObject> m_visibleItems;
     QString m_currentFolderId = QStringLiteral("root");
+    QStringList m_backHistory;
+    QStringList m_forwardHistory;
+    bool validFolder(const QString &folderId) const;
     QString m_lastError;
     QString m_statusMessage;
     QHash<QString, QString> m_materializedPaths;

@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(lurviko_samba_tests LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Concurrent Test)
+add_executable(samba-share-tests samba_share_tests.cpp ../../src/sambasharemanager.cpp ../../src/sambasharemanager.h)
+target_include_directories(samba-share-tests PRIVATE ../../src)
+target_link_libraries(samba-share-tests PRIVATE Qt6::Core Qt6::Network Qt6::Concurrent Qt6::Test)

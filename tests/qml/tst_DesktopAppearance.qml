@@ -137,7 +137,8 @@ Item {
                     verify(active.fillColor.a > passive.fillColor.a + 0.4,
                         "Active native tabs must be distinguishable when Base and Window are identical")
                     verify(active.fillColor.a < 0.8, "Native tabs retain a translucent fill")
-                    verify(active.outlineColor.a > passive.outlineColor.a + 0.4)
+                    compare(active.outlineColor, AppTheme.activeTabOutline)
+                    verify(Math.abs(active.outlineColor.a - 0.175) < 0.01)
                     const image = grabImage(active)
                     const rgbDifference = Math.abs(image.red(80, 20) - Math.round(passive.fillColor.r * 255))
                         + Math.abs(image.green(80, 20) - Math.round(passive.fillColor.g * 255))
@@ -151,7 +152,8 @@ Item {
                     tryCompare(passive, "selectionAnimating", false)
                     tryCompare(active, "selectionProgress", 0)
                     verify(passive.fillColor.a > active.fillColor.a + 0.4)
-                    verify(passive.outlineColor.a > active.outlineColor.a + 0.4)
+                    compare(passive.outlineColor, AppTheme.activeTabOutline)
+                    verify(Math.abs(passive.outlineColor.a - 0.175) < 0.01)
                 } finally {
                     page.tabs = savedTabs
                     page.switchToTab(savedCurrent, true)

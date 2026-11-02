@@ -1,3 +1,4 @@
+#include "filemetadata_p.h"
 #include "directorysizeworker.h"
 
 #include <QDir>
@@ -87,7 +88,7 @@ DirectorySizeResult scanDirectorySize(const QString &root,
         // d_type saves stat calls for links, directories and special files.
         // A regular file still needs one non-following stat for its logical size.
         const bool haveInfo = (entry->d_type == DT_REG || entry->d_type == DT_UNKNOWN)
-            && ::fstatat(descriptor, entry->d_name, &info, AT_SYMLINK_NOFOLLOW) == 0;
+            && directoryMetadataAt(descriptor, entry->d_name, &info, true) == 0;
         const bool directory = entry->d_type == DT_DIR || (haveInfo && S_ISDIR(info.st_mode));
         if (directory) {
             if (child && frame.child == -1) child->directory = true;

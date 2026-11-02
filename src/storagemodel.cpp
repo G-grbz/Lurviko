@@ -5,13 +5,11 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QLocale>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStorageInfo>
-#include <QStandardPaths>
 #include <QTextStream>
 #include <QtConcurrent>
 #include <algorithm>
@@ -357,10 +355,7 @@ StorageModel::StorageModel(QObject *parent)
         }
     });
 
-    m_pollTimer.setInterval(5000);
-    m_pollTimer.setSingleShot(false);
-    connect(&m_pollTimer, &QTimer::timeout, this, &StorageModel::refresh);
-    m_pollTimer.start();
+    // Device monitor and explicit refresh replace periodic disk probing.
 
     startDeviceMonitor();
     refresh();
@@ -369,7 +364,6 @@ StorageModel::StorageModel(QObject *parent)
 StorageModel::~StorageModel()
 {
     m_shuttingDown = true;
-    m_pollTimer.stop();
     m_refreshDebounce.stop();
 
     // udisksctl monitor is intentionally long-lived. Stop it explicitly
@@ -542,8 +536,10 @@ QVector<StorageModel::Entry> StorageModel::discoverLiveEntries()
             auto best = std::max_element(candidates.begin(), candidates.end(), [&](const Entry &a, const Entry &b) {
                 return candidateScore(a) < candidateScore(b);
             });
-            if (best != candidates.end())
-                entries.push_back(*best);
+            if (best != candidates.end()) {
+                Entry selected = *best;
+                entries.push_back(selected);
+            }
         }
     }
 

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import QtCore
 import Lurviko.App
 import Lurviko.Backend
 import "../components"
@@ -11,11 +12,34 @@ Rectangle {
     required property var lang
     required property var vault
     required property var musicPlayer
+    property Item headerHost: null
+    readonly property real headerHeight: vaultHeader.headerHeight
+    readonly property real tabStripHeight: vaultHeader.tabStripHeight
+    readonly property Item activeTabSurface: vaultHeader.activeTabSurface
+    readonly property real activeTabScrollPosition: 0
+    readonly property bool activeTabAdministrator: false
+    readonly property string visibleLocation: "private:/"
+    readonly property color navigationColor: AppTheme.useQtTheme
+        ? AppTheme.tint(AppTheme.surfaceRaised, AppTheme.translucentWindow ? 0.30 : 1)
+        : AppTheme.mix(AppTheme.workspace, AppTheme.surfaceRaised, 0.42)
     signal closeRequested()
+    signal browseNewTabRequested(string location)
 
-    color: AppTheme.workspace
-    radius: Math.max(0, AppTheme.panelRadius - 1)
+    color: headerHost ? "transparent" : AppTheme.workspace
+    radius: headerHost ? 0 : Math.max(0, AppTheme.panelRadius - 1)
     antialiasing: true
+    focus: true
+    Keys.onPressed: function(event) {
+        if (vaultDeletePopup.visible)
+            return
+        if (event.key === Qt.Key_Back) {
+            page.navigateBack()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Forward) {
+            page.navigateForward()
+            event.accepted = true
+        }
+    }
     property string selectedId: ""
     property string selectedName: ""
     property bool selectedIsDir: false
@@ -28,6 +52,80 @@ Rectangle {
     readonly property string recoveryWarning: lang.language === "tr"
         ? "Kurtarma anahtarı parola kadar hassastır: kim ele geçirirse kasayı açabilir. İsteğe bağlıdır ve yalnızca bir kez gösterilir. Lurviko’da parola sıfırlamak için tek kullanımlıktır; başarılı sıfırlama sonrası Güvenlik’ten yenisini oluştur. Güvenli, ayrı bir yerde sakla; panoya kopyalarsan pano geçmişinde kalabilir."
         : "The recovery key is as sensitive as your password: anyone who obtains it can open the vault. It is optional and shown only once. It is single-use for password resets in Lurviko; generate another in Security after a successful reset. Store it securely, separately; copying it may leave it in clipboard history."
+
+    function navigateBack() {
+        if (vault.busy)
+            return
+        if (vault.unlocked && vault.canGoBack) {
+            vault.goBack()
+            return
+        }
+        page.leavePrivatePage()
+    }
+
+    function navigateForward() {
+        if (!vault.busy && vault.unlocked && vault.canGoForward)
+            vault.goForward()
+    }
+
+    // Match BrowserPane: extra mouse buttons must not obscure hover/clicks.
+    TapHandler {
+        acceptedButtons: Qt.BackButton | Qt.ForwardButton
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        onTapped: function(eventPoint, button) {
+            if (button === Qt.BackButton)
+                page.navigateBack()
+            else if (button === Qt.ForwardButton)
+                page.navigateForward()
+        }
+    }
+    Shortcut {
+        sequence: "Alt+Left"
+        context: Qt.WindowShortcut
+        enabled: page.visible && !vaultDeletePopup.visible
+        onActivated: page.navigateBack()
+    }
+    Shortcut {
+        sequence: "Alt+Right"
+        context: Qt.WindowShortcut
+        enabled: page.visible && !vaultDeletePopup.visible
+        onActivated: page.navigateForward()
+    }
+
+    PageChrome {
+        id: vaultHeader
+        pageOutlineJoined: page.headerHost !== null
+        objectName: "vaultPageHeader"
+        parent: page.headerHost || page
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: headerHeight
+        visible: page.visible && (!page.StackView.view || page.StackView.view.currentItem === page)
+        tabTitle: lang.language === "tr" ? "Sana Özel" : "Private"
+        tabIcon: AppTheme.icon("private.svg")
+        navigationColor: page.navigationColor
+        canGoBack: !vault.busy
+        canGoForward: vault.unlocked && vault.canGoForward && !vault.busy
+        canGoUp: vault.unlocked && vault.currentFolderId !== "root" && !vault.busy
+        showHistory: vault.unlocked && vault.canGoBack && !vault.busy
+        backTip: lang.language === "tr" ? "Geri / Keşfet" : "Back / Discover"
+        forwardTip: lang.language === "tr" ? "İleri" : "Forward"
+        upTip: lang.language === "tr" ? "Üst klasöre çık" : "Parent folder"
+        refreshTip: lang.language === "tr" ? "Kasa görünümünü yenile" : "Refresh vault view"
+        historyTip: lang.language === "tr" ? "Önceki klasör" : "Previous folder"
+        newTabTip: lang.t("new_tab")
+        onBackRequested: page.navigateBack()
+        onForwardRequested: page.navigateForward()
+        onUpRequested: vault.goUp()
+        onRefreshRequested: {
+            page.selectedId = ""
+            vault.refresh()
+        }
+        onHistoryRequested: page.navigateBack()
+        onNewTabRequested: page.browseNewTabRequested(StandardPaths.writableLocation(StandardPaths.HomeLocation))
+        onTabSelected: if (vault.unlocked) vault.goRoot()
+    }
 
     function showRecoveryKey() {
         securityPopup.close()
@@ -168,10 +266,25 @@ Rectangle {
         }
     }
 
+    // StackView creates the page before it becomes the active keyboard target.
+    // Defer focus until the view is visible and its transition has settled.
+    function focusUnlockPassword() {
+        Qt.callLater(function() {
+            if (!page.visible || !vault.exists || vault.unlocked || vault.busy
+                    || vaultDeletePopup.visible || recoveryUnlockPopup.visible || securityPopup.visible
+                    || (page.StackView.view && page.StackView.view.currentItem !== page))
+                return
+            unlockPassword.forceActiveFocus(Qt.TabFocusReason)
+        })
+    }
+    StackView.onActivated: page.focusUnlockPassword()
+    Component.onCompleted: page.focusUnlockPassword()
     onVisibleChanged: {
         if (!visible) {
             closeVaultMedia()
             lockWhenLeavingIfNeeded()
+        } else {
+            focusUnlockPassword()
         }
     }
 
@@ -194,6 +307,7 @@ Rectangle {
                 recoveryKeyPopup.close()
                 recoveryDisplay.text = ""
                 recoveryConfirm.close()
+                page.focusUnlockPassword()
             }
         }
     }
@@ -318,6 +432,91 @@ Rectangle {
                 GModalButton {
                     text: "Tamam"
                     onClicked: infoPopup.close()
+                }
+            }
+        }
+    }
+
+    GModalPopup {
+        id: vaultDeletePopup
+        objectName: "vaultDeleteConfirmationPopup"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(460, page.width - 32)
+        height: 275
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        onOpened: vaultDeleteAcknowledged.checked = false
+        onClosed: {
+            vaultDeleteAcknowledged.checked = false
+            page.focusUnlockPassword()
+        }
+        background: GModalSurface { }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 22
+            spacing: 14
+            GText {
+                Layout.fillWidth: true
+                text: lang.language === "tr" ? "Kasayı tamamen sil?" : "Delete the entire vault?"
+                baseColor: AppTheme.danger
+                basePixelSize: 18
+                baseBold: true
+            }
+            GText {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                baseColor: AppTheme.textMuted
+                basePixelSize: 11
+                text: lang.language === "tr"
+                    ? "Kasa ve içerisindeki tüm veriler kalıcı olarak silinecek. Parola, kurtarma bilgileri ve şifreli dosyalar kaybolacak. Bu işlem geri alınamaz. Onaylıyor musun?"
+                    : "The vault and all its data will be permanently deleted, including password and recovery records and encrypted files. This cannot be undone. Do you confirm?"
+            }
+            GCheckBox {
+                id: vaultDeleteAcknowledged
+                objectName: "vaultDeleteAcknowledged"
+                Layout.fillWidth: true
+                text: lang.language === "tr"
+                    ? "Tüm kasa verilerinin kalıcı silineceğini kabul ediyorum."
+                    : "I understand that all vault data will be permanently deleted."
+            }
+            GText {
+                visible: vault.lastError.length > 0
+                Layout.fillWidth: true
+                text: vault.lastError
+                wrapMode: Text.Wrap
+                baseColor: AppTheme.danger
+                basePixelSize: 10
+            }
+            Item { Layout.fillHeight: true }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                GModalButton {
+                    objectName: "vaultDeleteNoButton"
+                    text: lang.language === "tr" ? "Hayır" : "No"
+                    onClicked: vaultDeletePopup.close()
+                }
+                GModalButton {
+                    id: deleteVaultConfirmButton
+                    objectName: "vaultDeleteYesButton"
+                    text: lang.language === "tr" ? "Evet, Kasayı Sil" : "Yes, Delete Vault"
+                    danger: true
+                    enabled: vaultDeleteAcknowledged.checked && vault.exists && !vault.busy
+                    onClicked: {
+                        if (!vaultDeleteAcknowledged.checked)
+                            return
+                        page.closeVaultMedia()
+                        if (vault.deleteVault()) {
+                            unlockPassword.text = ""
+                            createPassword.text = ""
+                            createPasswordAgain.text = ""
+                            page.selectedId = ""
+                            vaultDeletePopup.close()
+                        }
+                    }
                 }
             }
         }
@@ -462,7 +661,13 @@ Rectangle {
         width: Math.min(560, page.width - 40)
         height: Math.min(520, page.height - 30)
         onOpened: { vault.clearStatus(); recoveryInput.forceActiveFocus() }
-        onClosed: { recoveryInput.text = ""; recoveryPassword.text = ""; recoveryPasswordAgain.text = ""; recoveryMismatch.visible = false }
+        onClosed: {
+            recoveryInput.text = ""
+            recoveryPassword.text = ""
+            recoveryPasswordAgain.text = ""
+            recoveryMismatch.visible = false
+            page.focusUnlockPassword()
+        }
         ColumnLayout {
             anchors.fill: parent
             spacing: 12
@@ -518,7 +723,12 @@ Rectangle {
             passwordLockoutDuration.value = vault.passwordLockoutSeconds
             passwordRetryDelay.value = vault.passwordRetrySeconds
         }
-        onClosed: { currentPassword.text = ""; newPassword.text = ""; newPasswordAgain.text = "" }
+        onClosed: {
+            currentPassword.text = ""
+            newPassword.text = ""
+            newPasswordAgain.text = ""
+            page.focusUnlockPassword()
+        }
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 24
@@ -733,18 +943,12 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 20
+        anchors.topMargin: page.headerHost ? 20 : page.headerHeight + 20
         spacing: 14
 
         RowLayout {
             Layout.fillWidth: true
             spacing: 9
-            GToolButton {
-                implicitWidth: 36; implicitHeight: 36
-                icon.source: AppTheme.icon("nav-back.svg")
-                onClicked: page.leavePrivatePage()
-                GToolTip { text: lang.language === "tr" ? "Keşfet'e dön" : "Back to Discover" }
-                background: Rectangle { radius: 9; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
-            }
             CrispIcon { Layout.preferredWidth: 30; Layout.preferredHeight: 30; width: 30; height: 30; source: AppTheme.icon("private.svg") }
             ColumnLayout {
                 Layout.fillWidth: true
@@ -850,16 +1054,29 @@ Rectangle {
                 GTextField { id: unlockPassword; objectName: "vaultUnlockPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Kasa parolası" : "Vault password"; color: AppTheme.text; onAccepted: unlockButton.clicked() }
                 VaultAttemptStatus { Layout.fillWidth: true; vault: page.vault; lang: page.lang }
                 GText { visible: vault.lastError.length > 0; Layout.fillWidth: true; wrapMode: Text.Wrap; baseColor: AppTheme.danger; text: vault.lastError; basePixelSize: 10 }
-                GModalButton {
-                    id: unlockButton
-                    objectName: "vaultUnlockButton"
+                RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    text: lang.language === "tr" ? "Kilidi Aç" : "Unlock"
-                    primary: true
-                    enabled: !vault.busy && unlockPassword.text.length > 0 && vault.passwordWaitSeconds === 0
-                    onClicked: {
-                        if (vault.unlock(unlockPassword.text))
-                            unlockPassword.text = ""
+                    spacing: 10
+                    GModalButton {
+                        id: unlockButton
+                        objectName: "vaultUnlockButton"
+                        text: lang.language === "tr" ? "Kilidi Aç" : "Unlock"
+                        primary: true
+                        enabled: !vault.busy && unlockPassword.text.length > 0 && vault.passwordWaitSeconds === 0
+                        onClicked: {
+                            if (vault.unlock(unlockPassword.text))
+                                unlockPassword.text = ""
+                        }
+                    }
+                    GModalButton {
+                        objectName: "vaultDeleteButton"
+                        text: lang.language === "tr" ? "Kasayı Sil" : "Delete Vault"
+                        danger: true
+                        enabled: !vault.busy
+                        onClicked: {
+                            vault.clearStatus()
+                            vaultDeletePopup.open()
+                        }
                     }
                 }
                 GModalButton {
@@ -894,9 +1111,9 @@ Rectangle {
                     spacing: 7
                     GToolButton {
                         implicitWidth: 34; implicitHeight: 34
-                        enabled: vault.currentFolderId !== "root" && !vault.busy
+                        enabled: vault.canGoBack && !vault.busy
                         icon.source: AppTheme.icon("nav-back.svg")
-                        onClicked: vault.goUp()
+                        onClicked: page.navigateBack()
                         background: Rectangle { radius: 9; color: parent.hovered ? AppTheme.surfaceHover : "transparent" }
                     }
                     GButton {
@@ -1069,7 +1286,7 @@ Rectangle {
     PhotoViewer {
         id: photoViewer
         lang: page.lang
-        hostWindow: ApplicationWindow.window
+        hostWindow: page.ApplicationWindow.window
         normalOverlayParent: Overlay.overlay
         files: []
         onClosed: page.releasePreview()
@@ -1078,7 +1295,7 @@ Rectangle {
     VideoViewer {
         id: videoViewer
         lang: page.lang
-        hostWindow: ApplicationWindow.window
+        hostWindow: page.ApplicationWindow.window
         normalOverlayParent: Overlay.overlay
         files: []
         resetMediaOnClose: true

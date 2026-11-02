@@ -1,4 +1,5 @@
 #include "directorymodel.h"
+#include "directorysizeindex.h"
 #include "gitstatuscache.h"
 #include <QGuiApplication>
 #include "contentindexmodel.h"
@@ -280,8 +281,9 @@ DirectoryModel::DirectoryModel(QObject *parent)
                     && !resolveTrashLocalPath(m_location).isEmpty()))
             refresh();
     });
-    connect(&m_localWatcher, &QFileSystemWatcher::directoryChanged,
-            this, [this](const QString &) {
+    connect(&m_localWatcher, &DirectoryWatchSubscription::directoryChanged,
+            this, [this](const QString &path) {
+        if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeDirectory(path);
         if (!m_searchQuery.isEmpty() || !m_activeSearchSessionId.isEmpty())
             return;
         if (m_heavyIoBusy) {
@@ -308,8 +310,9 @@ DirectoryModel::DirectoryModel(QObject *parent)
     connect(&m_previewSettleTimer, &QTimer::timeout, this, &DirectoryModel::settleVideoPreviews);
     m_localMetadataTimer.setInterval(220);
     connect(&m_localMetadataTimer, &QTimer::timeout, this, &DirectoryModel::refreshLocalFileMetadata);
-    connect(&m_localWatcher, &QFileSystemWatcher::fileChanged, this,
+    connect(&m_localWatcher, &DirectoryWatchSubscription::fileChanged, this,
             [this](const QString &path) {
+        if (auto *sizes = DirectorySizeIndex::existing()) sizes->observePaths({path});
         if (!m_location.isLocalFile())
             return;
         if (!m_searchQuery.isEmpty() || !m_activeSearchSessionId.isEmpty())
@@ -2000,76 +2003,21 @@ void DirectoryModel::watchLocalDirectory(const QString &path)
         if (existing != cleanPath)
             m_localWatcher.removePath(existing);
     }
-    if (!cleanPath.isEmpty() && QFileInfo(cleanPath).isDir()
-            && !m_localWatcher.directories().contains(cleanPath)) {
+    if (!cleanPath.isEmpty() && !m_localWatcher.directories().contains(cleanPath)) {
         m_localWatcher.addPath(cleanPath);
     }
 }
 
 
-void DirectoryModel::watchLocalFiles(const QVector<Entry> &entries)
+void DirectoryModel::watchLocalFiles(const QVector<Entry> &)
 {
     m_localWatchInstallTimer.stop();
     m_localWatchQueue.clear();
-    // Watching every child in a very large directory is far more expensive
-    // than watching the directory itself. In 10k+ item folders it also causes
-    // a storm of metadata callbacks while KIO is copying files. Keep per-file
-    // growth tracking only for reasonably sized folders.
-    constexpr int kMaxIndividuallyWatchedFiles = 2048;
-    if (m_heavyIoBusy || entries.size() > kMaxIndividuallyWatchedFiles) {
-        const QStringList watched = m_localWatcher.files();
-        if (!watched.isEmpty())
-            m_localWatcher.removePaths(watched);
-        return;
-    }
-
-    QSet<QString> wanted;
-    wanted.reserve(entries.size());
-    for (const Entry &entry : entries) {
-        if (entry.isDir || entry.localPath.isEmpty())
-            continue;
-        wanted.insert(QDir::cleanPath(entry.localPath));
-    }
-
-    const QStringList watched = m_localWatcher.files();
-    for (const QString &existing : watched) {
-        if (!wanted.contains(QDir::cleanPath(existing)))
-            m_localWatcher.removePath(existing);
-    }
-
-    QStringList missing;
-    missing.reserve(wanted.size());
-    const QStringList watchedNow = m_localWatcher.files();
-    QSet<QString> currentlyWatched;
-    currentlyWatched.reserve(watchedNow.size());
-    for (const QString &path : watchedNow)
-        currentlyWatched.insert(QDir::cleanPath(path));
-    for (const QString &path : std::as_const(wanted)) {
-        if (!currentlyWatched.contains(path))
-            missing.append(path);
-    }
-    // The worker already classified these files. Do not stat every path and
-    // register thousands of native watches on the GUI thread before painting.
-    m_localWatchQueue = std::move(missing);
-    if (!m_localWatchQueue.isEmpty())
-        m_localWatchInstallTimer.start();
 }
 
 void DirectoryModel::installLocalFileWatchBatch()
 {
-    if (m_heavyIoBusy || !m_location.isLocalFile()) {
-        m_localWatchQueue.clear();
-        return;
-    }
-    constexpr int batchSize = 8;
-    const int count = qMin(batchSize, m_localWatchQueue.size());
-    if (count == 0)
-        return;
-    const QStringList batch = m_localWatchQueue.mid(0, count);
-    m_localWatchQueue.remove(0, count);
-    m_localWatcher.addPaths(batch);
-    if (!m_localWatchQueue.isEmpty())
-        m_localWatchInstallTimer.start();
+    m_localWatchQueue.clear();
 }
 
 void DirectoryModel::refreshLocalFileMetadata()
@@ -2136,7 +2084,7 @@ void DirectoryModel::refreshLocalFileMetadata()
         // Some backends drop a file watch after replace/rename semantics.  If
         // the path still exists, immediately arm it again for subsequent writes.
         if (!m_localWatcher.files().contains(path) && info.isFile())
-            m_localWatcher.addPath(path);
+            m_localWatcher.addFile(path);
     }
 
     if (needsDirectoryRefresh && !m_localRefreshTimer.isActive())

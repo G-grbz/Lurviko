@@ -150,6 +150,7 @@ int main(int argc, char **argv) {
     };
     {
         ContentIndexModel model;
+        DirectorySizeIndex::instance()->setWatchedDirectories(&model, {base + "/.sync/Dcim"});
         model.refresh();
         if (!waitFor([&] { return !model.indexing() && model.totalIndexed() == expected.size(); })) return 6;
         { QEventLoop loop; QTimer::singleShot(150, &loop, &QEventLoop::quit); loop.exec(); }
@@ -214,12 +215,44 @@ int main(int argc, char **argv) {
     QObject::disconnect(progress);
     // Deletion is reconciled through the existing directory watcher; unrelated
     // category views must not be torn down or have their counts cleared.
-    if (!waitFor([&] { return counts.m_watcher.directories().contains(separate.path() + "/images"); })) return 16;
+    DirectorySizeIndex::instance()->setWatchedDirectories(&counts, {separate.path() + "/images"});
+    if (!waitFor([&] { return DirectorySizeIndex::instance()->activeWatchCount() > 0; })) return 16;
     if (!QFile::remove(separate.path() + "/images/sample.png")) return 17;
     if (!waitFor([&] { return !counts.indexing() && counts.countForCategory("images") == 0; })) return 18;
     if (changedCategories != QSet<QString>{"images"}) return 19;
     for (const auto &key : suffixes.keys())
         if (key != "images" && counts.countForCategory(key) != 1) return 20;
     std::fprintf(stderr, "Committed multi-root counts, unchanged refreshes and category-local deletion passed\n");
+#ifndef BASELINE
+    // A category preference change removes memberships, not filesystem bytes.
+    // Verify the real producer feeds hints to the shared size service without
+    // converting filtered-out documents into nonexistent files.
+    const QString excludedRoot = separate.path() + "/empty-documents";
+    QDir().mkpath(excludedRoot);
+    auto *sizes = DirectorySizeIndex::instance();
+    QObject sizeReader; sizes->retain(&sizeReader, separate.path());
+    sizes->request(separate.path());
+    qint64 expectedBytes = 0;
+    for (auto it = suffixes.constBegin(); it != suffixes.constEnd(); ++it) {
+        const QFileInfo file(separate.path() + "/" + it.key() + "/sample" + it.value());
+        if (file.isFile()) expectedBytes += file.size();
+    }
+    if (!waitFor([&] { return !sizes->busy() && sizes->snapshot(separate.path()).complete; })) return 21;
+    if (sizes->snapshot(separate.path()).totals.bytes != expectedBytes) return 22;
+    int sizeUpdates = 0;
+    QObject::connect(sizes, &DirectorySizeIndex::workCompleted, &app, [&](qint64, qint64) { ++sizeUpdates; });
+    if (!counts.setCategoryIndexSettings("documents", {excludedRoot}, false, {})) return 23;
+    if (!waitFor([&] { return !counts.indexing() && counts.countForCategory("documents") == 0
+                && !sizes->busy() && sizeUpdates > 0; })) return 24;
+    if (sizes->snapshot(separate.path()).totals.bytes != expectedBytes) return 25;
+    const QString unindexed = separate.path() + "/documents/unindexed.opaque";
+    sizes->setWatchedDirectories(&sizeReader, {separate.path() + "/documents"});
+    if (!waitFor([&] { return sizes->activeWatchCount() >= 2; })) return 29;
+    makeFile(unindexed, 19);
+    if (!waitFor([&] { return !sizes->busy() && sizes->snapshot(separate.path()).totals.bytes == expectedBytes + 19; })) return 26;
+    if (!QFile::remove(unindexed)) return 27;
+    if (!waitFor([&] { return !sizes->busy() && sizes->snapshot(separate.path()).totals.bytes == expectedBytes; })) return 28;
+    std::fprintf(stderr, "Shared size updates, category-only removal safety and files outside the category index passed\n");
+#endif
     return 0;
 }

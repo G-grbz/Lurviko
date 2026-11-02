@@ -2,7 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QDateTime>
-#include <QFileSystemWatcher>
+#include "directorywatchsubscription.h"
 #include <QTimer>
 #include <QSet>
 #include <QStringList>
@@ -29,6 +29,7 @@ class QProcess;
 class DirectoryModel : public QAbstractListModel
 {
     Q_OBJECT
+    Q_PROPERTY(bool monitoringEnabled READ monitoringEnabled WRITE setMonitoringEnabled)
     Q_PROPERTY(QString location READ location WRITE setLocation NOTIFY locationChanged)
     Q_PROPERTY(ContentIndexModel *contentIndexSource READ contentIndexSource WRITE setContentIndexSource NOTIFY contentIndexSourceChanged)
     Q_PROPERTY(QString parentLocation READ parentLocation NOTIFY locationChanged)
@@ -103,6 +104,8 @@ public:
     bool heavyIoBusy() const { return m_heavyIoBusy; }
     bool folderPreviewsEnabled() const { return m_folderPreviewsEnabled; }
 
+    bool monitoringEnabled() const { return m_monitoringEnabled; }
+    void setMonitoringEnabled(bool enabled) { m_monitoringEnabled = enabled; m_localWatcher.setEnabled(enabled); }
     void setLocation(const QString &location);
     void setContentIndexSource(ContentIndexModel *source);
     void setShowHidden(bool value);
@@ -303,7 +306,8 @@ private:
     QHash<QString, QString> m_trashLocalPaths;
     QPointer<KIO::ListJob> m_searchJob;
     QNetworkAccessManager m_network;
-    QFileSystemWatcher m_localWatcher;
+    DirectoryWatchSubscription m_localWatcher;
+    bool m_monitoringEnabled = true;
     QTimer m_localRefreshTimer;
     QTimer m_localMetadataTimer;
     QTimer m_localWatchInstallTimer;
