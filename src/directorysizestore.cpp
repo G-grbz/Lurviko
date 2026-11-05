@@ -730,7 +730,7 @@ public:
         // Legacy value 1 is deliberately treated as approximate cached data.
         auto rows = sql("SELECT path FROM roots WHERE needs_verify>=2");
         while (rows.next())
-            if (within(path, rows.value(0).toString())) return true;
+            if (within(rows.value(0).toString(), path)) return true;
         return false;
     }
     void updatePath(const QString& path)

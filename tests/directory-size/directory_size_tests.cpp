@@ -249,6 +249,39 @@ private slots:
         auto parentVisit = runDirectorySizeWork(workFor(database, {root}, "parent-visit"));
         QCOMPARE(parentVisit.snapshots[root].totals.bytes, 520);
     }
+    void ancestorEventLossDoesNotRescanCachedDescendantsOnEveryVisit()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", child = root + "/folder", database = temp.path() + "/cache/index.sqlite";
+        write(child + "/deep/data", 10);
+        auto initial = runDirectorySizeWork(workFor(database, {root}, "initial"));
+        QVERIFY2(initial.error.isEmpty(), qPrintable(initial.error));
+        QCOMPARE(initial.snapshots[root].totals.bytes, 10);
+
+        {
+            const QString connection = "ancestor-event-loss";
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database); QVERIFY(db.open());
+            {
+                QSqlQuery q(db);
+                QVERIFY(q.prepare("UPDATE roots SET needs_verify=2 WHERE path=?"));
+                q.addBindValue(root);
+                QVERIFY(q.exec());
+            }
+            db.close(); db = {}; QSqlDatabase::removeDatabase(connection);
+        }
+
+        for (const auto& session : {QStringLiteral("first-visit"), QStringLiteral("second-visit")}) {
+            const auto result = runDirectorySizeWork(workFor(database, {child}, session));
+            QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+            QCOMPARE(result.snapshots[child].totals.bytes, 10);
+            QCOMPARE(result.fileStats, 0);
+            QCOMPARE(result.directoryListings, 0);
+        }
+        const auto stillInvalidated = runDirectorySizeWork(workFor(database, {root}, "root-visit"));
+        QVERIFY2(stillInvalidated.error.isEmpty(), qPrintable(stillInvalidated.error));
+        QVERIFY(stillInvalidated.fileStats > 0);
+    }
     void visibleSubscriptionsAreSharedNonRecursiveAndReleased()
     {
         QTemporaryDir temp;

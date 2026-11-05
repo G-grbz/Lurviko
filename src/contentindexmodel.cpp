@@ -1,5 +1,6 @@
 #include "contentindexmodel.h"
 #include "directorysizeindex.h"
+#include "directorysizestore_p.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -192,6 +193,13 @@ bool withinCleanRoot(const QString &path, const QString &root)
         (root == QStringLiteral("/") || (path.size() > root.size() && path.at(root.size()) == QLatin1Char('/'))));
 }
 
+// Category roots on an ancestor filesystem must not implicitly cover a child
+// mount. A root configured on or beneath the mount is explicitly allowed.
+bool categoryRootPermitsMount(const QString &configuredRoot, const QString &activeMount)
+{
+    return activeMount.isEmpty() || withinCleanRoot(configuredRoot, activeMount);
+}
+
 QString normalizedPath(const QString &path)
 {
     return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
@@ -292,10 +300,26 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
 
     connect(DirectorySizeIndex::instance(), &DirectorySizeIndex::directoryChanged, this, [this](const QString &path) {
         const QString clean = normalizedPath(path);
-        if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeDirectory(clean);
-        if (!clean.isEmpty())
-            m_pendingRoots.insert(clean);
-        m_changeDebounce.start();
+        if (clean.isEmpty())
+            return;
+        // This signal already comes from the size index; feeding it back into
+        // observeDirectory creates redundant size work. Only reconcile paths
+        // that actually intersect a configured category root. When a mount's
+        // parent changes, scan the configured root, not the whole parent tree.
+        bool relevant = false;
+        for (auto it = m_mediaRoots.cbegin(); it != m_mediaRoots.cend(); ++it) {
+            for (const QString &root : it.value()) {
+                if (withinCleanRoot(clean, root)) {
+                    m_pendingRoots.insert(clean);
+                    relevant = true;
+                } else if (withinCleanRoot(root, clean)) {
+                    m_pendingRoots.insert(root);
+                    relevant = true;
+                }
+            }
+        }
+        if (relevant)
+            m_changeDebounce.start();
     });
 
     connect(&m_loadWatcher, &QFutureWatcher<ScanResult>::finished, this, [this] {
@@ -832,7 +856,7 @@ ContentIndexModel::ScanResult ContentIndexModel::scanTree(const QString &rootPat
     // Carry only categories still eligible in this subtree. A visible-only
     // category cannot keep a hidden npm/build tree alive for another category
     // that explicitly excludes that tree.
-    const auto eligibleCategories = [&](const QString &path, bool hidden, quint64 parentMask) {
+    const auto eligibleCategories = [&](const QString &path, bool hidden, quint64 parentMask, const QString &activeMount) {
         quint64 mask = 0;
         const QString lowerPath = path.toLower();
         for (int i = 0; i < categories.size(); ++i) {
@@ -841,6 +865,11 @@ ContentIndexModel::ScanResult ContentIndexModel::scanTree(const QString &rootPat
             if (!(parentMask & bit) || (hidden && !category.hidden))
                 continue;
             for (const QString &configuredRoot : category.roots) {
+                // An ancestor root (e.g. /home) must not implicitly index a
+                // mounted external drive beneath it. An explicit mount root
+                // (e.g. /home/user/External) or deeper root is permitted.
+                if (!categoryRootPermitsMount(configuredRoot, activeMount))
+                    continue;
                 const bool inside = withinCleanRoot(path, configuredRoot);
                 const bool ancestor = withinCleanRoot(configuredRoot, path);
                 if ((!inside && !ancestor) || (inside && category.ignored.matchesPath(lowerPath)))
@@ -851,15 +880,27 @@ ContentIndexModel::ScanResult ContentIndexModel::scanTree(const QString &rootPat
         }
         return mask;
     };
-    struct PendingDirectory { QString path; bool hidden; quint64 categories; };
+    // Reading mountinfo once avoids crossing a removable/network filesystem
+    // through the default home root. Users can still index any such volume by
+    // explicitly selecting that mount (or a directory beneath it) in the
+    // category's media roots. Check only transitions to exact mount points:
+    // a per-directory search through the mount table would itself be costly.
+    const QSet<QString> mountBoundaries = directorySizeMountBoundaries();
+    QString rootMount;
+    for (const QString &mount : mountBoundaries) {
+        if (withinCleanRoot(root, mount) && mount.size() > rootMount.size())
+            rootMount = mount;
+    }
+
+    struct PendingDirectory { QString path; bool hidden; quint64 categories; QString mount; };
     QVector<PendingDirectory> stack;
     const bool rootHidden = isHiddenWithinHome(root);
     if (rootHidden && hiddenCategories.isEmpty())
         return result;
-    const quint64 rootCategories = eligibleCategories(root, rootHidden, (quint64(1) << categories.size()) - 1);
+    const quint64 rootCategories = eligibleCategories(root, rootHidden, (quint64(1) << categories.size()) - 1, rootMount);
     if (!rootCategories)
         return result;
-    stack.push_back({root, rootHidden, rootCategories});
+    stack.push_back({root, rootHidden, rootCategories, rootMount});
     int processedDirectories = 0;
     int visitedEntries = 0;
     int matchedFiles = 0;
@@ -914,9 +955,10 @@ ContentIndexModel::ScanResult ContentIndexModel::scanTree(const QString &rootPat
                 const bool childHidden = pending.hidden || info.isHidden();
                 const QString childPath = info.absoluteFilePath();
                 if (!shouldSkipDirectory(childPath)) {
-                    const quint64 childCategories = eligibleCategories(childPath, childHidden, pending.categories);
+                    const QString childMount = mountBoundaries.contains(childPath) ? childPath : pending.mount;
+                    const quint64 childCategories = eligibleCategories(childPath, childHidden, pending.categories, childMount);
                     if (childCategories)
-                        stack.push_back({childPath, childHidden, childCategories});
+                        stack.push_back({childPath, childHidden, childCategories, childMount});
                 }
                 continue;
             }

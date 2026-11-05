@@ -952,14 +952,13 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
         emit refreshCompleted();
     });
 
-    watcher->setFuture(QtConcurrent::run([files, query, key] {
+    const bool needCreationDates = m_sortMode == QStringLiteral("created");
+    watcher->setFuture(QtConcurrent::run([files, query, needCreationDates] {
         LocalLoadResult result;
         QVector<Entry> &entries = result.items;
         entries.reserve(files.size());
         QMimeDatabase mimeDb;
         QHash<QString, QMimeType> mimeBySuffix;
-        const bool lightweightMedia = key == QStringLiteral("images")
-                                   || key == QStringLiteral("videos");
         const bool wildcard = query.contains(QLatin1Char('*')) || query.contains(QLatin1Char('?'));
         const QRegularExpression pattern = wildcard
             ? QRegularExpression::fromWildcard(query, Qt::CaseInsensitive)
@@ -982,20 +981,24 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
             entry.size = item.value(QStringLiteral("size")).toLongLong();
             entry.modified = QDateTime::fromMSecsSinceEpoch(
                 item.value(QStringLiteral("modifiedMs")).toLongLong());
-            // The content index already holds the metadata used by media
-            // categories. Avoid a filesystem stat and link probe for every
-            // image/video whenever the user enters the category; on large
-            // libraries those thousands of calls dominated page load time.
+            // All category:/ rows originate from the filesystem index, which
+            // already verified the file type and cached its modification time,
+            // size and suffix. Re-statting each document/archive/music file
+            // (birthTime + lstat in localLinkMetadata) here causes a storm of
+            // random IO on removable HDDs whenever a category is opened or
+            // refreshed. Use the cached snapshot for *every* category.
+            // Category entries deliberately skip symlinks in scanTree; link
+            // metadata, if needed for an individual item, belongs in an
+            // on-demand detail operation rather than this all-items loop.
             entry.created = entry.modified;
-            entry.suffix = item.value(QStringLiteral("suffix")).toString().toLower();
-            if (!lightweightMedia) {
-                entry.created = QFileInfo(path).birthTime();
-                if (!entry.created.isValid()) entry.created = entry.modified;
-                const LocalLinkMetadata linkMetadata = localLinkMetadata(entry.localPath, entry.suffix);
-                entry.linkType = linkMetadata.type;
-                entry.linkTarget = linkMetadata.target;
-                entry.previewRevision = linkMetadata.previewRevision;
+            // Creation-date sorting needs actual birth times; only pay for
+            // these extra stats when the user requests that sort order.
+            if (needCreationDates) {
+                const QDateTime birth = QFileInfo(path).birthTime();
+                if (birth.isValid())
+                    entry.created = birth;
             }
+            entry.suffix = item.value(QStringLiteral("suffix")).toString().toLower();
             entry.hidden = name.startsWith(QLatin1Char('.')) || path.contains(QStringLiteral("/."));
             auto mimeIt = mimeBySuffix.constFind(entry.suffix);
             if (mimeIt == mimeBySuffix.constEnd()) {

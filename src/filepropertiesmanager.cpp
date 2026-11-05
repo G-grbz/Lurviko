@@ -20,6 +20,8 @@
 #include <QHash>
 #include <QThreadPool>
 
+#include <algorithm>
+
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -489,9 +491,72 @@ void FilePropertiesManager::inspectSelection(const QStringList &urls)
     refreshPermissions();
     emit propertiesChanged();
     if (!m_localFile) { setCalculating(false); return; }
-    if (reuseStatsOrWait(selection, true, generation)) return;
-    setCalculating(true);
+
+    // Combining file sizes must not queue a second recursive index scan. A
+    // previous single-item Properties visit can also leave complete directory
+    // snapshots in the shared index. Reuse them immediately (marking cached
+    // snapshots approximate); only missing/incomplete directory totals scan.
+    // Sort by path depth so a selected directory covers its selected children.
     auto *index = DirectorySizeIndex::instance();
+    QStringList roots = selection;
+    std::sort(roots.begin(), roots.end(), [](const QString &a, const QString &b) {
+        return a.size() == b.size() ? a < b : a.size() < b.size();
+    });
+    QSet<QString> countedDirectories;
+    qint64 knownBytes = 0;
+    int knownFiles = 0, knownFolders = 0;
+    bool allKnown = true, hasCachedSnapshot = false;
+    for (const auto &path : roots) {
+        // Walking parent paths is bounded by directory depth, not by how
+        // many sibling folders were selected.
+        bool covered = countedDirectories.contains(path);
+        for (QString parent = QFileInfo(path).absolutePath(); !covered;) {
+            covered = countedDirectories.contains(parent);
+            if (parent == QStringLiteral("/") || parent.isEmpty()) break;
+            parent = QFileInfo(parent).absolutePath();
+        }
+        if (covered) continue;
+        struct stat info { };
+        if (::lstat(QFile::encodeName(path).constData(), &info) != 0) {
+            allKnown = false;
+            break;
+        }
+        if (S_ISREG(info.st_mode)) {
+            knownBytes += info.st_size;
+            ++knownFiles;
+        } else if (S_ISDIR(info.st_mode)) {
+            const auto snapshot = index->snapshot(path);
+            if (!snapshot.complete || !snapshot.available || snapshot.calculating
+                    || (snapshot.state != QStringLiteral("ready")
+                        && snapshot.state != QStringLiteral("cached"))) {
+                allKnown = false;
+                break;
+            }
+            hasCachedSnapshot |= snapshot.state == QStringLiteral("cached");
+            knownBytes += snapshot.totals.bytes;
+            knownFiles += snapshot.totals.files;
+            knownFolders += snapshot.totals.folders + 1;
+            countedDirectories.insert(path);
+        }
+        // Symlinks/special files are intentionally excluded, as in the index.
+    }
+    if (allKnown) {
+        m_totalSize = knownBytes;
+        m_fileCount = knownFiles;
+        m_folderCount = knownFolders;
+        m_statsReady = m_statsAvailable = true;
+        // A cached subtree is a usable estimate, not a new verification.
+        m_statsState = hasCachedSnapshot ? QStringLiteral("cached") : QStringLiteral("ready");
+        setCalculating(false);
+        emit propertiesChanged();
+        return;
+    }
+    // Only selections with unknown directory totals need to join the footer
+    // scan (or fall through to the selection worker). A plain file selection
+    // must never wait for a large, unrelated footer scan to finish.
+    if (reuseStatsOrWait(selection, true, generation)) return;
+
+    setCalculating(true);
     m_statsDemand = index->foregroundDemand();
     m_waitingStatsDemand = m_statsDemand;
     m_waitingStatsDemand->fetch_add(1, std::memory_order_relaxed);

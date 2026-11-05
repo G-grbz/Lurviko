@@ -11,10 +11,10 @@ import "pages"
 
 ApplicationWindow {
     id: root
-    width: 1540
-    height: 960
-    minimumWidth: 1160
-    minimumHeight: 740
+    width: Math.min(1280, Screen.width * 0.78)
+    height: Math.min(820, Screen.height * 0.78)
+    minimumWidth: Math.min(900, Screen.width * 0.65)
+    minimumHeight: Math.min(600, Screen.height * 0.65)
     visible: true
     title: "Lurviko"
     UpdateChecker { id: appUpdates }

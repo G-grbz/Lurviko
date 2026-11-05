@@ -931,11 +931,11 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 26
-        anchors.rightMargin: 26
+        anchors.leftMargin: page.width < 900 ? 14 : 26
+        anchors.rightMargin: page.width < 900 ? 14 : 26
         anchors.topMargin: 22
         anchors.bottomMargin: 22
-        spacing: 20
+        spacing: page.width < 900 ? 12 : 20
 
         ScrollView {
             id: homeScroll
@@ -975,87 +975,107 @@ Item {
                 width: homeScroll.availableWidth
                 spacing: 20
 
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 8
 
-                    ColumnLayout {
-                        Layout.preferredWidth: 260
-                        spacing: 0
-                        GText {
-                            text: Qt.formatTime(page.now, "HH:mm")
-                            baseColor: AppTheme.text
-                            basePixelSize: 30
-                            baseFontWeight: Font.Bold
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.preferredWidth: Math.min(260, homeScroll.availableWidth * 0.48)
+                            Layout.minimumWidth: 0
+                            spacing: 0
+                            GText {
+                                text: Qt.formatTime(page.now, "HH:mm")
+                                baseColor: AppTheme.text
+                                basePixelSize: 30
+                                baseFontWeight: Font.Bold
+                            }
+                            GText {
+                                text: page.now.toLocaleDateString(
+                                          Qt.locale(lang.language === "tr" ? "tr_TR" : "en_US"),
+                                          lang.language === "tr" ? "dddd, d MMMM yyyy" : "dddd, MMMM d, yyyy")
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 10
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                            }
                         }
-                        GText {
-                            text: page.now.toLocaleDateString(
-                                      Qt.locale(lang.language === "tr" ? "tr_TR" : "en_US"),
-                                      lang.language === "tr" ? "dddd, d MMMM yyyy" : "dddd, MMMM d, yyyy")
-                            baseColor: AppTheme.textMuted
-                            basePixelSize: 10
+
+                        Item { Layout.fillWidth: true }
+
+                        TopSearchBar {
+                            visible: homeScroll.availableWidth >= 780
+                            Layout.preferredWidth: Math.min(440, homeScroll.availableWidth * 0.43)
+                            Layout.minimumWidth: visible ? 200 : 0
+                            Layout.maximumWidth: 520
+                            Layout.preferredHeight: visible ? 42 : 0
+                            lang: page.lang
+                            onSearchRequested: function(query) { page.searchRequested(query) }
+                        }
+                        Item {
+                            id: infoToggleButton
+                            readonly property bool hovered: infoToggleMouse.containsMouse
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 34
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 11
+                                color: page.infoPanelOpen ? AppTheme.accent : (infoToggleButton.hovered ? AppTheme.accentSoft : AppTheme.surfaceRaised)
+                                border.color: page.infoPanelOpen ? AppTheme.accent : AppTheme.border
+                            }
+                            CrispIcon {
+                                anchors.centerIn: parent
+                                source: AppTheme.icon("info.svg", page.infoPanelOpen ? "#ffffff" : AppTheme.text)
+                                width: 16
+                                height: 16
+                            }
+                            Rectangle {
+                                objectName: "updateNotificationDot"
+                                visible: page.updateChecker !== null && page.updateChecker.updateAvailable
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.rightMargin: -2
+                                anchors.topMargin: -2
+                                width: 10; height: 10; radius: 5
+                                color: AppTheme.accent
+                                border.width: 2
+                                border.color: AppTheme.background
+                            }
+                            MouseArea {
+                                id: infoToggleMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: page.infoPanelOpen = !page.infoPanelOpen
+                            }
+                            GToolTip {
+                                text: lang.language === "tr" ? "Bilgi paneli" : "Information panel"
+                            }
+                        }
+                        GButton {
+                            objectName: "keyboardShortcutsButton"
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 34
+                            icon.source: AppTheme.icon("keyboard.svg")
+                            icon.width: 16; icon.height: 16
+                            onClicked: keyboardShortcutsDialog.open()
+                            GToolTip { text: lang.language === "tr" ? "Klavye kısayolları" : "Keyboard shortcuts" }
                         }
                     }
 
-                    Item { Layout.fillWidth: true }
-
+                    // The search field moves below the clock/actions on narrow windows.
+                    // Do not leave its 320px minimum alongside fixed toolbar buttons.
                     TopSearchBar {
-                        Layout.preferredWidth: 440
-                        Layout.minimumWidth: 320
-                        Layout.maximumWidth: 520
-                        Layout.preferredHeight: 42
+                        visible: homeScroll.availableWidth < 780
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredHeight: visible ? 42 : 0
                         lang: page.lang
                         onSearchRequested: function(query) { page.searchRequested(query) }
-                    }
-                    Item {
-                        id: infoToggleButton
-                        readonly property bool hovered: infoToggleMouse.containsMouse
-                        Layout.preferredWidth: 34
-                        Layout.preferredHeight: 34
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 11
-                            color: page.infoPanelOpen ? AppTheme.accent : (infoToggleButton.hovered ? AppTheme.accentSoft : AppTheme.surfaceRaised)
-                            border.color: page.infoPanelOpen ? AppTheme.accent : AppTheme.border
-                        }
-                        CrispIcon {
-                            anchors.centerIn: parent
-                            source: AppTheme.icon("info.svg", page.infoPanelOpen ? "#ffffff" : AppTheme.text)
-                            width: 16
-                            height: 16
-                        }
-                        Rectangle {
-                            objectName: "updateNotificationDot"
-                            visible: page.updateChecker !== null && page.updateChecker.updateAvailable
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.rightMargin: -2
-                            anchors.topMargin: -2
-                            width: 10; height: 10; radius: 5
-                            color: AppTheme.accent
-                            border.width: 2
-                            border.color: AppTheme.background
-                        }
-                        MouseArea {
-                            id: infoToggleMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: page.infoPanelOpen = !page.infoPanelOpen
-                        }
-                        GToolTip {
-                            text: lang.language === "tr" ? "Bilgi paneli" : "Information panel"
-                        }
-                    }
-                    GButton {
-                        objectName: "keyboardShortcutsButton"
-                        Layout.preferredWidth: 34
-                        Layout.preferredHeight: 34
-                        icon.source: AppTheme.icon("keyboard.svg")
-                        icon.width: 16; icon.height: 16
-                        onClicked: keyboardShortcutsDialog.open()
-                        GToolTip { text: lang.language === "tr" ? "Klavye kısayolları" : "Keyboard shortcuts" }
                     }
                 }
 
@@ -1074,6 +1094,9 @@ Item {
                               : "Each category manages its own sources and indexing settings"
                         baseColor: AppTheme.textMuted
                         basePixelSize: 10
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideRight
                     }
                     Item { Layout.fillWidth: true }
                 }
@@ -1527,7 +1550,7 @@ Item {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: 14
-                        columns: width > 760 ? 3 : 2
+                        columns: width > 1050 ? 3 : (width > 660 ? 2 : 1)
                         columnSpacing: 10
                         rowSpacing: 10
 
@@ -1602,7 +1625,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.leftMargin: 6
                     Layout.rightMargin: 6
-                    Layout.preferredHeight: 92
+                    Layout.preferredHeight: width >= 1050 ? 92 : (width >= 465 ? 182 : 258)
                     radius: AppTheme.cardRadius + 2
                     color: AppTheme.cardSurface
                     border.color: AppTheme.border
@@ -1614,6 +1637,7 @@ Item {
                     readonly property string usagePercent: "%" + Math.round(usageRatio * 100)
 
                     RowLayout {
+                        visible: diskOverviewPanel.width >= 1050
                         anchors.fill: parent
                         anchors.margins: 18
                         spacing: 16
@@ -1688,6 +1712,77 @@ Item {
                             spacing: 2
                             GText { text: diskOverviewPanel.usagePercent; baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold; horizontalAlignment: Text.AlignRight }
                             GText { text: page.lang.language === "tr" ? "Kullanım" : "Usage"; baseColor: AppTheme.textMuted; basePixelSize: 10; horizontalAlignment: Text.AlignRight }
+                        }
+                    }
+
+                    // At small widths the six-part horizontal summary cannot fit.
+                    // Use a two/one-column metrics grid and a separate usage bar.
+                    ColumnLayout {
+                        visible: diskOverviewPanel.width < 1050
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 8
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+                            Rectangle {
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 32
+                                radius: 10
+                                color: AppTheme.accentSoft
+                                border.color: AppTheme.accentBorder
+                                CrispIcon { anchors.centerIn: parent; source: AppTheme.icon("drive.svg"); width: 17; height: 17 }
+                            }
+                            GText {
+                                Layout.fillWidth: true
+                                text: page.storageModel.count + " " + (page.lang.language === "tr" ? "Disk" : "Disks")
+                                baseColor: AppTheme.text
+                                basePixelSize: 14
+                                baseFontWeight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: diskOverviewPanel.width >= 465 ? 2 : 1
+                            columnSpacing: 12
+                            rowSpacing: 7
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Toplam" : "Total"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                GText { text: page.storageModel.formatBytes(diskOverviewPanel.totalBytes); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Kullanılan" : "Used"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                GText { text: page.storageModel.formatBytes(diskOverviewPanel.usedBytes); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Boş" : "Free"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                GText { text: page.storageModel.formatBytes(diskOverviewPanel.freeBytes); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Kullanım" : "Usage"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                                GText { text: diskOverviewPanel.usagePercent; baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 7
+                            radius: height / 2
+                            color: AppTheme.surfaceHover
+                            Rectangle {
+                                height: parent.height
+                                width: parent.width * Math.max(0, Math.min(1, diskOverviewPanel.usageRatio))
+                                radius: height / 2
+                                color: AppTheme.accent
+                            }
                         }
                     }
                 }

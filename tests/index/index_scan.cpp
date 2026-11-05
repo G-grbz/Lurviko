@@ -34,6 +34,14 @@ static double cpuSeconds() {
 }
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
+#ifndef BASELINE
+    // Synthetic mount boundaries: home-wide categories must stay on the home
+    // device, whereas explicit roots on a removable filesystem are allowed.
+    if (categoryRootPermitsMount("/home/test", "/home/test/USB")) return 34;
+    if (!categoryRootPermitsMount("/home/test/USB", "/home/test/USB")) return 35;
+    if (!categoryRootPermitsMount("/home/test/USB/Music", "/home/test/USB")) return 36;
+    if (categoryRootPermitsMount("/home/test/USB-old", "/home/test/USB")) return 37;
+#endif
     if (argc > 1) {
         // Read real preferences and scan without creating a model, registering
         // watchers or touching the user's settings/cache.
@@ -222,6 +230,20 @@ int main(int argc, char **argv) {
     if (changedCategories != QSet<QString>{"images"}) return 19;
     for (const auto &key : suffixes.keys())
         if (key != "images" && counts.countForCategory(key) != 1) return 20;
+#ifndef BASELINE
+    // An unrelated watched volume must not schedule a category scan. A change
+    // to an ancestor of explicitly configured roots must target those roots,
+    // rather than attempting a recursive scan of the ancestor volume.
+    const auto pendingBefore = counts.m_pendingRoots;
+    DirectorySizeIndex::instance()->directoryChanged(base + "/unrelated-volume");
+    if (counts.m_pendingRoots != pendingBefore) return 30;
+    DirectorySizeIndex::instance()->directoryChanged(separate.path());
+    for (const auto &key : suffixes.keys()) {
+        if (!counts.m_pendingRoots.contains(separate.path() + "/" + key)) return 31;
+    }
+    if (counts.m_pendingRoots.contains(separate.path())) return 32;
+    if (!waitFor([&] { return !counts.indexing() && counts.countForCategory("music") == 1; })) return 33;
+#endif
     std::fprintf(stderr, "Committed multi-root counts, unchanged refreshes and category-local deletion passed\n");
 #ifndef BASELINE
     // A category preference change removes memberships, not filesystem bytes.

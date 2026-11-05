@@ -51,7 +51,7 @@ Item {
             }
             GTextField {
                 id: search
-                objectName: "homeSearchField"
+                objectName: bar.visible ? "homeSearchField" : "homeSearchHiddenField"
                 persistentSelection: true
                 Layout.fillWidth: true
                 placeholderText: lang.language === "tr" ? "Ana dizinde ara…" : "Search your home…"

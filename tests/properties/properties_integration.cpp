@@ -80,6 +80,31 @@ int main(int argc, char **argv) {
     require(until([&] { return directoryStats.statsReady(); }), "closing Properties does not cancel the footer owner");
     require(!sharedProperties.statsReady(), "cancelled consumer ignores shared completion");
 
+    // Files that already had individual Properties inspected must aggregate
+    // without being blocked by a separate, possibly long-running footer scan.
+    FilePropertiesManager instantSelection;
+    instantSelection.setStatsSource(&directoryStats);
+    instantSelection.inspectSelection({sizeRoot + "/visible.txt", sizeRoot + "/.hidden"});
+    require(instantSelection.statsReady() && !instantSelection.calculating()
+            && instantSelection.totalSize() == 10 && instantSelection.fileCount() == 2
+            && instantSelection.folderCount() == 0,
+            "ordinary file selection sums lstat sizes immediately without queuing a scan");
+    // A previously inspected directory's recursive size must be just as
+    // reusable, including its own folder and all nested hidden entries.
+    FilePropertiesManager inspectedChild, cachedSelection;
+    inspectedChild.inspect(sizeRoot + "/nested");
+    require(until([&] { return inspectedChild.statsReady(); }), "single child inspection completes");
+    cachedSelection.inspectSelection({sizeRoot + "/nested", sizeRoot + "/visible.txt"});
+    require(cachedSelection.statsReady() && !cachedSelection.calculating()
+            && cachedSelection.totalSize() == 8 && cachedSelection.fileCount() == 2
+            && cachedSelection.folderCount() == 2,
+            "selection reuses previously inspected directory snapshot immediately");
+    cachedSelection.inspectSelection({sizeRoot + "/nested", sizeRoot + "/nested/deeper",
+                                      sizeRoot + "/visible.txt"});
+    require(cachedSelection.statsReady() && !cachedSelection.calculating()
+            && cachedSelection.totalSize() == 8 && cachedSelection.folderCount() == 2,
+            "reused snapshots do not double-count selected descendants");
+
     std::fprintf(stderr, "PASS: shared recursive footer/Properties snapshot, hidden subsets, symlink exclusion and independent consumer cancellation\n");
     // Direct disk Properties and the footer share the bounded index too;
     // backgroundStats must not create a second, independently scanning pool.
