@@ -22,6 +22,10 @@ Rectangle {
     readonly property real controlsHeight: footerControls.implicitHeight
     readonly property alias footer: footerControls
     readonly property url favoritesSectionIcon: AppTheme.icon("favorite-color.svg")
+    // Track native Button.onClicked so overlay recovery cannot double-toggle.
+    property int miniMusicNativeClicks: 0
+    property int miniMusicClicksAtPress: 0
+    property int miniMusicRecoveredClicks: 0
     property int activeItemInteractions: 0
     readonly property bool interactionActive: activeItemInteractions > 0 || favoriteDrop.containsDrag
         || miniMusicPopup.visible || favoriteEditPopup.visible || sidebarFolderPropertiesPopup.visible
@@ -851,7 +855,10 @@ Rectangle {
                 implicitWidth: visible ? 32 : 0
                 implicitHeight: 32
                 Layout.fillWidth: !!sidebar.controlsHost
-                onClicked: sidebar.toggleMiniMusicPopup()
+                onClicked: {
+                    sidebar.miniMusicNativeClicks += 1
+                    sidebar.toggleMiniMusicPopup()
+                }
                 GToolTip { text: lang.language === "tr" ? "Müzik oynatıcı" : "Music player" }
                 background: Rectangle {
                     radius: 9
@@ -976,7 +983,24 @@ Rectangle {
         lang: sidebar.lang
     }
 
-    GPopupDismissHandler { popup: miniMusicPopup; opener: miniMusicButton }
+    GPopupDismissHandler {
+        popup: miniMusicPopup
+        opener: miniMusicButton
+        watchOpenerClicks: true
+        onOpenerPressObserved: sidebar.miniMusicClicksAtPress = sidebar.miniMusicNativeClicks
+        onOpenerClickReleased: {
+            // The popup overlay sometimes swallows the first click aimed at
+            // the sidebar button. Wait for normal Qt Quick event delivery;
+            // recover only when its onClicked signal never ran.
+            const before = sidebar.miniMusicClicksAtPress
+            Qt.callLater(function() {
+                if (!miniMusicButton.visible || !miniMusicButton.enabled
+                        || sidebar.miniMusicNativeClicks !== before) return
+                sidebar.miniMusicRecoveredClicks += 1
+                sidebar.toggleMiniMusicPopup()
+            })
+        }
+    }
 
     Popup {
         id: miniMusicPopup

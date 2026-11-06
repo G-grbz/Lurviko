@@ -353,4 +353,4 @@ The original Lurviko application source is licensed under **GNU GPL v3 or any la
 
 ## Git version tags / Git sürüm etiketleri
 
-See [Git sürüm etiketleri](docs/git-version-tags.md) for local/remote version checks, annotated tags, safe push retries and release workflow guidance.
+Git support is optional and disabled by default. Enable it in **View → Enable Git module** to show repository controls and status badges. Disable it to stop per-directory Git status queries. The Git dialog offers local/remote version checks, annotated tags, and safe push retries.

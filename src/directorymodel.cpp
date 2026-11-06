@@ -231,6 +231,19 @@ int folderPreviewPriority(const QString &suffix)
 
 } // namespace
 
+void DirectoryModel::setGitEnabled(bool enabled)
+{
+    if (m_gitEnabled == enabled) return;
+    m_gitEnabled = enabled;
+    m_gitRoot.clear();
+    // An empty subscription prevents new status work for this model. Other
+    // DirectoryModels (including Miller columns) own separate subscriptions.
+    GitStatusCache::instance()->request(this, enabled && m_location.isLocalFile()
+        ? QDir::cleanPath(m_location.toLocalFile()) : QString());
+    if (!m_items.isEmpty()) emit dataChanged(index(0), index(m_items.size() - 1), {GitStatusRole});
+    emit gitEnabledChanged();
+}
+
 DirectoryModel::DirectoryModel(QObject *parent)
     : QAbstractListModel(parent), m_location(QUrl::fromLocalFile(QDir::homePath()))
 {
@@ -239,7 +252,7 @@ DirectoryModel::DirectoryModel(QObject *parent)
         if (!m_items.isEmpty()) emit dataChanged(index(0), index(m_items.size() - 1), {GitStatusRole});
     };
     connect(git, &GitStatusCache::directoryReady, this, [this, updateGit](const QString &directory, const QString &root) {
-        if (!m_location.isLocalFile() || directory != QDir::cleanPath(m_location.toLocalFile())) return;
+        if (!m_gitEnabled || !m_location.isLocalFile() || directory != QDir::cleanPath(m_location.toLocalFile())) return;
         if (m_gitRoot != root) { m_gitRoot = root; updateGit(); }
     });
     connect(git, &GitStatusCache::statusChanged, this, [this, updateGit](const QString &root) { if (root == m_gitRoot) updateGit(); });
@@ -254,7 +267,7 @@ DirectoryModel::DirectoryModel(QObject *parent)
     });
     if (auto *gui = qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
         connect(gui, &QGuiApplication::applicationStateChanged, this, [this, git](Qt::ApplicationState state) {
-            if (state == Qt::ApplicationActive && m_location.isLocalFile()) git->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
+            if (m_gitEnabled && state == Qt::ApplicationActive && m_location.isLocalFile()) git->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
         });
     QSettings settings(QStringLiteral("Lurviko"), QStringLiteral("Lurviko"));
     m_showHidden = settings.value(QStringLiteral("browser/showHidden"), false).toBool();
@@ -412,6 +425,7 @@ QVariant DirectoryModel::data(const QModelIndex &index, int role) const
     case PreviewRevisionRole: return e.previewRevision.isEmpty()
         ? QString::number(e.modified.toMSecsSinceEpoch()) + '-' + QString::number(e.size) : e.previewRevision;
     case GitStatusRole: {
+        if (!m_gitEnabled) return QString();
         auto *git = GitStatusCache::instance();
         if (m_location.isLocalFile() && e.isDir) {
             const QString childStatus = git->directoryStatus(const_cast<DirectoryModel *>(this), e.localPath);
@@ -864,7 +878,7 @@ void DirectoryModel::setFolderPreviewsEnabled(bool value)
 
 void DirectoryModel::refresh()
 {
-    if (m_location.isLocalFile()) GitStatusCache::instance()->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
+    if (m_gitEnabled && m_location.isLocalFile()) GitStatusCache::instance()->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
     m_localRefreshTimer.stop();
     if (m_heavyIoBusy && m_location.isLocalFile()) {
         m_refreshDeferredByHeavyIo = true;
@@ -1722,7 +1736,7 @@ void DirectoryModel::loadLocal(bool incremental)
     // file created after readdir but before the watcher is installed can be
     // absent until F5 (notably an output renamed into place by another app).
     watchLocalDirectory(requestedPath);
-    GitStatusCache::instance()->request(this, requestedPath);
+    if (m_gitEnabled) GitStatusCache::instance()->request(this, requestedPath);
     const bool showHidden = m_showHidden;
     const bool collectFolderDetails = !m_heavyIoBusy;
     const bool collectFolderPreviews = m_folderPreviewsEnabled && collectFolderDetails;
@@ -2088,7 +2102,7 @@ void DirectoryModel::refreshLocalFileMetadata()
 
     const QSet<QString> changedPaths = m_pendingLocalMetadataPaths;
     m_pendingLocalMetadataPaths.clear();
-    if (!changedPaths.isEmpty())
+    if (m_gitEnabled && !changedPaths.isEmpty())
         GitStatusCache::instance()->request(this, QDir::cleanPath(m_location.toLocalFile()), true);
     bool needsDirectoryRefresh = false;
 

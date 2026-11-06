@@ -82,12 +82,29 @@ Rectangle {
     }
     signal locationChangedByUser(string location)
     signal requestToast(string message)
+    // Lets the owning BrowsePage recover toolbar clicks swallowed by a
+    // nested Popup.Item overlay after the context menu is dismissed.
+    signal menuOutsideClickReleased(var globalPosition, var sourcePopup)
+    readonly property var directoryMenuPopup: backgroundContextMenu
+    // Allow BrowsePage to treat the Recent Locations dropdown as a peer of
+    // the toolbar menus when an existing Popup.Item intercepts the first click.
+    readonly property var recentLocationsPopup: recentLocationsMenu
+    readonly property var recentLocationsOpener: recentLocationsButton
     property bool gitDialogRequested: false
     function updateGitContext() {
+        if (!AppTheme.gitEnabled) {
+            // This releases repository subscriptions and clears old context;
+            // GitOperations already cancels stale background reads on setContext.
+            if (!paneGit.busy) paneGit.setContext("")
+            if (!contextGit.busy) contextGit.setContext("")
+            if (gitDialog.visible && !gitDialog.working) gitDialog.close()
+            return
+        }
         if (!paneGit.busy && !(gitDialog.visible && gitDialog.controller === paneGit))
             paneGit.setContext(root.visible && root.navigationVisible ? root.currentLocation : "")
     }
     function openGitAction(action, source) {
+        if (!AppTheme.gitEnabled) return
         // Let the complete submenu chain dismiss before giving the modal focus.
         root.gitDialogRequested = true
         Qt.callLater(function() { gitDialog.show(source, action); root.gitDialogRequested = false })
@@ -121,6 +138,10 @@ Rectangle {
         function onCurrentLocationChanged() { root.updateGitContext() }
         function onVisibleChanged() { root.updateGitContext() }
         function onNavigationVisibleChanged() { root.updateGitContext() }
+    }
+    Connections {
+        target: AppTheme
+        function onGitEnabledChanged() { root.updateGitContext() }
     }
     GitDialog {
         id: gitDialog
@@ -209,11 +230,28 @@ Rectangle {
     readonly property bool directoryMenuVisible: backgroundContextMenu.visible
     readonly property bool directoryMenuShowing: backgroundContextMenu.interactionOpen
     property var directoryMenuOpener: null
-    GPopupDismissHandler { popup: recentLocationsMenu; opener: recentLocationsButton }
+    GPopupDismissHandler {
+        popup: recentLocationsMenu
+        opener: recentLocationsButton
+        onOutsideClickReleased: function(globalPosition) {
+            root.menuOutsideClickReleased(globalPosition, recentLocationsMenu)
+        }
+    }
+    // On Qt < 6.12, only the top popup auto-closes on an outside press.
+    // Dismiss the selected-file menu on release as a complete chain, while
+    // treating clicks inside its child menus as inside the menu family.
+    GPopupDismissHandler {
+        popup: itemContextMenu
+        relatedPopups: [copyActionsMenu, openWithMenu, applicationServiceMenu,
+                        compressMenu, shareMenu, fileActionsMenu, itemGitMenu]
+    }
     GPopupDismissHandler {
         popup: backgroundContextMenu
         opener: root.directoryMenuOpener
         relatedPopups: [newItemMenu, sortMenu]
+        onOutsideClickReleased: function(globalPosition) {
+            root.menuOutsideClickReleased(globalPosition, backgroundContextMenu)
+        }
     }
     readonly property var breadcrumbItems: root.buildBreadcrumbItems(directory.displayLocation)
     readonly property int selectedCount: selectedUrls.length
@@ -1937,7 +1975,12 @@ Rectangle {
 
     function prepareOpenWithSelection() {
         const urls = openWithSelectionUrls()
-        if (urls.length > 0)
+        // A previous context menu may still be exiting after a right click on
+        // another file. Derive the application from the *new* primary file and
+        // its known MIME type before showing any menu, not from last menu state.
+        if (urls.length === 1)
+            openWithModel.setContext(String(urls[0]), root.selectedMimeType || "")
+        else
             openWithModel.setContextMany(urls)
     }
 
@@ -3385,6 +3428,8 @@ Rectangle {
     function showContextMenu(menu, item, x, y) {
         contextReopenTimer.stop()
         pendingContextMenu = null
+        if (menu === itemContextMenu)
+            root.prepareOpenWithSelection()
         if (menu === backgroundContextMenu) {
             directoryMenuOpener = null
         }
@@ -3454,6 +3499,18 @@ Rectangle {
         onTriggered: {
             if (!root.pendingContextMenu)
                 return
+            // The exit transition can outlast the nominal 70 ms delay under
+            // compositor load. Reopen only after the old menu is actually gone.
+            if (itemContextMenu.visible || backgroundContextMenu.visible
+                    || openWithMenu.visible || applicationServiceMenu.visible
+                    || copyActionsMenu.visible || compressMenu.visible
+                    || shareMenu.visible || fileActionsMenu.visible || itemGitMenu.visible
+                    || newItemMenu.visible || sortMenu.visible) {
+                contextReopenTimer.restart()
+                return
+            }
+            if (root.pendingContextMenu === itemContextMenu)
+                root.prepareOpenWithSelection()
             root.pendingContextMenu.x = root.pendingContextX
             root.pendingContextMenu.y = root.pendingContextY
             root.pendingContextMenu.open()
@@ -3587,6 +3644,7 @@ Rectangle {
     }
 
     DirectoryModel {
+        gitEnabled: AppTheme.gitEnabled
         monitoringEnabled: root.visible
         id: baseDirectory
         heavyIoBusy: fileOps.ioBusy
@@ -3634,6 +3692,7 @@ Rectangle {
 
     DirectoryModel {
         id: driveFolderPickerModel
+        gitEnabled: false
         googleAccessToken: root.googleDrive ? String(root.googleDrive.accessToken || "") : ""
         oneDriveAccessToken: root.oneDrive ? String(root.oneDrive.accessToken || "") : ""
         location: "gdrive://root"
@@ -3721,6 +3780,7 @@ Rectangle {
 
     OpenWithModel {
         id: openWithModel
+        objectName: "openWithModel"
         onError: function(message) { root.requestToast(message) }
     }
 
@@ -3798,7 +3858,7 @@ Rectangle {
         id: fileProperties
         statsSource: directoryProperties
         onPermissionsChanged: propertiesDialog.resetAccessDraft()
-        onPermissionsApplied: directory.requestRefresh()
+        onPermissionsApplied: root.directory.requestRefresh()
         onAccessFinished: function(success, cancelled, changed, failed) {
             const message = cancelled
                     ? (lang.language === "tr" ? "İşlem iptal edildi. Güncellenen: " : "Cancelled. Updated: ") + changed
@@ -3809,7 +3869,7 @@ Rectangle {
             root.requestToast(message + (fileProperties.accessSkipped > 0 ? fileProperties.accessSkippedSummary() : ""))
         }
         onFolderIconChanged: function(path, iconName) {
-            directory.requestRefresh()
+            root.directory.requestRefresh()
             root.requestToast(lang.language === "tr" ? "Klasör ikonu değiştirildi." : "Folder icon changed.")
         }
         onError: function(message) { root.requestToast(message) }
@@ -4297,7 +4357,7 @@ Rectangle {
             GButton {
                 id: gitIndicator
                 objectName: "gitRepositoryIndicator"
-                visible: paneGit.available
+                visible: AppTheme.gitEnabled && paneGit.available
                 Layout.preferredWidth: Math.min(185, implicitWidth)
                 implicitHeight: root.navigationControlHeight
                 readonly property string summary: {
@@ -7458,12 +7518,20 @@ Rectangle {
     GMenu {
         id: itemContextMenu
         objectName: "itemContextMenu"
+        closePolicy: Popup.CloseOnEscape
         property string pendingRenameSelection: ""
         parent: root
+        function prepareOutsideDismiss() {
+            // The pointer can cross an Application Actions row while leaving
+            // the menu. Do not let the outside press re-arm a hovered submenu.
+            submenuArmTimer.stop()
+            root.submenuActivationReady = false
+            itemContextMenu.currentIndex = -1
+        }
         onOpened: {
             root.submenuActivationReady = false
             itemGitMenu.close()
-            if (!contextGit.busy)
+            if (AppTheme.gitEnabled && !contextGit.busy)
                 contextGit.setContext(root.selectedCount === 1 ? root.selectedLocalPath : (root.isCategoryLocation ? "" : root.currentLocation), root.selectedCount !== 1 || root.selectedIsDir)
             copyActionsMenu.close()
             applicationServiceMenu.close()
@@ -7474,6 +7542,14 @@ Rectangle {
             root.prepareOpenWithSelection()
             fileOps.refreshShareTargets()
             submenuArmTimer.restart()
+        }
+        onAboutToHide: {
+            // Disable hover-driven child activation as soon as dismissal starts,
+            // not after the parent's exit animation has completed.
+            root.submenuActivationReady = false
+            itemContextMenu.currentIndex = -1
+            applicationServiceMenu.close()
+            openWithMenu.close()
         }
         onClosed: {
             root.submenuActivationReady = false
@@ -7497,8 +7573,16 @@ Rectangle {
         }
 
         GMenuItem {
-            icon.name: "document-open"
-            text: lang.t("open"); shortcutAction: "open"
+            objectName: "contextOpenDefaultAction"
+            readonly property bool singleFile: root.selectedCount === 1 && !root.selectedIsDir
+            preserveIconColors: singleFile
+            icon.source: singleFile
+                ? AppTheme.systemIcon(openWithModel.defaultApplicationIconName || root.selectedSystemIconName || "application-x-executable")
+                : AppTheme.icon("menu-open.svg")
+            text: singleFile && openWithModel.defaultApplicationName.length > 0
+                ? (lang.language === "tr" ? openWithModel.defaultApplicationName + " ile aç" : "Open with " + openWithModel.defaultApplicationName)
+                : lang.t("open")
+            shortcutAction: "open"
             visible: !root.isCategoryLocation || root.selectedCount <= 1
             enabled: root.selectedCount > 0
             onTriggered: root.openSelected()
@@ -7547,6 +7631,7 @@ Rectangle {
 
         GMenu {
             id: openWithMenu
+            closePolicy: Popup.CloseOnEscape
             icon.name: "system-run"
             objectName: "openWithContextMenu"
             title: lang.t("open_with")
@@ -7562,6 +7647,7 @@ Rectangle {
                 model: openWithModel.quickApps
                 delegate: GMenuItem {
                     required property var modelData
+                    preserveIconColors: true
                     icon.source: AppTheme.systemIcon(modelData.iconName || "application-x-executable")
                     text: modelData.name + (modelData.isDefault ? (lang.language === "tr" ? "  · Varsayılan" : "  · Default") : "")
                     onTriggered: {
@@ -7642,6 +7728,7 @@ Rectangle {
         }
         GMenu {
             id: copyActionsMenu
+            closePolicy: Popup.CloseOnEscape
             icon.source: AppTheme.icon("clone.svg")
             title: lang.language === "tr" ? "Kopyalama Eylemleri" : "Copy Actions"
             enabled: root.selectedCount > 0 && root.submenuActivationReady
@@ -7685,6 +7772,7 @@ Rectangle {
             model: serviceMenuModel.favoriteEntries
             delegate: GMenuItem {
                 required property var modelData
+                preserveIconColors: true
                 icon.source: AppTheme.systemIcon(modelData.iconName || "system-run")
                 text: "★  " + modelData.label
                 onTriggered: serviceMenuModel.triggerKey(modelData.actionKey)
@@ -7710,6 +7798,7 @@ Rectangle {
 
         GMenu {
             id: shareMenu
+            closePolicy: Popup.CloseOnEscape
             icon.name: "document-share"
             title: lang.language === "tr" ? "Paylaş" : "Share"
             property var uploadUrls: root.localUploadSelectionUrls()
@@ -7863,6 +7952,7 @@ Rectangle {
 
         GMenu {
             id: applicationServiceMenu
+            closePolicy: Popup.CloseOnEscape
             icon.name: "system-run"
             title: lang.t("application_actions")
             enabled: serviceMenuModel.count > 0 && root.submenuActivationReady
@@ -7876,6 +7966,7 @@ Rectangle {
                     required property string actionKey
                     required property string iconName
                     required property bool favorite
+                    preserveIconColors: true
                     icon.source: AppTheme.systemIcon(iconName || "system-run")
                     text: label
                     favoriteActionVisible: true
@@ -7890,6 +7981,7 @@ Rectangle {
 
         GMenu {
             id: compressMenu
+            closePolicy: Popup.CloseOnEscape
             icon.source: AppTheme.icon("archive.svg")
             title: lang.t("compress")
             property var sourceUrls: root.compressionSelectionUrls()
@@ -7961,7 +8053,8 @@ Rectangle {
 
         GMenu {
             id: fileActionsMenu
-            icon.name: "system-run"
+            closePolicy: Popup.CloseOnEscape
+            icon.source: AppTheme.icon("menu-action.svg")
             title: lang.language === "tr" ? "Eylemler" : "Actions"
             enabled: root.selectedCount > 0 && root.submenuActivationReady
 
@@ -8026,6 +8119,7 @@ Rectangle {
         }
         GitActionsMenu {
             id: itemGitMenu
+            closePolicy: Popup.CloseOnEscape
             controller: contextGit
             lang: root.lang
             onRequested: function(action, source) { root.openGitAction(action, source) }
@@ -8045,10 +8139,12 @@ Rectangle {
         objectName: "backgroundContextMenu"
         maximumPopupHeight: Math.max(180, Math.min(620, root.height - 24))
         parent: root
+        // The dedicated GPopupDismissHandler closes this menu on release
+        // without interfering with the three-dot toolbar button's press.
         closePolicy: Popup.CloseOnEscape
         onOpened: {
                 backgroundGitMenu.close()
-                if (!contextGit.busy) contextGit.setContext(root.currentLocation)
+                if (AppTheme.gitEnabled && !contextGit.busy) contextGit.setContext(root.currentLocation)
                 sortMenu.close()
                 newItemMenu.close()
         }

@@ -15,6 +15,7 @@ QtObject {
         property bool systemIcons: false
         property bool coloredFolderIcons: false
         property bool kioProgressEnabled: false
+        property bool gitEnabled: false
         property bool operationAutoHide: true
         property int operationAutoHideSeconds: 8
         // Only relevant when automatically minimizing transfer progress.
@@ -282,6 +283,8 @@ QtObject {
     readonly property int systemHomeIconSize: Math.max(8, Math.min(128, settings.systemHomeIconSize))
     // Discover/sidebar icon geometry is shared across bundled and system icons.
     // Switching icon source must not make the layout jump to a different px scale.
+    readonly property bool gitEnabled: settings.gitEnabled
+    function setGitEnabled(enabled) { settings.gitEnabled = !!enabled }
     readonly property bool sidebarAutoHide: settings.sidebarAutoHide
     readonly property string sidebarRailMode: ["both", "title", "icon"].indexOf(settings.sidebarRailMode) >= 0
         ? settings.sidebarRailMode : "both"
@@ -661,6 +664,61 @@ QtObject {
     // Keeping buttons, menus, player controls and toolbar actions on bundled
     // artwork prevents light-only/dark-only icon themes from making controls
     // disappear when Lurviko's own theme is switched.
+    function menuActionIcon(source, name, preserveOriginal) {
+        const original = String(source || "")
+        const systemName = String(name || "")
+        // MIME/application icons are not monochrome action glyphs. In
+        // particular, Open With, share targets and service menus keep their
+        // native artwork rather than being tinted to the menu text color.
+        if (preserveOriginal)
+            return original.length ? original : systemIcon(systemName)
+        // An explicit external file/MIME icon is never a symbolic action,
+        // even when the MenuItem also carries a generic icon.name. This is
+        // particularly important when a service/desktop entry overrides the
+        // original icon after menu construction.
+        if (/^(?:file:|data:|image:\/\/systemicon\/|image:\/\/folderart\/)/.test(original))
+            return original
+        const mapping = ({
+            "git.svg": "git.svg", "archive.svg": "menu-archive.svg",
+            "folder.svg": "menu-folder.svg", "file.svg": "menu-file.svg",
+            "root.svg": "menu-admin.svg", "dashboard.svg": "menu-vault.svg",
+            "plus.svg": "plus.svg", "refresh.svg": "refresh.svg",
+            "favorite.svg": "favorite.svg",
+            "document-open": "menu-open.svg", "utilities-terminal": "menu-terminal.svg",
+            "go-jump": "menu-jump.svg", "download": "menu-download.svg",
+            "document-send": "menu-send.svg", "insert-link": "menu-link.svg",
+            "document-share": "menu-share.svg", "system-run": "menu-apps.svg",
+            "application-x-executable": "menu-apps.svg",
+            "go-up": "menu-up.svg", "go-down": "menu-down.svg",
+            "preferences-system-bluetooth": "menu-bluetooth.svg",
+            "mail-send": "menu-mail.svg", "edit-select-all": "menu-select-all.svg",
+            "edit-select-none": "menu-select-none.svg",
+            "view-sort-ascending": "menu-sort.svg", "edit-undo": "menu-undo.svg",
+            "kdeconnect": "menu-kdeconnect.svg"
+        })
+        // QUrl may percent-encode '|' to '%7C' (or even '%257C') when
+        // MenuItem.icon.source is read back from Qt. Extract the validated SVG
+        // basename *before* that separator, not the entire encoded URL: the
+        // old implementation passed e.g. 'edit-cut.svg%7C%23...' to icon(),
+        // whose invalid-name fallback is a colored folder.
+        const tail = original.substring(original.lastIndexOf("/") + 1)
+        const parsed = /^([a-z0-9-]+\.svg)(?:$|[|%?#])/i.exec(tail)
+        const leaf = parsed ? parsed[1] : ""
+        const isBundledGlyph = original.indexOf("image://bundledicon/") === 0
+        const glyph = mapping[leaf] || mapping[systemName]
+            || (isBundledGlyph ? leaf : "")
+        if (glyph && /^[a-z0-9-]+\.svg$/.test(glyph)) {
+            // Use the same foreground as GMenuItem's label, including custom
+            // typography colors. This keeps icons live across theme changes.
+            const menuText = useQtTheme ? typographyColor("menu", qtColors.menuText) : text
+            return "image://bundledicon/" + glyph + "|" + encodeURIComponent(String(menuText))
+        }
+        // An unknown bundled action glyph must render blank, never as a folder.
+        // Native icons and genuinely colored application/MIME sources remain
+        // unchanged, including icons supplied by external service actions.
+        return isBundledGlyph ? "" : (original.length ? original : systemIcon(systemName))
+    }
+
     function icon(name, foreground) {
         const raw = String(name || "")
         if (raw.length === 0)
@@ -682,7 +740,7 @@ QtObject {
             return icon("folder.svg")
         // Explicitly selected UI glyphs only: category artwork and logos keep
         // their original colors. Include the color in the URL for Qt's cache.
-        const monochrome = ["home.svg", "history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
+        const monochrome = ["git.svg", "menu-open.svg", "menu-terminal.svg", "menu-jump.svg", "menu-download.svg", "menu-send.svg", "menu-link.svg", "menu-share.svg", "menu-apps.svg", "menu-up.svg", "menu-down.svg", "menu-bluetooth.svg", "menu-mail.svg", "menu-select-all.svg", "menu-select-none.svg", "menu-sort.svg", "menu-undo.svg", "menu-folder.svg", "menu-file.svg", "menu-archive.svg", "menu-admin.svg", "menu-vault.svg", "menu-action.svg", "menu-kdeconnect.svg", "home.svg", "history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
             "edit-cut.svg", "edit-copy.svg", "edit-paste.svg", "edit-rename.svg", "delete.svg", "properties.svg",
             "nav-back.svg", "nav-forward.svg", "nav-up.svg",
             "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "split-view.svg", "split-view-off.svg", "view-layout.svg",

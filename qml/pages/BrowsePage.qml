@@ -70,6 +70,9 @@ Item {
     // remain visible briefly but must be eligible to open again immediately.
     property var toolbarPressedMenu: null
     property bool toolbarPressedMenuWasOpen: false
+    // Test diagnostics for clicks swallowed by the Qt popup overlay.
+    property int toolbarRecoverySeen: 0
+    property int toolbarRecoveryApplied: 0
 
     onCurrentTabChanged: Qt.callLater(page.ensureActiveTabVisible)
     readonly property string visibleLocation: activePane && activePane.currentLocation !== undefined
@@ -80,10 +83,11 @@ Item {
     }
 
     function isAdminLocation(location) {
-        return !!location && location.startsWith("admin:")
+        return String(location || "").startsWith("admin:")
     }
 
     function titleFor(location) {
+        location = String(location || "")
         if (!location) return "/"
         if (location.startsWith("category:/"))
             return contentIndexModel.titleForCategory(location.substring("category:/".length), lang.language)
@@ -193,6 +197,7 @@ Item {
     }
 
     function restoreHistoryView(location, tab) {
+        location = String(location || "")
         const views = tab.directoryViews || {}
         const state = views[leftPane.comparableLocation(location)]
         if (!location.startsWith("category:/"))
@@ -611,6 +616,58 @@ Item {
         else menu.open()
     }
 
+    function recoverToolbarClick(globalPosition, closingPopup) {
+        // This only handles a left-button click on a known toolbar opener;
+        // clicks on files, blank space, or menus remain entirely native.
+        const active = page.activePane
+        const directoryPopup = active ? active.directoryMenuPopup : null
+        const recentPopup = active ? active.recentLocationsPopup : null
+        const targets = [
+            { button: hiddenFilesButton, menu: hiddenFilesMenu },
+            { button: viewButton, menu: toolbarViewMenu },
+            { button: wheelSpeedButton, menu: wheelSpeedPopup },
+            { button: directoryMenuButton, menu: directoryPopup },
+            { button: active ? active.recentLocationsOpener : null, menu: recentPopup }
+        ]
+        for (let i = 0; i < targets.length; ++i) {
+            const target = targets[i]
+            const button = target.button
+            if (!button || !button.visible || !button.enabled || !target.menu
+                    || target.menu === closingPopup)
+                continue
+            const corner = button.mapToGlobal(0, 0)
+            if (globalPosition.x < corner.x || globalPosition.y < corner.y
+                    || globalPosition.x >= corner.x + button.width
+                    || globalPosition.y >= corner.y + button.height)
+                continue
+            page.toolbarRecoverySeen += 1
+            Qt.callLater(function() {
+                if (!page.visible || !button.visible || !button.enabled)
+                    return
+                // Real onClicked succeeded: do not toggle it back off.
+                if (target.menu.interactionOpen)
+                    return
+                page.toolbarRecoveryApplied += 1
+                if (target.menu === directoryPopup) {
+                    page.activePane.openDirectoryMenu(button)
+                } else if (target.menu === recentPopup) {
+                    // A recent-locations opener lives inside BrowserPane, not
+                    // the page toolbar. Close any old page menus first, then
+                    // use its existing API so history and positioning stay in
+                    // one place. Never synthesize a second mouse click.
+                    if (wheelSpeedPopup.visible) wheelSpeedPopup.close()
+                    if (hiddenFilesMenu.visible) hiddenFilesMenu.requestClose()
+                    if (toolbarViewMenu.visible) toolbarViewMenu.requestClose()
+                    active.openRecentLocationsMenu()
+                } else {
+                    page.prepareToolbarMenu(target.menu)
+                    page.openToolbarMenu(target.menu, button)
+                }
+            })
+            return
+        }
+    }
+
     function positionToolbarMenu(menu, button) {
         const p = button.parent.mapToItem(page, button.x, button.y + button.height + 6)
         const target = page.mapToItem(menu.parent,
@@ -759,9 +816,27 @@ Item {
         antialiasing: true
     }
 
-    GPopupDismissHandler { popup: hiddenFilesMenu; opener: hiddenFilesButton }
-    GPopupDismissHandler { popup: toolbarViewMenu; opener: viewButton }
-    GPopupDismissHandler { popup: wheelSpeedPopup; opener: wheelSpeedButton }
+    // A nested Popup.Item overlay can intercept the click used to switch from
+    // a menu to a toolbar action. The native dismiss filter reports a finished
+    // outside click; defer a fallback until after Qt processes the real click.
+    GPopupDismissHandler {
+        popup: hiddenFilesMenu; opener: hiddenFilesButton
+        onOutsideClickReleased: function(p) { page.recoverToolbarClick(p, hiddenFilesMenu) }
+    }
+    GPopupDismissHandler {
+        popup: toolbarViewMenu; opener: viewButton
+        onOutsideClickReleased: function(p) { page.recoverToolbarClick(p, toolbarViewMenu) }
+    }
+    GPopupDismissHandler {
+        popup: wheelSpeedPopup; opener: wheelSpeedButton
+        onOutsideClickReleased: function(p) { page.recoverToolbarClick(p, wheelSpeedPopup) }
+    }
+    Connections {
+        target: page.activePane
+        function onMenuOutsideClickReleased(position, sourcePopup) {
+            page.recoverToolbarClick(position, sourcePopup)
+        }
+    }
 
     GMenu {
         id: hiddenFilesMenu
@@ -860,6 +935,29 @@ Item {
                                              : ["Title and icon", "Title only", "Icon only"]
                 currentIndex: ["both", "title", "icon"].indexOf(AppTheme.sidebarRailMode)
                 onActivated: function(index) { AppTheme.setSidebarRailMode(["both", "title", "icon"][index]) }
+            }
+        }
+        GMenuSeparator {}
+        Item {
+            objectName: "gitModuleViewSetting"
+            implicitWidth: 300
+            implicitHeight: 44
+            width: parent ? parent.width : implicitWidth
+            height: implicitHeight
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                GText {
+                    Layout.fillWidth: true
+                    typographyRole: "menu"
+                    text: lang.language === "tr" ? "Git modülünü etkinleştir" : "Enable Git module"
+                    basePixelSize: 12
+                }
+                GSwitch {
+                    objectName: "gitModuleViewSwitch"
+                    checked: AppTheme.gitEnabled
+                    onClicked: AppTheme.setGitEnabled(checked)
+                }
             }
         }
         GMenuSeparator {}

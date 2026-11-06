@@ -13,6 +13,8 @@ class OpenWithModel : public QAbstractListModel
     Q_PROPERTY(QString mimeType READ mimeType NOTIFY contextChanged)
     Q_PROPERTY(QString itemUrl READ itemUrl NOTIFY contextChanged)
     Q_PROPERTY(QString defaultDesktopEntry READ defaultDesktopEntry NOTIFY defaultChanged)
+    Q_PROPERTY(QString defaultApplicationName READ defaultApplicationName NOTIFY defaultChanged)
+    Q_PROPERTY(QString defaultApplicationIconName READ defaultApplicationIconName NOTIFY defaultChanged)
     Q_PROPERTY(QVariantList quickApps READ quickApps NOTIFY quickAppsChanged)
 
 public:
@@ -32,6 +34,8 @@ public:
     QString mimeType() const { return m_mimeType; }
     QString itemUrl() const { return m_itemUrl; }
     QString defaultDesktopEntry() const { return m_defaultDesktopEntry; }
+    QString defaultApplicationName() const { return m_defaultApplicationName; }
+    QString defaultApplicationIconName() const { return m_defaultApplicationIconName; }
     QVariantList quickApps() const { return m_quickApps; }
 
     Q_INVOKABLE void setContext(const QString &itemUrl, const QString &mimeType);
@@ -64,6 +68,8 @@ private:
     QString m_itemUrl;
     QStringList m_itemUrls;
     QString m_defaultDesktopEntry;
+    QString m_defaultApplicationName;
+    QString m_defaultApplicationIconName;
     QVariantList m_quickApps;
 
     void rebuildQuickApps();

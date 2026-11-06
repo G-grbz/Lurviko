@@ -52,6 +52,10 @@ int main(int argc, char **argv) {
     require(source.open(QIODevice::WriteOnly), "link source fixture opens");
     source.write("Copy actions fixture\n");
     source.close();
+    QFile svg(base + "/graphic.svg");
+    require(svg.open(QIODevice::WriteOnly), "svg context fixture opens");
+    svg.write("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+    svg.close();
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
@@ -142,7 +146,9 @@ ApplicationWindow {
     auto wheel = item(page,context,"wheelSpeedPopup");
     click(hiddenButton); require(hidden->property("visible").toBool(), "first hidden click opens menu");
     click(viewButton);
-    std::fprintf(stderr,"Switch hidden -> view: old=%d new=%d\n",hidden->property("visible").toBool(),view->property("visible").toBool());
+    std::fprintf(stderr,"Switch hidden -> view: old=%d new=%d recoverySeen=%d applied=%d\n",
+        hidden->property("visible").toBool(), view->property("visible").toBool(),
+        page->property("toolbarRecoverySeen").toInt(), page->property("toolbarRecoveryApplied").toInt());
     require(!hidden->property("visible").toBool() && view->property("visible").toBool(), "single click switches from hidden menu to view menu");
     click(wheelButton); require(!view->property("visible").toBool() && wheel->property("visible").toBool(), "single click switches menu to popup");
     click(hiddenButton); require(!wheel->property("visible").toBool() && hidden->property("visible").toBool(), "single click switches popup to menu");
@@ -189,6 +195,11 @@ ApplicationWindow {
     auto recentButton = qobject_cast<QQuickItem *>(item(pane,paneContext,"recentLocationsButton"));
     auto recentMenu = item(pane,paneContext,"recentLocationsMenu");
     click(recentButton);
+    if (hidden->property("visible").toBool() || !recentMenu->property("visible").toBool())
+        std::fprintf(stderr, "Toolbar -> recent: old=%d new=%d recoverySeen=%d applied=%d\n",
+            hidden->property("visible").toBool(), recentMenu->property("visible").toBool(),
+            page->property("toolbarRecoverySeen").toInt(),
+            page->property("toolbarRecoveryApplied").toInt());
     require(!hidden->property("visible").toBool() && recentMenu->property("visible").toBool(), "toolbar to recent locations switches in one click");
     click(recentButton);
     require(!recentMenu->property("visible").toBool(), "same recent locations button closes menu");
@@ -201,8 +212,18 @@ ApplicationWindow {
         for (size_t target = 0; target < menus.size(); ++target) {
             if (source == target) continue;
             click(menus[target].first);
+            if (menus[source].second->property("visible").toBool() || !menus[target].second->property("visible").toBool())
+                std::fprintf(stderr, "Dropdown switch: source=%zu target=%zu old=%d new=%d recoverySeen=%d applied=%d\n",
+                    source, target, menus[source].second->property("visible").toBool(),
+                    menus[target].second->property("visible").toBool(),
+                    page->property("toolbarRecoverySeen").toInt(), page->property("toolbarRecoveryApplied").toInt());
             require(!menus[source].second->property("visible").toBool() && menus[target].second->property("visible").toBool(), "all dropdown pairs switch in one normal-duration click");
             click(menus[source].first);
+            if (menus[target].second->property("visible").toBool() || !menus[source].second->property("visible").toBool())
+                std::fprintf(stderr, "Reverse dropdown: source=%zu target=%zu old=%d new=%d recoverySeen=%d applied=%d\n",
+                    source, target, menus[target].second->property("visible").toBool(),
+                    menus[source].second->property("visible").toBool(),
+                    page->property("toolbarRecoverySeen").toInt(), page->property("toolbarRecoveryApplied").toInt());
             require(!menus[target].second->property("visible").toBool() && menus[source].second->property("visible").toBool(), "reverse dropdown switch works in one click");
         }
         click(menus[source].first);
@@ -216,9 +237,48 @@ ApplicationWindow {
     auto sortPopupItem = qobject_cast<QQuickItem *>(item(pane,paneContext,"sortMenu.contentItem.parent"));
     click(sortPopupItem,240,QPointF(3,3));
     require(sortPopup->property("visible").toBool() && backgroundMenu->property("visible").toBool(), "clicking submenu padding preserves parent and submenu");
-    click(hiddenButton);
+    // Inspect the same outside press *before* its release. A menu that is
+    // merely closing with an animation may swallow the button's click.
+    const QPointF toolbarPoint = hiddenButton->mapToScene(
+        QPointF(hiddenButton->width() / 2, hiddenButton->height() / 2));
+    const QPointF toolbarGlobal = window->mapToGlobal(toolbarPoint.toPoint());
+    QMouseEvent submenuMove(QEvent::MouseMove, toolbarPoint, toolbarGlobal,
+                            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &submenuMove);
+    pause(20);
+    QMouseEvent submenuPress(QEvent::MouseButtonPress, toolbarPoint, toolbarGlobal,
+                             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &submenuPress);
+    const bool parentClosedOnPress = !backgroundMenu->property("visible").toBool();
+    const bool childClosedOnPress = !sortPopup->property("visible").toBool();
+    const bool toolbarSawPress = page->property("toolbarPressedMenu").value<QObject *>() == hidden;
+    pause(90);
+    QMouseEvent submenuRelease(QEvent::MouseButtonRelease, toolbarPoint, toolbarGlobal,
+                               Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &submenuRelease);
+    pause(240);
+    if (backgroundMenu->property("visible").toBool() || sortPopup->property("visible").toBool()
+            || !hidden->property("visible").toBool()) {
+        std::fprintf(stderr,
+            "Submenu -> toolbar: parent=%d submenu=%d hidden=%d "
+            "parentClosedOnPress=%d childClosedOnPress=%d toolbarSawPress=%d "
+            "recoverySeen=%d applied=%d\n",
+            backgroundMenu->property("visible").toBool(), sortPopup->property("visible").toBool(),
+            hidden->property("visible").toBool(), parentClosedOnPress,
+            childClosedOnPress, toolbarSawPress,
+            page->property("toolbarRecoverySeen").toInt(),
+            page->property("toolbarRecoveryApplied").toInt());
+    }
     require(!backgroundMenu->property("visible").toBool() && !sortPopup->property("visible").toBool() && hidden->property("visible").toBool(), "submenu to toolbar switches in one click");
     click(hiddenButton);
+    // One outside press must dismiss the complete directory/submenu stack.
+    // Previously the first click closed only Sort, leaving the parent open.
+    click(directoryButton);
+    click(sortButton);
+    require(sortPopup->property("visible").toBool(), "sort submenu reopens for outside-click regression");
+    click(pane, 240, QPointF(18, pane->height() - 18));
+    require(!sortPopup->property("visible").toBool() && !backgroundMenu->property("visible").toBool(),
+            "one outside click dismisses directory menu and Sort submenu");
     // Follow the actual selection-menu path, including modal Enter acceptance.
     auto evaluatePane = [&](const QString &script) {
         QQmlExpression expression(paneContext, pane, script);
@@ -231,14 +291,47 @@ ApplicationWindow {
             Q_ARG(QVariant, QVariant(0))), "context icon fixture selected");
     evaluatePane("itemContextMenu.x=100; itemContextMenu.y=100; itemContextMenu.open()");
     require(until([&] { return pane->property("submenuActivationReady").toBool(); }), "icon context menu ready");
+    // The menu may retint bundled actions using its typography palette.
+    // Compare the glyph identity, not the URL's encoded color parameters.
+    // Native MIME/application icons must instead retain their exact URL.
     const auto checkIcon = [&](QObject *entry, const QString &source) {
         auto glyph = findView(qobject_cast<QQuickItem *>(entry), "menuActionIcon");
         require(glyph && glyph->isVisible(), "context icon is visible beside its action");
-        if (glyph->property("source").toUrl() != QUrl(source))
-            std::fprintf(stderr, "Icon source: actual=%s expected=%s\n", qPrintable(glyph->property("source").toUrl().toString()), qPrintable(source));
-        require(glyph->property("source").toUrl() == QUrl(source), "context icon uses the supplied action/application artwork");
-        require(until([&] { return glyph->property("status").toInt() == 1; }), "context icon actually renders");
+        const QUrl actual = glyph->property("source").toUrl();
+        if (source.startsWith("image://bundledicon/")) {
+            const QString leaf = source.section('/', -1).section('|', 0, 0)
+                                      .section('%', 0, 0).section('?', 0, 0);
+            require(actual.toString().startsWith("image://bundledicon/" + leaf),
+                    "context action uses its own symbolic glyph, never a folder fallback");
+            require(!actual.toString().contains("folder.svg"),
+                    "menu action never substitutes the directory icon");
+        } else {
+            require(actual == QUrl(source),
+                    "native MIME/application artwork retains its original colors and source");
+        }
+        require(until([&] { return glyph->property("status").toInt() == 1; }),
+                "context icon actually renders");
     };
+    // Qt QUrl may encode the provider separator once or twice. Regression:
+    // neither variant may leak into AppTheme.icon() as an invalid filename.
+    for (const auto &encoded : {"%7C%23ffffff", "%257C%2523ffffff", "|%23ffffff"}) {
+        const QString expression = QString("AppTheme.menuActionIcon('image://bundledicon/edit-cut.svg%1', '', false)")
+                                   .arg(QString::fromLatin1(encoded));
+        const QString result = evaluatePane(expression).toString();
+        require(result.startsWith("image://bundledicon/edit-cut.svg|"),
+                "encoded action icon URL resolves to the original glyph");
+        require(!result.contains("folder.svg"), "encoded glyph URL cannot become a directory icon");
+    }
+    for (const auto &name : {"plus.svg", "refresh.svg", "favorite.svg"}) {
+        const QString expression = QString("AppTheme.menuActionIcon(AppTheme.icon('%1'), '', false)")
+                                   .arg(QString::fromLatin1(name));
+        const QString result = evaluatePane(expression).toString();
+        require(result.startsWith("image://bundledicon/" + QString::fromLatin1(name) + "|"),
+                "new, refresh and favorite menu actions follow the current menu theme");
+    }
+    const QString appIcon = evaluatePane("AppTheme.systemIcon('accessories-text-editor')").toString();
+    const QString originalApp = evaluatePane("AppTheme.menuActionIcon(AppTheme.systemIcon('accessories-text-editor'), '', true)").toString();
+    require(appIcon == originalApp, "MIME/application icon URLs are never recolored");
     for (const auto &action : {"cut", "copy", "rename", "trash", "properties"}) {
         const QString lookup = QString("(function(){for(let i=0;i<itemContextMenu.count;++i){const e=itemContextMenu.itemAt(i);if(e.shortcutAction==='%1') return e;}return null;})()").arg(action);
         auto entry = item(pane, paneContext, qPrintable(lookup));
@@ -246,6 +339,31 @@ ApplicationWindow {
         require(source.contains("image://bundledicon/"), "built-in file actions retain bundled symbolic artwork");
         checkIcon(entry, source);
     }
+    // Changing the right-click target while an existing context popup exits
+    // must never display the previous file's default app or artwork.
+    require(evaluatePane("openWithModel.defaultApplicationName === 'Lurviko Menu Fixture'").toBool(),
+            "text file shows its text editor as default application");
+    const int svgIndex = directory->indexOfUrl(base + "/graphic.svg");
+    require(svgIndex >= 0, "second MIME fixture is present");
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(svgIndex)),
+                                      Q_ARG(QVariant, QVariant(0))), "svg fixture selected");
+    evaluatePane("showContextMenu(itemContextMenu, root, 110, 115)");
+    pause(260);
+    require(evaluatePane("openWithModel.defaultApplicationName === 'Lurviko SVG Fixture'").toBool(),
+            "svg context uses its own default app, not previous editor");
+    require(evaluatePane("itemContextMenu.itemAt(0).text.indexOf('Lurviko SVG Fixture') >= 0").toBool(),
+            "svg default-app label is current before menu is shown");
+    require(evaluatePane("itemContextMenu.itemAt(0).icon.source.toString() === AppTheme.systemIcon('inkscape')").toBool(),
+            "svg app logo follows the new MIME, not the text file");
+    const int textIndex = directory->indexOfUrl(base + "/source.txt");
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(textIndex)),
+                                      Q_ARG(QVariant, QVariant(0))), "text fixture reselected");
+    evaluatePane("showContextMenu(itemContextMenu, root, 110, 115)");
+    pause(260);
+    require(evaluatePane("openWithModel.defaultApplicationName === 'Lurviko Menu Fixture'").toBool(),
+            "text default app restored after switching back from svg");
+    require(evaluatePane("itemContextMenu.itemAt(0).text.indexOf('Lurviko Menu Fixture') >= 0").toBool(),
+            "text default-app label is refreshed on new right-click");
     require(evaluatePane("openWithModel.quickApps.some(app => app.name === 'Lurviko Menu Fixture')").toBool(), "Open With includes the installed desktop-file fixture");
     auto appEntry = item(pane, paneContext,
         "(function(){for(let i=0;i<openWithMenu.count;++i){const e=openWithMenu.itemAt(i);if(e.text.indexOf('Lurviko Menu Fixture')===0) return e;}return null;})()");
@@ -272,8 +390,52 @@ ApplicationWindow {
         "(function(){for(let i=0;i<itemContextMenu.count;++i){const e=itemContextMenu.itemAt(i);if(e && e.text!==undefined && e.text.indexOf('Lurviko Icon Action')>=0) return e;}return null;})()");
     checkIcon(pinned, evaluatePane("AppTheme.systemIcon('accessories-text-editor')").toString());
     servicesModel->toggleFavoriteKey(favoriteKey);
+    // A click outside the selected-file context menu may not activate a
+    // hovered application-action submenu or leave one popup layer behind.
+    evaluatePane("applicationServiceMenu.open()"); pause(220);
+    require(item(pane, paneContext, "applicationServiceMenu")->property("visible").toBool(),
+            "application actions submenu opens for outside-click regression");
+    click(pane, 240, QPointF(pane->width() - 18, pane->height() - 18));
+    require(!item(pane, paneContext, "applicationServiceMenu")->property("visible").toBool()
+            && !item(pane, paneContext, "itemContextMenu")->property("visible").toBool(),
+            "one outside click dismisses application actions and its parent");
+    evaluatePane("itemContextMenu.open()"); pause(240);
+    require(item(pane, paneContext, "itemContextMenu")->property("visible").toBool(),
+            "selected-file menu reopens");
+    click(pane, 240, QPointF(pane->width() - 18, pane->height() - 18));
+    require(!item(pane, paneContext, "itemContextMenu")->property("visible").toBool()
+            && !item(pane, paneContext, "applicationServiceMenu")->property("visible").toBool(),
+            "one outside click closes selected-file menu without opening application actions");
+    evaluatePane("itemContextMenu.open()"); pause(240);
+    evaluatePane("openWithMenu.open()"); pause(220);
+    require(item(pane, paneContext, "openWithMenu")->property("visible").toBool(),
+            "Open With submenu opens for outside-click regression");
+    click(pane, 240, QPointF(pane->width() - 18, pane->height() - 18));
+    require(!item(pane, paneContext, "openWithMenu")->property("visible").toBool()
+            && !item(pane, paneContext, "itemContextMenu")->property("visible").toBool(),
+            "one outside click dismisses Open With and its parent");
+    evaluatePane("closeContextMenus()"); pause(150);
+    // A second right-click outside an existing file popup must reach the
+    // new context target. Dismissing on right-button *release* used to close
+    // the just-opened menu as well, intermittently requiring a second click.
+    evaluatePane("itemContextMenu.x=100; itemContextMenu.y=100; itemContextMenu.open()");
+    pause(240);
+    const QPointF swapPoint = pane->mapToScene(QPointF(pane->width() / 2, pane->height() / 2));
+    const QPointF swapGlobal = window->mapToGlobal(swapPoint.toPoint());
+    QMouseEvent swapRightPress(QEvent::MouseButtonPress, swapPoint, swapGlobal,
+                               Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    QMouseEvent swapRightRelease(QEvent::MouseButtonRelease, swapPoint, swapGlobal,
+                                 Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &swapRightPress);
+    pause(90);
+    QApplication::sendEvent(window, &swapRightRelease);
+    pause(240);
+    require(backgroundMenu->property("visible").toBool(),
+            "right click outside file menu opens the new directory menu on first try");
     evaluatePane("closeContextMenus()"); pause(150);
     std::fprintf(stderr, "PASS: built-in, Open With, service, inherited and pinned context-menu icons render through the real models\n");
+    std::fprintf(stderr, "PASS: outside click dismisses nested directory, application actions and Open With menus in one press\n");
+    std::fprintf(stderr, "PASS: switching text/svg context updates MIME-default app name and icon before new menu opens\n");
     auto openCopyActions = [&](const QString &name = QStringLiteral("source.txt")) {
         require(until([&] { return !directory->loading() && directory->indexOfUrl(base + "/" + name) >= 0; }), "source listed");
         require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(directory->indexOfUrl(base + "/" + name))), Q_ARG(QVariant, QVariant(0))), "copy source selected");
@@ -390,7 +552,15 @@ ApplicationWindow {
     click(miniButton); require(!miniPopup->property("visible").toBool(), "mini player second click closes without reopening");
     click(miniButton); require(miniPopup->property("visible").toBool(), "mini player opens again");
     click(viewButton); require(!miniPopup->property("visible").toBool() && view->property("visible").toBool(), "mini player to toolbar switches in one click");
-    click(miniButton); require(!view->property("visible").toBool() && miniPopup->property("visible").toBool(), "toolbar to mini player switches in one click");
+    const int miniNativeBefore = sidebar->property("miniMusicNativeClicks").toInt();
+    const int miniRecoveredBefore = sidebar->property("miniMusicRecoveredClicks").toInt();
+    click(miniButton);
+    if (view->property("visible").toBool() || !miniPopup->property("visible").toBool())
+        std::fprintf(stderr, "Toolbar -> mini player: view=%d mini=%d nativeDelta=%d recoveredDelta=%d\n",
+            view->property("visible").toBool(), miniPopup->property("visible").toBool(),
+            sidebar->property("miniMusicNativeClicks").toInt() - miniNativeBefore,
+            sidebar->property("miniMusicRecoveredClicks").toInt() - miniRecoveredBefore);
+    require(!view->property("visible").toBool() && miniPopup->property("visible").toBool(), "toolbar to mini player switches in one click");
     click(pane); require(!miniPopup->property("visible").toBool(), "clicking file area dismisses mini player");
     auto music = findView(window->contentItem(), "music");
     require(music, "global music player exists");
@@ -408,6 +578,8 @@ ApplicationWindow {
     auto lyricsButton = qobject_cast<QQuickItem *>(item(music, musicContext, "lyricsButton"));
     auto lyricsPopup = item(music, musicContext, "lyricsPopup");
     click(lyricsButton); require(lyricsPopup->property("visible").toBool(), "lyrics button opens popup");
+    require(music->property("lyricsNativeClicks").toInt() + music->property("lyricsRecoveredClicks").toInt() == 1,
+            "lyrics opener toggles exactly once");
     click(lyricsButton); require(!lyricsPopup->property("visible").toBool(), "lyrics second click closes without reopening");
     for (int i = 0; i < 3; ++i) {
         click(lyricsButton, 20); require(lyricsPopup->property("visible").toBool(), "rapid lyrics open");

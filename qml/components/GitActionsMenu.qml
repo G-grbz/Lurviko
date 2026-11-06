@@ -10,7 +10,7 @@ GMenu {
     objectName: "gitActionsMenu"
     title: "Git"
     icon.source: AppTheme.icon("git.svg")
-    menuEntryVisible: controller !== null && controller.available
+    menuEntryVisible: AppTheme.gitEnabled && controller !== null && controller.available
     enabled: menuEntryVisible && !controller.busy
     GMenuItem { objectName: "gitCommitAction"; text: menu.tr ? "Commit oluştur…" : "Create commit…"; icon.source: AppTheme.icon("edit.svg"); onTriggered: menu.requested("commit", menu.controller) }
     GMenuItem { objectName: "gitSyncAction"; text: menu.tr ? "Depoyu eşitle" : "Synchronize repository"; icon.source: AppTheme.icon("refresh.svg"); onTriggered: menu.requested("sync", menu.controller) }

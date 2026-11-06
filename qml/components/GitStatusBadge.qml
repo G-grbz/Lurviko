@@ -6,7 +6,7 @@ Rectangle {
     property string status: ""
     property string language: "en"
     objectName: "gitStatusBadge"
-    visible: status.length > 0
+    visible: AppTheme.gitEnabled && status.length > 0
     width: 18; height: 18; radius: 9
     readonly property color ink: status === "conflict" || status === "deleted" ? "#dc5263"
         : status === "added" || status === "untracked" || status === "clean" ? "#259967"

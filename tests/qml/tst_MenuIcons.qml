@@ -12,7 +12,7 @@ Item {
             id: menu
             x: 20; y: 20
             GMenuItem { id: bundled; text: "Copy"; icon.source: AppTheme.icon("edit-copy.svg") }
-            GMenuItem { id: application; text: "Application"; icon.name: "application-x-executable" }
+            GMenuItem { id: application; text: "Application"; icon.name: "application-x-executable"; preserveIconColors: true }
             GMenuItem { id: colored; text: "Colored artwork"; icon.source: Qt.resolvedUrl("fixtures/landscape.svg") }
             GMenuItem { id: checkedAction; text: "Checked option"; checkable: true; checked: true; icon.name: "folder" }
             GMenuItem { id: blank; text: "No icon" }
@@ -39,6 +39,7 @@ Item {
                 tryCompare(menu, "visible", false)
                 application.enabled = true
                 application.icon.source = ""
+                application.preserveIconColors = true
                 AppTheme.setSystemIcons(savedSystemIcons)
                 AppTheme.setQtTheme(savedQtTheme)
                 AppTheme.settings.darkMode = savedDark
@@ -85,11 +86,21 @@ Item {
                 verify(glyph.width <= 22 && glyph.height <= bundled.height)
                 compare(findChild(bundled, "menuCheckIndicator").visible, false)
             }
+            function test_menu_action_icons_are_symbolic_but_apps_keep_native_colors() {
+                const symbolic = AppTheme.menuActionIcon("", "application-x-executable", false)
+                verify(symbolic.startsWith("image://bundledicon/menu-apps.svg|"))
+                compare(AppTheme.menuActionIcon("", "application-x-executable", true),
+                        AppTheme.systemIcon("application-x-executable"))
+                const external = Qt.resolvedUrl("fixtures/landscape.svg")
+                compare(AppTheme.menuActionIcon(external, "application-x-executable", false),
+                        String(external))
+            }
             function test_submenu_icon_is_forwarded_to_its_parent_entry() {
                 const entry = menu.itemAt(5)
                 compare(entry.subMenu, childMenu)
                 const glyph = actionIcon(entry)
-                compare(String(glyph.source), AppTheme.icon("archive.svg"))
+                compare(decodeURIComponent(String(glyph.source)),
+                        decodeURIComponent(AppTheme.menuActionIcon(AppTheme.icon("archive.svg"), "", false)))
                 tryCompare(glyph, "status", Image.Ready)
             }
             function test_checkmarks_and_blank_slots_keep_alignment() {
@@ -109,7 +120,10 @@ Item {
                 verify(glyph.opacity < 1)
                 application.enabled = true
                 compare(glyph.opacity, 1)
+                application.preserveIconColors = false
                 application.icon.source = Qt.resolvedUrl("fixtures/landscape.svg")
+                // An explicit service/app file icon wins over a generic icon
+                // name, regardless of the preserveIconColors flag.
                 compare(String(glyph.source), String(application.icon.source))
                 tryCompare(glyph, "status", Image.Ready)
             }

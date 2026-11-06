@@ -72,18 +72,28 @@ Menu {
                              maximumPopupHeight)
     modal: false
     dim: false
+    // Popup.CloseMultiple on non-modal menus can swallow the press intended
+    // for a neighboring toolbar button or a new file context menu. Menus with
+    // a GPopupDismissHandler use an explicit outside-click policy instead.
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    onAboutToShow: {
-        interactionOpen = true
-        currentIndex = -1
-        menuWheel.reset()
-        menuList.cancelFlick()
-        menuList.positionViewAtBeginning()
-    }
-    onAboutToHide: { interactionOpen = false; menuWheel.reset() }
+    // Use Connections rather than onAboutToShow/onAboutToHide handlers on
+    // the component root: instance-specific menus also have these handlers.
+    // Both must run or a closing menu can keep its hover/interaction state.
     Connections {
         target: control
+        function onAboutToShow() {
+            control.interactionOpen = true
+            control.currentIndex = -1
+            menuWheel.reset()
+            menuList.cancelFlick()
+            menuList.positionViewAtBeginning()
+        }
+        function onAboutToHide() {
+            control.interactionOpen = false
+            control.currentIndex = -1
+            menuWheel.reset()
+        }
         function onOpened() { Qt.callLater(control.constrainToBounds) }
         function onClosed() {
             if (control.reopenAfterExit) {

@@ -64,6 +64,7 @@ void MillerNavigationModel::observe(DirectoryModel *directory)
     connect(directory, &DirectoryModel::contentIndexSourceChanged, this, options);
     connect(directory, &DirectoryModel::folderPreviewsEnabledChanged, this, options);
     connect(directory, &DirectoryModel::heavyIoBusyChanged, this, options);
+    connect(directory, &DirectoryModel::gitEnabledChanged, this, options);
     connect(directory, &DirectoryModel::locationChanged, this, [this, directory] {
         if (m_updating) return;
         for (int i = 0; i < m_columns.size(); ++i) {
@@ -87,6 +88,7 @@ void MillerNavigationModel::configure(DirectoryModel *directory)
     directory->setContentIndexSource(m_source->contentIndexSource());
     directory->setFolderPreviewsEnabled(m_enabled ? false : m_source->folderPreviewsEnabled());
     directory->setHeavyIoBusy(m_source->heavyIoBusy());
+    directory->setGitEnabled(m_source->gitEnabled());
 }
 void MillerNavigationModel::synchronizeOptions(DirectoryModel *changed)
 {

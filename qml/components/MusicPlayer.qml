@@ -38,6 +38,9 @@ Rectangle {
     property bool embeddedMode: false
     property bool showRemainingTime: false
     property bool currentFavorite: false
+    property int lyricsNativeClicks: 0
+    property int lyricsClicksAtPress: 0
+    property int lyricsRecoveredClicks: 0
     // Presentation state is owned by Main; audio and queue remain live here.
     property bool expandedPresentation: false
 
@@ -1056,7 +1059,10 @@ Rectangle {
                         implicitWidth: 42
                         implicitHeight: 30
                         checked: lyricsPopup.visible
-                        onClicked: lyricsPopup.visible ? lyricsPopup.close() : lyricsPopup.open()
+                        onClicked: {
+                            root.lyricsNativeClicks += 1
+                            lyricsPopup.visible ? lyricsPopup.close() : lyricsPopup.open()
+                        }
                         background: Rectangle {
                             radius: 8
                             color: lyricsButton.checked ? AppTheme.accentSoft : (lyricsButton.hovered ? AppTheme.surfaceHover : AppTheme.surfaceHoverTransparent)
@@ -1441,7 +1447,21 @@ Rectangle {
         }
     }
 
-    GPopupDismissHandler { popup: lyricsPopup; opener: lyricsButton }
+    GPopupDismissHandler {
+        popup: lyricsPopup
+        opener: lyricsButton
+        watchOpenerClicks: true
+        onOpenerPressObserved: root.lyricsClicksAtPress = root.lyricsNativeClicks
+        onOpenerClickReleased: {
+            const before = root.lyricsClicksAtPress
+            Qt.callLater(function() {
+                if (!lyricsButton.visible || !lyricsButton.enabled
+                        || root.lyricsNativeClicks !== before) return
+                root.lyricsRecoveredClicks += 1
+                lyricsPopup.visible ? lyricsPopup.close() : lyricsPopup.open()
+            })
+        }
+    }
 
     Popup {
         id: lyricsPopup

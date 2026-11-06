@@ -102,6 +102,8 @@ void OpenWithModel::refresh()
     beginResetModel();
     m_apps.clear();
     m_defaultDesktopEntry.clear();
+    m_defaultApplicationName.clear();
+    m_defaultApplicationIconName.clear();
 
     QStringList mimeTypes;
     QMimeDatabase db;
@@ -120,8 +122,11 @@ void OpenWithModel::refresh()
     if (!mimeTypes.isEmpty()) {
         if (mimeTypes.size() == 1) {
             const KService::Ptr preferred = KApplicationTrader::preferredService(mimeTypes.constFirst());
-            if (preferred)
+            if (preferred) {
                 m_defaultDesktopEntry = preferred->desktopEntryName();
+                m_defaultApplicationName = preferred->name();
+                m_defaultApplicationIconName = preferred->icon();
+            }
         }
 
         QSet<QString> availableEntries;

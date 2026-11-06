@@ -31,8 +31,11 @@ Item {
             when: windowShown
             property string savedView
             property bool savedQt
+            property bool savedGit
             function init() {
                 savedQt = AppTheme.useQtTheme
+                savedGit = AppTheme.gitEnabled
+                AppTheme.setGitEnabled(true)
                 page.setSplitEnabled(false)
                 page.activePane.currentLocation = String(gitManagementFixtureUrl)
                 savedView = page.activePane.viewMode
@@ -48,6 +51,7 @@ Item {
                 page.setSplitEnabled(false)
                 page.activePane.viewMode = savedView
                 AppTheme.setQtTheme(savedQt)
+                AppTheme.setGitEnabled(savedGit)
                 wait(180)
             }
             function submenu(menu) {
@@ -56,6 +60,56 @@ Item {
                     if (entry && entry.subMenu && entry.subMenu.objectName === "gitActionsMenu") return entry.subMenu
                 }
                 return null
+            }
+            function test_git_module_disables_repository_activity() {
+                const pane = page.activePane
+                const paneOperations = findChild(pane, "paneGitOperations")
+                const contextOperations = findChild(pane, "contextGitOperations")
+                const indicator = findChild(pane, "gitRepositoryIndicator")
+                const menu = findChild(pane, "backgroundContextMenu")
+                AppTheme.setGitEnabled(false)
+                tryCompare(paneOperations, "available", false)
+                compare(indicator.visible, false)
+                compare(pane.directory.gitEnabled, false)
+                pane.showContextMenu(menu, pane, 250, 150)
+                tryCompare(menu, "opened", true)
+                const git = submenu(menu)
+                verify(git !== null)
+                compare(git.menuEntryVisible, false)
+                menu.close()
+                AppTheme.setGitEnabled(true)
+                tryVerify(function() { return paneOperations.available })
+                compare(pane.directory.gitEnabled, true)
+                verify(indicator.visible)
+            }
+            function test_menu_glyphs_follow_theme_but_application_icons_keep_colors() {
+                const archive = AppTheme.menuActionIcon(
+                    "qrc:/qt/qml/Lurviko/App/assets/icons/archive.svg", "", false)
+                verify(archive.indexOf("image://bundledicon/menu-archive.svg|") === 0)
+                const original = AppTheme.systemIcon("kate")
+                compare(AppTheme.menuActionIcon(original, "", true), original)
+                verify(AppTheme.menuActionIcon("", "document-share", false)
+                       .indexOf("image://bundledicon/menu-share.svg|") === 0)
+            }
+            function test_open_action_names_preferred_application() {
+                const pane = page.activePane
+                pane.viewMode = "grid"
+                const url = String(gitManagementFixtureUrl) + "/tracked.txt"
+                tryVerify(function() { return pane.directory.indexOfUrl(url) >= 0 })
+                pane.selectIndex(pane.directory.indexOfUrl(url), Qt.NoModifier)
+                const menu = findChild(pane, "itemContextMenu")
+                pane.showContextMenu(menu, pane, 300, 180)
+                tryCompare(menu, "opened", true)
+                const openAction = findChild(menu, "contextOpenDefaultAction")
+                const chooser = findChild(pane, "openWithModel")
+                verify(openAction !== null)
+                const appName = chooser.defaultApplicationName
+                const expected = appName.length > 0
+                    ? (language.language === "tr" ? appName + " ile aç" : "Open with " + appName)
+                    : language.t("open")
+                compare(openAction.text, expected)
+                verify(openAction.preserveIconColors)
+                menu.close()
             }
             function test_context_actions_in_all_views_data() {
                 return [{tag: "grid-file", view: "grid", name: "tracked.txt"},

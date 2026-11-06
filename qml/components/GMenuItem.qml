@@ -10,6 +10,9 @@ MenuItem {
     hoverEnabled: true
     HoverHandler { cursorShape: Qt.PointingHandCursor }
 
+    // Native application/MIME logos keep their authored colors; menu glyphs
+    // are rendered with the active theme's menu foreground color.
+    property bool preserveIconColors: false
     property bool favoriteActionVisible: false
     property bool favoriteActionChecked: false
     signal favoriteActionClicked()
@@ -76,8 +79,8 @@ MenuItem {
                 height: 18
                 visible: !control.checkable
                          && (String(control.icon.source).length > 0 || control.icon.name.length > 0)
-                source: !visible ? "" : String(control.icon.source).length > 0
-                        ? control.icon.source : AppTheme.systemIcon(control.icon.name)
+                source: !visible ? "" : AppTheme.menuActionIcon(control.icon.source, control.icon.name,
+                                                                 control.preserveIconColors)
                 opacity: control.enabled ? 1 : 0.4
                 retainWhileLoading: false
             }

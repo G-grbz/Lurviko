@@ -30,6 +30,7 @@ class DirectoryModel : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(bool monitoringEnabled READ monitoringEnabled WRITE setMonitoringEnabled)
+    Q_PROPERTY(bool gitEnabled READ gitEnabled WRITE setGitEnabled NOTIFY gitEnabledChanged)
     Q_PROPERTY(QString location READ location WRITE setLocation NOTIFY locationChanged)
     Q_PROPERTY(ContentIndexModel *contentIndexSource READ contentIndexSource WRITE setContentIndexSource NOTIFY contentIndexSourceChanged)
     Q_PROPERTY(QString parentLocation READ parentLocation NOTIFY locationChanged)
@@ -104,6 +105,8 @@ public:
     bool heavyIoBusy() const { return m_heavyIoBusy; }
     bool folderPreviewsEnabled() const { return m_folderPreviewsEnabled; }
 
+    bool gitEnabled() const { return m_gitEnabled; }
+    void setGitEnabled(bool enabled);
     bool monitoringEnabled() const { return m_monitoringEnabled; }
     void setMonitoringEnabled(bool enabled) { m_monitoringEnabled = enabled; m_localWatcher.setEnabled(enabled); }
     void setLocation(const QString &location);
@@ -144,6 +147,7 @@ public:
     Q_INVOKABLE void releaseSearchSession(const QString &sessionId);
 
 signals:
+    void gitEnabledChanged();
     void refreshCompleted();
     void locationChanged();
     void contentIndexSourceChanged();
@@ -274,6 +278,7 @@ private:
     QPointer<ContentIndexModel> m_contentIndexSource;
     QVector<Entry> m_items;
     QString m_gitRoot;
+    bool m_gitEnabled = true; // Standalone native models retain their existing default; QML opts out.
     bool m_loading = false;
     QString m_errorString;
     bool m_showHidden = false;

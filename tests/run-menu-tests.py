@@ -44,8 +44,12 @@ with tempfile.TemporaryDirectory(prefix="gfile-menu-tests-") as temporary:
         "Icon=accessories-text-editor\nExec=/usr/bin/true %U\nMimeType=text/plain;\n")
     configuration = root / "config"
     configuration.mkdir(parents=True, exist_ok=True)
+    (applications / "lurviko-svg-fixture.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=Lurviko SVG Fixture\n"
+        "Icon=inkscape\nExec=/usr/bin/true %U\nMimeType=image/svg+xml;\n")
     (configuration / "mimeapps.list").write_text(
-        "[Default Applications]\ntext/plain=lurviko-menu-fixture.desktop;\n")
+        "[Default Applications]\ntext/plain=lurviko-menu-fixture.desktop;\n"
+        "image/svg+xml=lurviko-svg-fixture.desktop;\n")
     services = root / "data/kio/servicemenus"
     services.mkdir(parents=True)
     service = services / "lurviko-menu-fixture.desktop"

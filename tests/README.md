@@ -25,7 +25,7 @@ bash .github/scripts/run-headless-tests.sh
 | `run-security-tests.py` | KDF limits, canonical path boundaries, RAM-only storage and real bsdtar option-like filenames |
 | `run-memory-tests.py` | Returning unused allocator pages to the OS while preserving live data (glibc 2.33+) |
 | `run-history-tests.py` | Recent-location persistence through temporary missing paths, permission errors, restart and equivalent URL spellings |
-| `run-columns-tests.py` | Miller folder/file selection, keyboard movement, large directories, previews, hidden/sort options, resize persistence, native drops, real KIO copy/rename, tab restoration, search, independent split panes and Git badges in all three views |
+| `run-columns-tests.py` | Miller folder/file selection, keyboard movement, large directories, previews, hidden/sort options, resize persistence, native drops, real KIO copy/rename, tab restoration, search, independent split panes and optional Git badges in all three views (default-off / opt-in / opt-out) |
 | `run-search-tests.py` | 20,000 streamed results, responsive selection, cancellation, persistent search sessions, Grid/List tab-scroll restoration and worker shutdown |
 | `run-git-tests.py` | Porcelain parsing, real asynchronous repository/worktree status, parent-folder badges across twelve sibling repositories, bounded shared cache, index updates, no idle polling and disabled executable fsmonitor hooks |
 | `test-ai-download-policy.py` | Default-off installs/downloads, dependency hashes, wheel flags, pinned revisions, cache/offline reuse and error language |

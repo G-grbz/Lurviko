@@ -58,7 +58,19 @@ ApplicationWindow {
         std::fprintf(stderr,"DEBUG location=%s expected=%s count=%d loading=%d error=%s current=%s mode=%s\n",qPrintable(navigation->location()),qPrintable(base),navigation->activeDirectory()->rowCount(),navigation->activeDirectory()->loading(),qPrintable(navigation->activeDirectory()->errorString()),qPrintable(pane->property("currentLocation").toString()),qPrintable(pane->property("viewMode").toString()));
     }
     require(initialReady,"initial folder loads");
-    require(until([&] { return navigation->activeDirectory()->itemAt(navigation->activeDirectory()->indexOfUrl(base+"/A")).value("gitStatus")=="untracked"; }), "directory role receives asynchronous Git status");
+    // Git integration is deliberately disabled by default.  The navigation
+    // regression must opt in before asserting repository badges; otherwise it
+    // tests an obsolete assumption about the application's default settings.
+    const auto gitStatusForA = [&] {
+        auto *model = navigation->activeDirectory();
+        return model->itemAt(model->indexOfUrl(base + "/A")).value("gitStatus").toString();
+    };
+    require(!eval(pane, "AppTheme.gitEnabled").toBool(), "Git is disabled by default");
+    require(!navigation->activeDirectory()->gitEnabled(), "Miller directory does not subscribe to Git by default");
+    require(gitStatusForA().isEmpty(), "Git-disabled directory does not expose a repository status");
+    eval(pane, "AppTheme.setGitEnabled(true)");
+    require(until([&] { return navigation->activeDirectory()->gitEnabled(); }), "Miller directory enables Git on opt-in");
+    require(until([&] { return gitStatusForA() == "untracked"; }), "directory role receives asynchronous Git status after opt-in");
     std::function<bool(QQuickItem*)> findBadge = [&](QQuickItem *item) {
         if (item->objectName()=="gitStatusBadge" && item->isVisible() && item->property("status")=="untracked") return true;
         for (auto *child : item->childItems()) if (findBadge(child)) return true;
@@ -223,5 +235,15 @@ ApplicationWindow {
     require(until(hasGitBadge),"Miller shows sibling repository status");
     pane->setProperty("viewMode","grid");require(until(hasGitBadge),"Grid shows sibling repository status");
     pane->setProperty("viewMode","list");require(until(hasGitBadge),"List shows sibling repository status");
-    std::fprintf(stderr,"PASS: Miller folder/file selection, keyboard navigation, large directory, preview, hidden/sort, resize persistence, real KIO drop and Grid/List compatibility\n");
+    // Disabling Git at runtime must remove status subscriptions and badges,
+    // without changing directory navigation or the current view mode.
+    eval(pane, "AppTheme.setGitEnabled(false)");
+    require(until([&] { return !navigation->activeDirectory()->gitEnabled(); }),
+            "Miller directory disables Git when the switch is turned off");
+    require(until([&] {
+        auto *model = navigation->activeDirectory();
+        return model && model->itemAt(model->indexOfUrl(base)).value("gitStatus").toString().isEmpty();
+    }), "Git-disabled directory clears repository status");
+    require(until([&] { return !hasGitBadge(); }), "Git badges disappear after opting out");
+    std::fprintf(stderr,"PASS: Miller folder/file selection, keyboard navigation, large directory, preview, hidden/sort, resize persistence, real KIO drop, Git opt-in/out and Grid/List compatibility\n");
 }
