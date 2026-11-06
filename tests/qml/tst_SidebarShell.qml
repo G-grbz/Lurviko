@@ -401,25 +401,25 @@ Item {
             tryVerify(function() { return dashboard.visible })
             verify(!discover.visible)
         }
-        function test_pin_and_hide_are_the_same_button_in_both_layouts_and_languages() {
+        function test_compact_and_expand_labels_match_the_sidebar_action_in_both_languages() {
             const toggle = findChild(shell, "sidebarRestoreButton")
             const savedLanguage = language.language
             try {
                 language.language = "en"
-                compare(toggle.Accessible.name, "Hide")
+                compare(toggle.Accessible.name, "Compact")
                 mouseClick(toggle, toggle.width / 2, toggle.height / 2)
                 tryCompare(shell, "collapsed", true)
                 wait(50)
-                compare(toggle.Accessible.name, "Pin")
+                compare(toggle.Accessible.name, "Expand")
                 language.language = "tr"
-                compare(toggle.Accessible.name, "Sabitle")
+                compare(toggle.Accessible.name, "Genişlet")
                 mouseClick(toggle, toggle.width / 2, toggle.height / 2)
                 tryCompare(shell, "collapsed", false)
                 wait(50)
-                compare(toggle.Accessible.name, "Gizle")
+                compare(toggle.Accessible.name, "Kompakt")
                 compare(toggle, findChild(shell, "sidebarRestoreButton"))
                 language.language = "en"
-                compare(toggle.Accessible.name, "Hide")
+                compare(toggle.Accessible.name, "Compact")
             } finally { language.language = savedLanguage }
         }
         function test_disabling_while_open_reuses_the_panel_and_restores_all_sections() {

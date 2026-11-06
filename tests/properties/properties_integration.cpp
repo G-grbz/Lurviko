@@ -510,6 +510,20 @@ ApplicationWindow {
     require(until([&] { return !directory->loading() && directory->rowCount() == 2; }), "parent model returns");
     pause(450);
     require(footerStats->statsReady() && footerStats->totalSize() > 0, "navigation metadata verification preserves a ready cached total");
+    // Regression: returning to the parent directory must not make the child
+    // Properties dialog depend on the parent's background calculating flag.
+    const int returnChildRow = directory->indexOfUrl(QUrl::fromLocalFile(folder).toString());
+    require(returnChildRow >= 0 && QMetaObject::invokeMethod(pane, "selectIndex",
+                Q_ARG(QVariant, QVariant(returnChildRow)), Q_ARG(QVariant, QVariant(0))),
+            "returning home selects the child for Properties");
+    eval("showPropertiesForSelection()");
+    auto returnChildDialog = pane->findChild<QObject *>("filePropertiesDialog");
+    require(returnChildDialog && until([&] { return returnChildDialog->property("opened").toBool(); }),
+            "child Properties opens after returning to parent");
+    require(until([&] { return eval("fileProperties.statsAvailable").toBool() &&
+                !eval("fileProperties.calculating").toBool(); }, 10000),
+            "child Properties resolves independently after leaving and reentering parent");
+    QMetaObject::invokeMethod(returnChildDialog, "close");
     footerStats->inspect(idleRoot);
     eval("scheduleDirectorySize(true); scheduleDirectorySize(true)");
     require(until([&] { return footerStats->statsReady() && footerStats->path() == base; }, 20000),

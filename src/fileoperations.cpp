@@ -332,6 +332,22 @@ private:
     std::shared_ptr<std::atomic_bool> m_cancelScan;
 };
 
+FileOperations::~FileOperations()
+{
+    if (m_kdeConnectDiscovery && m_kdeConnectDiscovery->state() != QProcess::NotRunning) {
+        m_kdeConnectDiscovery->disconnect(this);
+        auto *process = m_kdeConnectDiscovery.data();
+        process->kill();
+        // Reap the child before QObject tears down its QProcess children.
+        // If shutdown is unusually slow, leave the killed process to delete
+        // itself on finished rather than destroy a running QProcess.
+        if (!process->waitForFinished(1000)) {
+            process->setParent(nullptr);
+            QObject::connect(process, &QProcess::finished, process, &QObject::deleteLater);
+        }
+    }
+}
+
 FileOperations::FileOperations(QObject *parent)
     : QObject(parent)
 {

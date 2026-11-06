@@ -27,7 +27,12 @@ assert main.count('id: activePageOutline') == 1
 assert 'PathQuad {' in main and 'readonly property real tabBaseline:' in main
 assert 'readonly property real baseline:' not in main, "Shape.baseline is FINAL in Qt; do not redeclare it"
 assert 'gapLeft' not in main and 'gapRight' not in main
-assert 'activeTab.mapToItem(activePageOutline, 0, 0)' in main
+assert 'activeTab.mapToItem(root.contentItem, 0, 0)' in main
+assert 'scenePosition.x - activePageOutline.x' in main
+assert 'scenePosition.y - activePageOutline.y' in main
+# The View button's old 4px decorative state dot must stay removed.
+view_button = browse.split('id: viewButton', 1)[1].split('id: directoryMenuButton', 1)[0]
+assert 'anchors.rightMargin: -1' not in view_button
 assert 'startX: activePageOutline.tabLeft' in main
 assert 'startY: activePageOutline.tabBaseline' in main
 assert 'x: activePageOutline.tabRight' in main

@@ -1,5 +1,6 @@
 #include "filemetadata_p.h"
 #include "directorysizeindex.h"
+#include "directorywatchsubscription.h"
 #include "directorysizestore_p.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -53,6 +54,47 @@ class DirectorySizeTests : public QObject {
         return work;
     }
 private slots:
+    void visibleDirectoryWatchWorksIndependentlyOfSizeIndex()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/external";
+        QVERIFY(QDir().mkpath(root));
+        DirectoryWatchSubscription visible;
+        visible.addPath(root);
+        auto *index = DirectorySizeIndex::instance();
+        // Force the central size-index watch off. The file list still needs to
+        // see files published externally even while its size-index subscription
+        // has been removed or is being rearmed.
+        index->setWatchedDirectories(&visible, {});
+        QTRY_COMPARE_WITH_TIMEOUT(index->activeWatchCount(), 0, 5000);
+        QSignalSpy changes(&visible, &DirectoryWatchSubscription::directoryChanged);
+        write(root + "/mkvtoolnix-output.mkv", 37);
+        QTRY_VERIFY_WITH_TIMEOUT(changes.count() > 0, 5000);
+        QCOMPARE(changes.constLast().at(0).toString(), root);
+    }
+    void externalWriterAndAtomicRenameNotifyVisibleDirectory()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/output";
+        const auto database = temp.path() + "/cache/index.sqlite";
+        QVERIFY(QDir().mkpath(root));
+        DirectorySizeIndex index(database);
+        QObject owner;
+        QSignalSpy changes(&index, &DirectorySizeIndex::directoryChanged);
+        index.setWatchedDirectories(&owner, {root});
+        QTRY_COMPARE_WITH_TIMEOUT(index.activeWatchCount(), 1, 5000);
+        const auto part = root + "/muxing.mkv.part";
+        const auto mkv = root + "/finished.mkv";
+        write(part, 17); // external application creates its output
+        QTRY_VERIFY_WITH_TIMEOUT(changes.count() >= 1, 5000);
+        changes.clear();
+        QVERIFY(QFile::rename(part, mkv)); // MKVToolNix-style atomic publish
+        QTRY_VERIFY_WITH_TIMEOUT(changes.count() >= 1, 5000);
+        bool matchingParent = false;
+        for (const auto &args : changes)
+            matchingParent |= args.at(0).toString() == root;
+        QVERIFY(matchingParent);
+    }
     void startupWarmupWorksWithoutAVisibleDirectoryAndReusesTheCache()
     {
         QTemporaryDir temp;

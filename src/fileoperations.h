@@ -35,6 +35,7 @@ class FileOperations : public QObject
 
 public:
     explicit FileOperations(QObject *parent = nullptr);
+    ~FileOperations() override;
 
     QString lastError() const { return m_lastError; }
     bool canPaste() const;

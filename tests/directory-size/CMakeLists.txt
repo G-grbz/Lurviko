@@ -5,6 +5,6 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Concurrent Sql Test)
 add_executable(directory-size-tests directory_size_tests.cpp
     ../../src/directorysizeindex.cpp ../../src/directorysizestore.cpp
-    ../../src/directorysizeworker.cpp)
+    ../../src/directorysizeworker.cpp ../../src/directorywatchsubscription.h)
 target_include_directories(directory-size-tests PRIVATE ../../src)
 target_link_libraries(directory-size-tests PRIVATE Qt6::Core Qt6::Concurrent Qt6::Sql Qt6::Test)

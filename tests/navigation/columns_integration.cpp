@@ -67,7 +67,23 @@ ApplicationWindow {
     auto hasGitBadge = [&] { return findBadge(pane); };
     require(until(hasGitBadge), "Miller displays Git badge without replacing icon");
     pane->setProperty("viewMode", "grid"); require(until(hasGitBadge), "Grid displays Git badge");
+    // A hidden MillerColumnsView must not disable the shared source model's
+    // watcher when switching to Grid. Files written by another application
+    // must be inserted without a manual F5 or a KIO operation.
+    require(until([&]{return navigation->activeDirectory()->monitoringEnabled();}),
+            "Grid preserves the source directory watcher after hiding columns");
+    {
+        QFile output(base + "/external-mux.mkv");
+        require(output.open(QIODevice::WriteOnly) && output.write("external") == 8,
+                "external MKV fixture written");
+        output.close();
+        const QString url = QUrl::fromLocalFile(output.fileName()).toString();
+        require(until([&]{return navigation->activeDirectory()->indexOfUrl(url) >= 0;}),
+                "Grid automatically receives an externally written MKV");
+    }
     pane->setProperty("viewMode", "list"); require(until(hasGitBadge), "List displays Git badge");
+    require(navigation->activeDirectory()->monitoringEnabled(),
+            "List preserves the source directory watcher");
     pane->setProperty("viewMode", "columns");
     navigation->activeDirectory()->setShowHidden(false);
     require(until([&]{return !navigation->activeDirectory()->loading();}),"hidden filter settles");
@@ -86,11 +102,29 @@ ApplicationWindow {
     const auto columnModel=navigation->activeDirectory();
     pane->setProperty("viewMode","list");
     require(navigation->activeDirectory()==columnModel&&pane->property("selectedUrl")==columnSelection,"changing view retains directory and selection");
+    require(until([&]{return columnModel->monitoringEnabled();}),
+            "List restores the active child model's watcher after Miller delegates disappear");
+    {
+        QFile output(base + "/A/external-child.mkv");
+        require(output.open(QIODevice::WriteOnly) && output.write("external") == 8,
+                "external child MKV fixture written");
+        output.close();
+        const QString url = QUrl::fromLocalFile(output.fileName()).toString();
+        require(until([&]{return columnModel->indexOfUrl(url) >= 0;}),
+                "List automatically receives external files in a previously active Miller child");
+    }
     pane->setProperty("viewMode","columns");
     eval(pane,"root.moveSelection('left',false)");require(navigation->activeColumn()==0,"Left returns to previous column");
     select(base+"/B");require(until([&]{return navigation->rowCount()==2&&navigation->locationAt(1).endsWith("/B");}),"sibling selection replaces only right branch");
-    require(navigation->activeDirectory()->rowCount()==3,"hidden item excluded");
-    pane->setProperty("showHiddenFiles",true);require(until([&]{return navigation->activeDirectory()->rowCount()==5;}),"hidden setting reaches columns");
+    // The external-mux.mkv fixture is now a fourth visible item, alongside
+    // A, B and copy-source.txt.  Old 3/5 expectations crashed the test even
+    // though the watcher correctly inserted the new MKV.
+    require(until([&]{ return !navigation->activeDirectory()->loading()
+                && navigation->activeDirectory()->rowCount()==4; }),
+            "hidden item excluded while externally created MKV remains visible");
+    pane->setProperty("showHiddenFiles",true);
+    require(until([&]{ return navigation->activeDirectory()->rowCount()==6; }),
+            "hidden setting reveals .git and .hidden without losing the new MKV");
     navigation->setColumnWidth(0,360,true);require(navigation->data(navigation->index(0),MillerNavigationModel::WidthRole).toInt()==360,"column resizes");
     require(QSettings().value("BrowserView/millerColumnWidth").toInt()==360,"column width persists");
     navigation->activeDirectory()->setSortMode("name");navigation->activeDirectory()->setSortAscending(false);
@@ -143,13 +177,38 @@ ApplicationWindow {
     require(navigation->location()==rememberedLocation&&other->location().endsWith("/B"),"split panes navigate independently");
     page->setProperty("splitEnabled",false);pause(100);
     invoke(pane,"navigateTo",base+"/A");
-    require(until([&]{return !navigation->activeDirectory()->loading();}),"child column ready for search");
+    // The Grid/List external-writer regression above permanently adds an MKV
+    // alongside the 3000 tracks and nested folder. Remember the actual
+    // pre-search listing instead of assuming the old 3001-entry fixture.
+    const QString externalChildUrl = QUrl::fromLocalFile(base + "/A/external-child.mkv").toString();
+    const bool childReady = until([&] {
+        auto *dir = navigation->activeDirectory();
+        return dir && !dir->loading() && !dir->searchActive()
+            && navigation->location().endsWith("/A")
+            && dir->rowCount() == 3002 && dir->indexOfUrl(externalChildUrl) >= 0;
+    });
+    require(childReady,"child column ready with external file before search");
+    const int initialChildCount = navigation->activeDirectory()->rowCount();
     eval(pane,"root.startSearch('track-2999',false)");
     require(until([&]{return navigation->activeDirectory()->searchActive()&&!navigation->activeDirectory()->loading()
         &&navigation->activeDirectory()->rowCount()==1;}),"built-in search from column completes");
     require(navigation->activeDirectory()==navigation->sourceDirectory(),"search sessions use persistent model");
     eval(pane,"root.closeSearch()");
-    require(until([&]{return !navigation->activeDirectory()->loading()&&navigation->activeDirectory()->rowCount()==3001;}),"closing search restores column directory");
+    const bool restoredAfterSearch = until([&] {
+        auto *dir = navigation->activeDirectory();
+        return dir && !dir->loading() && !dir->searchActive()
+            && dir->rowCount() == initialChildCount
+            && dir->indexOfUrl(externalChildUrl) >= 0;
+    });
+    if (!restoredAfterSearch) {
+        auto *dir = navigation->activeDirectory();
+        std::fprintf(stderr,"DEBUG search restore: location=%s rows=%d expected=%d loading=%d searchActive=%d externalIndex=%d\n",
+            qPrintable(navigation->location()),dir ? dir->rowCount() : -1,
+            initialChildCount,dir ? int(dir->loading()) : -1,
+            dir ? int(dir->searchActive()) : -1,
+            dir ? dir->indexOfUrl(externalChildUrl) : -1);
+    }
+    require(restoredAfterSearch,"closing search restores column directory");
     pane->setProperty("viewMode","list");require(navigation->activeDirectory()==navigation->sourceDirectory(),"List restores original directory model");
     pane->setProperty("viewMode","grid");require(pane->property("gridMode").toBool(),"Grid remains available");
     pane->setProperty("viewMode","columns");require(until([&]{return QSettings().value("BrowserView/viewMode").toString()=="columns";}),"view preference saved");

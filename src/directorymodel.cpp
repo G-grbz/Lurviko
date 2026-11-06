@@ -44,6 +44,22 @@
 
 namespace {
 
+// Cheap metadata-only fallback for a missing directoryChanged notification.
+// No directory enumeration and no recursive size scan is done here.
+QString localDirectoryStamp(const QString &path)
+{
+    struct stat st {};
+    if (::stat(QFile::encodeName(path).constData(), &st) != 0 || !S_ISDIR(st.st_mode))
+        return {};
+    return QStringLiteral("%1:%2:%3:%4:%5:%6")
+        .arg(static_cast<qulonglong>(st.st_dev))
+        .arg(static_cast<qulonglong>(st.st_ino))
+        .arg(static_cast<qlonglong>(st.st_mtim.tv_sec))
+        .arg(static_cast<qlonglong>(st.st_mtim.tv_nsec))
+        .arg(static_cast<qlonglong>(st.st_ctim.tv_sec))
+        .arg(static_cast<qlonglong>(st.st_ctim.tv_nsec));
+}
+
 struct LocalLinkMetadata {
     QString type;
     QString target;
@@ -281,6 +297,19 @@ DirectoryModel::DirectoryModel(QObject *parent)
                     && !resolveTrashLocalPath(m_location).isEmpty()))
             refresh();
     });
+    // Watchers are primary. This infrequent, visible-only stat fallback
+    // catches missed CREATE/MOVED_TO notifications (e.g. completed MKV files).
+    // It also checks immediately when returning to Lurviko from another app.
+    m_localDirectoryHealthTimer.setInterval(2500);
+    connect(&m_localDirectoryHealthTimer, &QTimer::timeout,
+            this, &DirectoryModel::checkLocalDirectoryFreshness);
+    m_localDirectoryHealthTimer.start();
+    connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive)
+            checkLocalDirectoryFreshness();
+    });
+
     connect(&m_localWatcher, &DirectoryWatchSubscription::directoryChanged,
             this, [this](const QString &path) {
         if (auto *sizes = DirectorySizeIndex::existing()) sizes->observeDirectory(path);
@@ -348,6 +377,7 @@ DirectoryModel::~DirectoryModel()
         if (session && session->job)
             session->job->kill();
     }
+    stopActiveVideoProbe();
     persistVideoMetadataCache();
 }
 
@@ -806,12 +836,7 @@ void DirectoryModel::setHeavyIoBusy(bool value)
         ++m_videoProbeGeneration;
         m_videoProbeQueue.clear();
         m_videoProbePending.clear();
-        if (m_activeVideoProbe) {
-            m_activeVideoProbe->disconnect(this);
-            m_activeVideoProbe->kill();
-            m_activeVideoProbe->deleteLater();
-            m_activeVideoProbe.clear();
-        }
+        stopActiveVideoProbe();
     } else if (m_refreshDeferredByHeavyIo && m_location.isLocalFile()) {
         m_refreshDeferredByHeavyIo = false;
         m_localRefreshTimer.start(180);
@@ -1693,6 +1718,10 @@ void DirectoryModel::loadLocal(bool incremental)
     incremental = incremental && !m_loading;
     const int generation = ++m_localGeneration;
     const QString requestedPath = QDir::cleanPath(m_location.toLocalFile());
+    // Arm the directory watch before the asynchronous readdir. Otherwise a
+    // file created after readdir but before the watcher is installed can be
+    // absent until F5 (notably an output renamed into place by another app).
+    watchLocalDirectory(requestedPath);
     GitStatusCache::instance()->request(this, requestedPath);
     const bool showHidden = m_showHidden;
     const bool collectFolderDetails = !m_heavyIoBusy;
@@ -2009,8 +2038,35 @@ void DirectoryModel::watchLocalDirectory(const QString &path)
     if (!cleanPath.isEmpty() && !m_localWatcher.directories().contains(cleanPath)) {
         m_localWatcher.addPath(cleanPath);
     }
+    if (m_lastObservedDirectoryPath != cleanPath) {
+        m_lastObservedDirectoryPath = cleanPath;
+        m_lastObservedDirectoryStamp = localDirectoryStamp(cleanPath);
+    }
 }
 
+void DirectoryModel::checkLocalDirectoryFreshness()
+{
+    if (!m_monitoringEnabled || !m_location.isLocalFile() || m_heavyIoBusy
+        || !m_searchQuery.isEmpty() || !m_activeSearchSessionId.isEmpty()
+        || QGuiApplication::applicationState() != Qt::ApplicationActive)
+        return;
+    const QString path = QDir::cleanPath(m_location.toLocalFile());
+    // A backend can silently lose the native watch; ensure it is present.
+    m_localWatcher.ensureNativeWatches();
+    const QString current = localDirectoryStamp(path);
+    if (current.isEmpty()) return;
+    if (m_lastObservedDirectoryPath != path) {
+        m_lastObservedDirectoryPath = path;
+        m_lastObservedDirectoryStamp = current;
+        return; // initial load already enumerates this directory
+    }
+    if (m_lastObservedDirectoryStamp == current) return;
+    m_lastObservedDirectoryStamp = current;
+    if (auto *sizes = DirectorySizeIndex::existing())
+        sizes->observeDirectory(path);
+    if (!m_localRefreshTimer.isActive() && !m_loading)
+        m_localRefreshTimer.start(160);
+}
 
 void DirectoryModel::watchLocalFiles(const QVector<Entry> &)
 {
@@ -2516,6 +2572,26 @@ void DirectoryModel::updateStorageInfo()
     emit storageInfoChanged();
 }
 
+void DirectoryModel::stopActiveVideoProbe()
+{
+    QProcess *probe = m_activeVideoProbe.data();
+    if (!probe)
+        return;
+    m_activeVideoProbe.clear();
+    // A stale callback must not repopulate metadata or launch another probe.
+    QObject::disconnect(probe, nullptr, this, nullptr);
+    if (probe->state() != QProcess::NotRunning) {
+        // Navigation and directory refresh must never wait for ffprobe.
+        // Keep the QProcess alive until the child has exited, even if the
+        // DirectoryModel is destroyed in the meantime.
+        probe->setParent(nullptr);
+        QObject::connect(probe, &QProcess::finished, probe, &QObject::deleteLater);
+        probe->kill();
+        return;
+    }
+    probe->deleteLater();
+}
+
 void DirectoryModel::scheduleVideoMetadata()
 {
     persistVideoMetadataCache();
@@ -2524,12 +2600,7 @@ void DirectoryModel::scheduleVideoMetadata()
     ++m_videoProbeGeneration;
     m_videoProbeQueue.clear();
     m_videoProbePending.clear();
-    if (m_activeVideoProbe) {
-        m_activeVideoProbe->disconnect(this);
-        m_activeVideoProbe->kill();
-        m_activeVideoProbe->deleteLater();
-        m_activeVideoProbe.clear();
-    }
+    stopActiveVideoProbe();
     m_videoProbeAvailable = !QStandardPaths::findExecutable(QStringLiteral("ffprobe")).isEmpty();
 
     bool changed = false;

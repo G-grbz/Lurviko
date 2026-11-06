@@ -257,6 +257,7 @@ private:
     void finishOneDriveOperation(QNetworkReply *reply, const QString &successMessage, bool refreshAfter = true);
     void sortEntries();
     void watchLocalDirectory(const QString &path);
+    void checkLocalDirectoryFreshness();
     void watchLocalFiles(const QVector<Entry> &entries);
     void installLocalFileWatchBatch();
     void refreshLocalFileMetadata();
@@ -265,6 +266,7 @@ private:
     void updateStorageInfo();
     void scheduleVideoMetadata();
     void startNextVideoProbe(int generation);
+    void stopActiveVideoProbe();
     void applyVideoMetadata(const QString &localPath, const QString &videoInfo, int generation);
     static QUrl normalizeLocation(const QString &location);
 
@@ -309,6 +311,9 @@ private:
     DirectoryWatchSubscription m_localWatcher;
     bool m_monitoringEnabled = true;
     QTimer m_localRefreshTimer;
+    QTimer m_localDirectoryHealthTimer;
+    QString m_lastObservedDirectoryPath;
+    QString m_lastObservedDirectoryStamp;
     QTimer m_localMetadataTimer;
     QTimer m_localWatchInstallTimer;
     QTimer m_previewSettleTimer;

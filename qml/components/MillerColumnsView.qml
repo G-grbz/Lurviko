@@ -52,10 +52,32 @@ Item {
         }
         return foldersOnly ? "" : browser.directory.location
     }
+    // Timer callbacks are tied to this Item's lifetime. Qt.callLater closures
+    // could fire after tab teardown and invoke revealColumn on an invalid QML context.
+    property int pendingRevealColumn: -1
+    Timer {
+        id: revealAfterNavigation
+        interval: 0
+        repeat: false
+        onTriggered: {
+            if (view.visible)
+                view.revealColumn(view.pendingRevealColumn < 0 ? navigation.activeColumn
+                                                               : view.pendingRevealColumn)
+        }
+    }
+    onVisibleChanged: {
+        if (visible) revealAfterNavigation.restart()
+    }
     Connections {
         target: navigation
-        function onActiveDirectoryChanged() { Qt.callLater(function() { view.revealColumn() }) }
-        function onCountChanged() { Qt.callLater(function() { view.revealColumn(navigation.count - 1) }) }
+        function onActiveDirectoryChanged() {
+            view.pendingRevealColumn = -1
+            revealAfterNavigation.restart()
+        }
+        function onCountChanged() {
+            view.pendingRevealColumn = navigation.count - 1
+            revealAfterNavigation.restart()
+        }
     }
     Flickable {
         id: horizontal
@@ -83,14 +105,23 @@ Item {
                     required property string columnLocation
                     required property string columnSelection
                     required property int columnWidth
+                    // BrowserPane owns monitoringEnabled on the shared source
+                    // directory. A hidden StackLayout page must not overwrite
+                    // its root.visible binding, or Grid/List silently stop
+                    // receiving external file changes until F5.
+                    //
+                    // Only apply viewport-based monitoring to extra Miller
+                    // column models while the columns page is visible. When
+                    // the page disappears, restore the previous value: the
+                    // active model may continue to be used by Grid/List.
                     Binding {
                         target: column.columnDirectory
                         property: "monitoringEnabled"
-                        restoreMode: Binding.RestoreNone
-                        value: view.visible && column.x + column.width > horizontal.contentX
+                        when: view.visible && column.columnDirectory !== view.navigation.sourceDirectory
+                        restoreMode: Binding.RestoreBindingOrValue
+                        value: column.x + column.width > horizontal.contentX
                                && column.x < horizontal.contentX + horizontal.width
                     }
-                    Component.onDestruction: if (column.columnDirectory) column.columnDirectory.monitoringEnabled = false
                     property alias listView: entries
                     width: columnWidth
                     height: columnRow.height

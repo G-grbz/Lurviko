@@ -306,9 +306,14 @@ Item {
                 selectionEnabled: root.selectionEnabled
                 allSelected: {
                     const revision = root.selectionRevision
-                    return root.groupSelected ? root.groupSelected(root.groupItems(rowDelegate.rowData.key)) : false
+                    const row = rowDelegate.rowData
+                    return row && row.kind === "header" && typeof root.groupSelected === "function"
+                           ? !!root.groupSelected(root.groupItems(row.key)) : false
                 }
-                onToggleSelection: root.toggleItems(root.groupItems(rowDelegate.rowData.key))
+                onToggleSelection: {
+                    const row = rowDelegate.rowData
+                    if (row && row.kind === "header") root.toggleItems(root.groupItems(row.key))
+                }
             }
             Row {
                 width: parent.width

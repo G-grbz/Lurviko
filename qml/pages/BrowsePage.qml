@@ -835,7 +835,7 @@ Item {
                 GText {
                     Layout.fillWidth: true
                     typographyRole: "menu"
-                    text: lang.language === "tr" ? "Sol menüyü gizle" : "Auto-hide sidebar"
+                    text: lang.language === "tr" ? "Kompakt sol menü" : "Compact sidebar"
                     basePixelSize: 12
                 }
                 GSwitch {
@@ -1659,16 +1659,6 @@ Item {
                             width: 16; height: 16
                             source: AppTheme.icon("view-layout.svg")
                             opacity: 0.92
-                        }
-                        Rectangle {
-                            width: 4
-                            height: 4
-                            radius: 3
-                            color: page.activePane.gridMode ? AppTheme.accent : AppTheme.textMuted
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            anchors.rightMargin: -1
-                            anchors.bottomMargin: -1
                         }
                     }
                     background: Rectangle {

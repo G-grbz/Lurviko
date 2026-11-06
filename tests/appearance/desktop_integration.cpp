@@ -10,6 +10,7 @@
 #include <QSettings>
 #include <QTimer>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -122,7 +123,11 @@ int main(int argc, char **argv)
     QApplication::setPalette(palette);
     QQuickWindow::setDefaultAlphaBuffer(true); QQuickStyle::setStyle("Basic");
     const bool startCustom = app.arguments().contains(QStringLiteral("--start-custom"));
-    QSettings settings; settings.setValue("Appearance/qtTheme", !startCustom); settings.sync();
+    QSettings settings;
+    settings.setValue("Appearance/qtTheme", !startCustom);
+    // Reproduce a previous session that saved the compact sidebar setting.
+    settings.setValue("Appearance/sidebarAutoHide", true);
+    settings.sync();
     // REGISTER_BACKEND_TYPES
     QQmlApplicationEngine engine;
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
@@ -167,6 +172,41 @@ int main(int argc, char **argv)
     auto *sidebarPanel = root->findChild<QQuickItem *>("sidebarSharedPanel");
     require(unified && unified->isVisible() && workspace && sidebarPanel,
             "production browser has one shared navigation/sidebar/workspace surface");
+    // The production tab's single outline must follow the real tab across
+    // compact -> full -> compact, including when the app starts compact.
+    // This checks layout coordinates, not a screenshot-dependent pixel color.
+    auto *tabOutline = root->findChild<QQuickItem *>("activePageOutline");
+    auto *browserPage = qobject_cast<QQuickItem *>(pageStack->property("currentItem").value<QObject *>());
+    require(tabOutline && tabOutline->isVisible() && browserPage,
+            "production shared tab/page outline is visible");
+    auto checkTabJoin = [&](const char *stage) {
+        auto *selected = qobject_cast<QQuickItem *>(
+            browserPage->property("activeTabSurface").value<QObject *>());
+        require(selected, "browser exposes its actual selected tab surface");
+        pause(90);
+        const QPointF expected = selected->mapToItem(tabOutline, QPointF(0, 0));
+        const qreal actualLeft = tabOutline->property("tabLeft").toReal();
+        const qreal actualTop = tabOutline->property("tabTop").toReal();
+        if (qAbs(actualLeft - expected.x()) > 1 || qAbs(actualTop - expected.y()) > 1) {
+            std::fprintf(stderr, "FAIL: tab join %s expected=(%.2f,%.2f) actual=(%.2f,%.2f)\n",
+                         stage, expected.x(), expected.y(), actualLeft, actualTop);
+            require(false, "selected tab/page outline follows compact sidebar geometry");
+        }
+    };
+    require(theme->property("sidebarAutoHide").toBool(), "browser starts with persisted compact sidebar");
+    checkTabJoin("startup compact");
+    require(QMetaObject::invokeMethod(theme, "setSidebarAutoHide", Q_ARG(QVariant, false)),
+            "sidebar expands without changing tabs");
+    pause(90);
+    checkTabJoin("expanded");
+    require(QMetaObject::invokeMethod(theme, "setSidebarAutoHide", Q_ARG(QVariant, true)),
+            "sidebar collapses without changing tabs");
+    pause(90);
+    checkTabJoin("compact again");
+    // Restore the normal layout for the existing native translucency checks.
+    require(QMetaObject::invokeMethod(theme, "setSidebarAutoHide", Q_ARG(QVariant, false)),
+            "normal sidebar layout restored");
+    pause(90);
     require(workspace->property("color").value<QColor>().alpha() == 0
                 && sidebarPanel->property("color").value<QColor>().alpha() == 0,
             "embedded sidebar and workspace do not paint disconnected panels");
@@ -305,19 +345,22 @@ Item {
 import QtQuick
 import Lurviko.App
 Item {
-    x: 37; y: 29; width: 520; height: 330; z: 100000
+    // Keep the entire four-color fixture inside the viewport even on Xvfb
+    // at fractional scales. The previous x=300 move put its sampling point
+    // outside the actual window on smaller virtual screens.
+    x: 10; y: 10; width: 300; height: 225; z: 100000
     Item {
-        id: tiles; objectName: "tiles"; width: 512; height: 300
-        Rectangle { width: 256; height: 150; color: "red" }
-        Rectangle { x: 256; width: 256; height: 150; color: "lime" }
-        Rectangle { y: 150; width: 256; height: 150; color: "blue" }
-        Rectangle { x: 256; y: 150; width: 256; height: 150; color: "yellow" }
+        id: tiles; objectName: "tiles"; width: 280; height: 200
+        Rectangle { width: 140; height: 100; color: "red" }
+        Rectangle { x: 140; width: 140; height: 100; color: "lime" }
+        Rectangle { y: 100; width: 140; height: 100; color: "blue" }
+        Rectangle { x: 140; y: 100; width: 140; height: 100; color: "yellow" }
     }
     Item {
-        objectName: "overlayMount"; x: 40; y: 20; width: 100; height: 80
+        objectName: "overlayMount"; x: 25; y: 15; width: 80; height: 60
         transformOrigin: Item.TopLeft
         GOverlaySurface {
-            objectName: "movingGlass"; x: 10; y: 10; width: 80; height: 60
+            objectName: "movingGlass"; x: 5; y: 5; width: 60; height: 40
             sourceItem: tiles; nativeColor: Qt.rgba(0.5, 0.5, 0.5, 0.3)
         }
     }
@@ -328,22 +371,64 @@ Item {
     auto *mount = moving->findChild<QQuickItem *>("overlayMount");
     auto *glass = moving->findChild<QQuickItem *>("movingGlass");
     auto *tiles = moving->findChild<QQuickItem *>("tiles");
-    auto verifyTile = [&](QColor content) {
-        pause(100);
+    // ShaderEffectSource and the blur pass can present the *previous* frame
+    // for a short time after a geometry update on llvmpipe. Sampling only
+    // once after 100 ms is timing-dependent. Poll for the expected rendered
+    // color, without widening the comparison tolerance or skipping the check.
+    auto verifyTile = [&](const char *stage, QColor content) {
         if (!rhi) return;
-        const auto image = window->grabWindow();
-        const auto center = glass->mapToScene(QPointF(glass->width() / 2, glass->height() / 2));
-        const auto pixel = image.pixelColor(qRound(center.x() * window->devicePixelRatio()),
-                                           qRound(center.y() * window->devicePixelRatio()));
         const auto expected = panelReference(content, nativeBackground, QColor(128, 128, 128, 77));
-        require(qAbs(pixel.red() - expected.red()) < 12 && qAbs(pixel.green() - expected.green()) < 12
-                    && qAbs(pixel.blue() - expected.blue()) < 12,
-                "blur samples the moved target and subdues opaque icons using the native panel base");
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QColor lastPixel;
+        QPoint lastPoint;
+        QPointF lastScenePoint;
+        QSize lastImageSize;
+        int nullFrames = 0;
+        int outsideFrames = 0;
+        bool sampled = false;
+        constexpr qint64 maxWaitMs = 3000;
+        do {
+            pause(35); // process the scene graph and allow captured textures to update
+            const auto image = window->grabWindow();
+            if (image.isNull()) { ++nullFrames; continue; }
+            lastImageSize = image.size();
+            const auto center = glass->mapToScene(QPointF(glass->width() / 2, glass->height() / 2));
+            lastScenePoint = center;
+            // grabWindow() returns a client-area image, whose actual pixel
+            // dimensions are the definitive projection at fractional scale.
+            // A platform can report a DPR different from this image's ratio.
+            const QPoint point(qRound(center.x() * image.width() / window->width()),
+                               qRound(center.y() * image.height() / window->height()));
+            lastPoint = point;
+            if (!image.rect().contains(point)) { ++outsideFrames; continue; }
+            lastPixel = image.pixelColor(point);
+            sampled = true;
+            if (qAbs(lastPixel.red() - expected.red()) < 12
+                && qAbs(lastPixel.green() - expected.green()) < 12
+                && qAbs(lastPixel.blue() - expected.blue()) < 12) return;
+        } while (elapsed.elapsed() < maxWaitMs);
+        const QRectF capture = glass->property("captureRect").toRectF();
+        std::fprintf(stderr,
+                     "FAIL: overlay %s did not converge after %lld ms: expected=%s actual=%s "
+                     "sampled=%d nullFrames=%d outsideFrames=%d "
+                     "pixel=(%d;%d) scene=(%.1f;%.1f) image=(%d;%d) window=(%d;%d) "
+                     "windowDpr=%.2f capture=(x:%.1f;y:%.1f;w:%.1f;h:%.1f)\n",
+                     stage, static_cast<long long>(elapsed.elapsed()),
+                     qPrintable(expected.name(QColor::HexArgb)),
+                     qPrintable(lastPixel.name(QColor::HexArgb)),
+                     sampled, nullFrames, outsideFrames,
+                     lastPoint.x(), lastPoint.y(), lastScenePoint.x(), lastScenePoint.y(),
+                     lastImageSize.width(), lastImageSize.height(), window->width(), window->height(),
+                     window->devicePixelRatio(),
+                     capture.x(), capture.y(), capture.width(), capture.height());
+        require(sampled, "moving blur fixture stays within the captured client-area frame");
+        require(false, "blur samples the moved target and subdues opaque icons using the native panel base");
     };
-    verifyTile(Qt::red);
-    mount->setX(300); verifyTile(Qt::green);
-    mount->setY(200); verifyTile(Qt::yellow);
-    tiles->setX(200); verifyTile(Qt::blue);
+    verifyTile("initial red", Qt::red);
+    mount->setX(160); verifyTile("moved green", Qt::green);
+    mount->setY(135); verifyTile("moved yellow", Qt::yellow);
+    tiles->setX(125); verifyTile("source shifted blue", Qt::blue);
     mount->setScale(0.75); pause(100);
     if (rhi) {
         const auto rect = glass->property("captureRect").toRectF();

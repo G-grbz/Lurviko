@@ -65,5 +65,10 @@ with isolated_directory() as temporary:
     for scale in os.environ.get("LURVIKO_APPEARANCE_SCALES", environment.get("QT_SCALE_FACTOR", "1")).split(","):
         environment["QT_SCALE_FACTOR"] = scale
         for arguments in (["--start-custom"], []):
+            # Keep the exact failing scale/startup variant visible in redirected
+            # CI and local logs, even if the subprocess raises CalledProcessError.
+            print(f"APPEARANCE_RUN: qpa={environment['QT_QPA_PLATFORM']} "
+                  f"backend={environment['QT_QUICK_BACKEND']} scale={scale} "
+                  f"startup={'custom' if arguments else 'native'}", flush=True)
             subprocess.run(["dbus-run-session", "--", str(root / "appearance-tests"), *arguments],
                            env=environment, check=True, timeout=40)

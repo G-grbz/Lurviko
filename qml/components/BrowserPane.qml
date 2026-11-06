@@ -474,22 +474,26 @@ Rectangle {
     }
 
     function cloudShareTargetAvailable(provider) {
+        // Explicit bool: a missing optional preference must not propagate
+        // `undefined` into MenuItem.visible or the menu's hasCloudTarget.
         if (provider === "google")
-            return cloudIntegrationPreferences.showGoogle && root.cloudAuth.googleAccessToken.length > 0
+            return !!cloudIntegrationPreferences.showGoogle && !!root.cloudAuth
+                   && String(root.cloudAuth.googleAccessToken || "").length > 0
         if (provider === "onedrive")
-            return cloudIntegrationPreferences.showOneDrive && root.cloudAuth.oneDriveAccessToken.length > 0
+            return !!cloudIntegrationPreferences.showOneDrive && !!root.cloudAuth
+                   && String(root.cloudAuth.oneDriveAccessToken || "").length > 0
         if (provider === "dropbox")
-            return cloudIntegrationPreferences.showDropbox && root.cloudShareLocation(provider).length > 0
+            return !!cloudIntegrationPreferences.showDropbox && root.cloudShareLocation(provider).length > 0
         if (provider === "nextcloud")
-            return cloudIntegrationPreferences.showNextcloud && root.cloudShareLocation(provider).length > 0
+            return !!cloudIntegrationPreferences.showNextcloud && root.cloudShareLocation(provider).length > 0
         if (provider === "owncloud")
-            return cloudIntegrationPreferences.showOwnCloud && root.cloudShareLocation(provider).length > 0
+            return !!cloudIntegrationPreferences.showOwnCloud && root.cloudShareLocation(provider).length > 0
         if (provider === "mega")
-            return cloudIntegrationPreferences.showMega && root.cloudShareLocation(provider).length > 0
+            return !!cloudIntegrationPreferences.showMega && root.cloudShareLocation(provider).length > 0
         if (provider === "pcloud")
-            return cloudIntegrationPreferences.showPCloud && root.cloudShareLocation(provider).length > 0
+            return !!cloudIntegrationPreferences.showPCloud && root.cloudShareLocation(provider).length > 0
         if (provider === "webdav")
-            return cloudIntegrationPreferences.showWebDav && root.cloudShareLocation(provider).length > 0
+            return !!cloudIntegrationPreferences.showWebDav && root.cloudShareLocation(provider).length > 0
         return false
     }
 
@@ -3588,8 +3592,8 @@ Rectangle {
         heavyIoBusy: fileOps.ioBusy
         folderPreviewsEnabled: root.columnsMode ? false : root.folderPreviewsEnabled
         contentIndexSource: root.contentIndexModel
-        googleAccessToken: root.googleDrive.accessToken
-        oneDriveAccessToken: root.oneDrive.accessToken
+        googleAccessToken: root.googleDrive ? String(root.googleDrive.accessToken || "") : ""
+        oneDriveAccessToken: root.oneDrive ? String(root.oneDrive.accessToken || "") : ""
     }
 
     MillerNavigationModel {
@@ -3630,8 +3634,8 @@ Rectangle {
 
     DirectoryModel {
         id: driveFolderPickerModel
-        googleAccessToken: root.googleDrive.accessToken
-        oneDriveAccessToken: root.oneDrive.accessToken
+        googleAccessToken: root.googleDrive ? String(root.googleDrive.accessToken || "") : ""
+        oneDriveAccessToken: root.oneDrive ? String(root.oneDrive.accessToken || "") : ""
         location: "gdrive://root"
     }
 
@@ -3784,7 +3788,9 @@ Rectangle {
     Connections {
         target: directory
         function onLoadingChanged() { if (!directory.loading) root.scheduleDirectorySize() }
-        function onRefreshCompleted() { root.scheduleDirectorySize(true) }
+        // A list refresh is not, by itself, a reason to recheck every subtree.
+        // DirectorySizeIndex observes actual filesystem mutations separately.
+        function onRefreshCompleted() { root.scheduleDirectorySize() }
         function onSearchChanged() { root.scheduleDirectorySize(true) }
     }
 
@@ -3885,10 +3891,13 @@ Rectangle {
 
     Connections {
         target: root.googleDrive
+        // Test stand-ins may omit the optional refreshRequested signal.
+        ignoreUnknownSignals: true
         function onRefreshRequested() { if (directory.location.startsWith("gdrive://")) directory.refresh() }
     }
     Connections {
         target: root.oneDrive
+        ignoreUnknownSignals: true
         function onRefreshRequested() { if (directory.location.startsWith("onedrive://")) directory.refresh() }
     }
 
@@ -6520,6 +6529,7 @@ Rectangle {
                             textRole: "text"
                             valueRole: "value"
                             function syncSelection() {
+                                if (!musicLibraryView || typeof musicLibraryView.genreKey !== "function") return
                                 const key = musicLibraryView.genreKey(root.musicGenreFilter)
                                 for (let i = 0; i < root.musicGenreOptions.length; ++i)
                                     if (musicLibraryView.genreKey(root.musicGenreOptions[i].value) === key) {
@@ -6528,7 +6538,13 @@ Rectangle {
                                     }
                                 currentIndex = 0
                             }
-                            onModelChanged: Qt.callLater(syncSelection)
+                            Timer {
+                                id: genreSelectionSync
+                                interval: 0
+                                repeat: false
+                                onTriggered: musicGenreCombo.syncSelection()
+                            }
+                            onModelChanged: genreSelectionSync.restart()
                             onActivated: root.selectMusicGenre(currentValue)
                         }
                         GComboBox {
@@ -6537,7 +6553,13 @@ Rectangle {
                             Layout.preferredHeight: 32
                             model: root.musicYearOptions
                             function syncSelection() { currentIndex = Math.max(0, root.musicYearOptions.indexOf(root.musicYearFilter)) }
-                            onModelChanged: Qt.callLater(syncSelection)
+                            Timer {
+                                id: yearSelectionSync
+                                interval: 0
+                                repeat: false
+                                onTriggered: musicYearCombo.syncSelection()
+                            }
+                            onModelChanged: yearSelectionSync.restart()
                             onActivated: root.musicYearFilter = currentIndex <= 0 ? "" : currentText
                         }
                     }
@@ -7004,8 +7026,11 @@ Rectangle {
                             Layout.preferredHeight: 8
                             from: 0
                             to: 1
-                            value: root.musicPlayer && root.musicPlayer.libraryManager
-                                   ? root.musicPlayer.libraryManager.scanProgress : 0
+                            value: {
+                                const library = root.musicPlayer ? root.musicPlayer.libraryManager : null
+                                const progress = library ? Number(library.scanProgress) : 0
+                                return isFinite(progress) ? progress : 0
+                            }
                         }
 
                         RowLayout {
@@ -7054,7 +7079,7 @@ Rectangle {
                             }
                             GButton {
                                 readonly property var library: root.musicPlayer ? root.musicPlayer.libraryManager : null
-                                visible: library && library.loading
+                                visible: !!library && !!library.loading
                                 Layout.preferredWidth: 92
                                 Layout.preferredHeight: 32
                                 text: library && library.scanPaused
@@ -7698,7 +7723,7 @@ Rectangle {
                 objectName: "shareToPrivateVault"
                 icon.source: AppTheme.icon("dashboard.svg")
                 text: lang.language === "tr" ? "Kasaya Gönder" : "Send to Private Vault"
-                enabled: root.privateVault && root.privateVault.unlocked && !root.privateVault.busy
+                enabled: !!root.privateVault && !!root.privateVault.unlocked && !root.privateVault.busy
                          && shareMenu.uploadUrls.length === root.selectedCount
                 onTriggered: root.sendSelectionToPrivateVault(false)
             }
@@ -7707,7 +7732,7 @@ Rectangle {
                 objectName: "shareToPrivateVaultAndDelete"
                 icon.source: AppTheme.icon("delete.svg")
                 text: lang.language === "tr" ? "Kasaya Gönder ve Sil" : "Send to Private Vault and Delete"
-                enabled: root.privateVault && root.privateVault.unlocked && !root.privateVault.busy
+                enabled: !!root.privateVault && !!root.privateVault.unlocked && !root.privateVault.busy
                          && shareMenu.uploadUrls.length === root.selectedCount
                 onTriggered: root.sendSelectionToPrivateVault(true)
             }
@@ -8466,7 +8491,7 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 7
-                                GBusyIndicator { visible: fileProperties.calculating; running: visible; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
+                                GBusyIndicator { visible: fileProperties.calculating && !fileProperties.statsAvailable; running: visible; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
                                 GText {
                                     text: propertiesDialog.localSelection
                                           ? ((fileProperties.statsState === "unavailable" || fileProperties.statsState === "error"
@@ -8484,7 +8509,9 @@ Rectangle {
                             GText { visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders); text: lang.language === "tr" ? "İçerik" : "Contents"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
                             GText {
                                 visible: propertiesDialog.localSelection && (propertiesDialog.multiple || propertiesDialog.hasFolders)
-                                text: fileProperties.calculating ? "…" : (fileProperties.fileCount + (lang.language === "tr" ? " dosya · " : " files · ") + fileProperties.folderCount + (lang.language === "tr" ? " klasör" : " folders"))
+                                // Retain completed counters while the index validates metadata.
+                                // A busy bit must not hide already available counts.
+                                text: fileProperties.calculating && !fileProperties.statsAvailable ? "…" : (fileProperties.fileCount + (lang.language === "tr" ? " dosya · " : " files · ") + fileProperties.folderCount + (lang.language === "tr" ? " klasör" : " folders"))
                                 baseColor: AppTheme.text; basePixelSize: 11
                             }
 

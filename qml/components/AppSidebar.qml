@@ -949,16 +949,19 @@ Rectangle {
                 implicitWidth: sidebar.controlsHost ? 36 : 28
                 implicitHeight: 32
                 Layout.fillWidth: !!sidebar.controlsHost
+                // This button switches between full and compact navigation;
+                // it never hides the sidebar or the file browser.
                 Accessible.name: sidebar.drawerPresentation
-                    ? (lang.language === "tr" ? "Sabitle" : "Pin")
-                    : (lang.language === "tr" ? "Gizle" : "Hide")
+                    ? (lang.language === "tr" ? "Genişlet" : "Expand")
+                    : (lang.language === "tr" ? "Kompakt" : "Compact")
                 onClicked: AppTheme.setSidebarAutoHide(!sidebar.drawerPresentation)
                 contentItem: Item {
                     CrispIcon {
                         objectName: "sidebarRestoreIcon"
                         anchors.centerIn: parent
-                        width: 18; height: 18
-                        source: AppTheme.icon(sidebar.drawerPresentation ? "nav-forward.svg" : "nav-back.svg")
+                        width: 16; height: 16
+                        source: AppTheme.icon(sidebar.drawerPresentation ? "nav-forward.svg" : "nav-back.svg", AppTheme.textMuted)
+                        opacity: 0.78
                     }
                 }
                 GToolTip { text: parent.Accessible.name }

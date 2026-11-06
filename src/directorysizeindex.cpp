@@ -579,7 +579,12 @@ void DirectorySizeIndex::readEvents()
             }
             offset += sizeof(inotify_event) + event->len;
             if (event->mask & IN_Q_OVERFLOW) {
+                // Size-index verification alone cannot repaint the file list.
+                // An overflow may drop the only CREATE/MOVED_TO notification
+                // for an externally produced file (e.g. an MKV muxer output).
                 verifyAll();
+                QMutexLocker lock(&d->watches->mutex);
+                changedDirectories.unite(d->watches->allowed);
                 continue;
             }
             QSet<QString> parents;
@@ -597,6 +602,8 @@ void DirectorySizeIndex::readEvents()
                     if (!(event->mask & IN_IGNORED)) ::inotify_rm_watch(d->watches->descriptor, event->wd);
                 }
             }
+            if (event->mask & IN_IGNORED)
+                changedDirectories.unite(parents); // relist and rearm a lost watch
             if (parents.isEmpty() || (event->mask & IN_IGNORED)) continue;
             // A visible symlink alias and its target can share a native wd.
             // Notify each subscribed spelling without removing another owner.
@@ -741,6 +748,22 @@ void DirectorySizeIndex::startPending()
             }
             for (auto it = work.selections.cbegin(); it != work.selections.cend(); ++it)
                 if (d->selectionScopes.contains(it.key())) d->selections.insert(it.key(), it.value());
+            // A cancelled transaction has no completed snapshot result to
+            // clear its calculating bit. Leaving it set strands subsequent
+            // Properties requests forever even after the worker is gone.
+            // Visible retained readers rejoin the next batch; detached cache
+            // owners keep their last usable value until requested again.
+            for (const auto &path : work.requested) {
+                auto it = d->snapshots.find(path);
+                if (it == d->snapshots.end()) continue;
+                it->calculating = false;
+                it->state = it->available ? QStringLiteral("cached") : QStringLiteral("missing");
+                emit snapshotChanged(path);
+                if (d->consumers.values().contains(path)) {
+                    d->paths.insert(path);
+                    d->pending = true;
+                }
+            }
             d->pending = d->pending || d->warmupPending || d->invalidateAll
                 || !d->invalidatedPaths.isEmpty() || !d->selections.isEmpty();
             d->watcher = nullptr; watcher->deleteLater(); d->progressTimer.stop();

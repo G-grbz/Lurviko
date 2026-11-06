@@ -160,44 +160,54 @@ bool FilePropertiesManager::reuseStatsOrWait(const QStringList &paths, bool sele
     if (!source || source->m_path.isEmpty() || paths.isEmpty()) return false;
     for (const auto &path : paths)
         if (path != source->m_path && QFileInfo(path).absolutePath() != source->m_path) return false;
-    if (source->calculating()) {
-        // Properties joins the footer's existing scan with foreground priority.
-        // Closing the consumer releases that demand without cancelling its owner.
-        if (!m_backgroundStats && source->m_statsDemand) {
-            m_waitingStatsDemand = source->m_statsDemand;
-            m_waitingStatsDemand->fetch_add(1, std::memory_order_relaxed);
+    // Prefer an already known child contribution over the parent's busy flag.
+    // Home can be validating in the background (or recovering from a cancelled
+    // scan) while its previously completed child totals are still usable.
+    // The caller may open Properties immediately without joining that scan.
+    if (source->m_statsAvailable || source->m_statsReady) {
+        qint64 bytes = 0;
+        int files = 0, folders = 0;
+        bool allKnown = true;
+        const bool entireRoot = paths.contains(source->m_path);
+        for (const auto &path : paths) {
+            if (entireRoot && path != source->m_path) continue;
+            if (path == source->m_path) {
+                bytes += source->m_totalSize;
+                files += source->m_fileCount;
+                folders += source->m_folderCount + (selection ? 1 : 0);
+            } else {
+                const auto child = source->m_childStats.value(path).toMap();
+                if (!source->m_childStats.contains(path)) {
+                    allKnown = false;
+                    break;
+                }
+                bytes += child.value("bytes").toLongLong();
+                files += child.value("files").toInt();
+                folders += child.value("folders").toInt();
+                if (!selection && child.value("directory").toBool()) --folders;
+            }
         }
-        setCalculating(true);
-        m_statsConnection = connect(source, &FilePropertiesManager::calculatingChanged, this,
-            [this, paths, selection, generation] {
-                if (generation != m_generation || !m_statsSource || m_statsSource->calculating()) return;
-                disconnect(m_statsConnection);
-                if (selection) inspectSelection(paths); else inspect(paths.first());
-            }, Qt::QueuedConnection);
-        return true;
-    }
-    if (!source->m_statsReady) return false;
-    qint64 bytes = 0; int files = 0, folders = 0;
-    const bool entireRoot = paths.contains(source->m_path);
-    for (const auto &path : paths) {
-        if (entireRoot && path != source->m_path) continue;
-        if (path == source->m_path) {
-            bytes += source->m_totalSize; files += source->m_fileCount;
-            folders += source->m_folderCount + (selection ? 1 : 0);
-        } else {
-            if (!source->m_childStats.contains(path)) return false;
-            const auto child = source->m_childStats.value(path).toMap();
-            bytes += child.value("bytes").toLongLong(); files += child.value("files").toInt();
-            folders += child.value("folders").toInt();
-            if (!selection && child.value("directory").toBool()) --folders;
+        if (allKnown) {
+            m_totalSize = bytes;
+            m_fileCount = files;
+            m_folderCount = folders;
+            m_statsReady = m_statsAvailable = true;
+            // The previous total is immediately displayable during validation;
+            // show it as cached rather than falsely claiming a fresh scan.
+            m_statsState = source->m_statsReady ? source->m_statsState : QStringLiteral("cached");
+            m_statsError = source->m_statsError;
+            setCalculating(false);
+            emit propertiesChanged();
+            return true;
         }
     }
-    m_totalSize = bytes; m_fileCount = files; m_folderCount = folders;
-    m_statsReady = true;
-    m_statsState = source->m_statsState;
-    m_statsError = source->m_statsError;
-    setCalculating(false); emit propertiesChanged();
-    return true;
+    // Do not wait on the displayed directory's calculating flag. A navigation
+    // back to Home can leave that *parent* checking metadata even though the
+    // requested child's size is already persisted. Fall through to the child's
+    // own indexed request (or the selection request) instead. Waiting for the
+    // parent calculatingChanged signal can strand every Properties dialog in
+    // Home while Properties inside an opened child still works normally.
+    return false;
 }
 
 void FilePropertiesManager::inspect(const QString &urlOrPath)
@@ -260,7 +270,12 @@ FilePropertiesManager *FilePropertiesManager::cachedStats(const QString &path, b
         entry.source->m_indexOwner = true;
         entry.source->inspect(path);
     }
-    DirectorySizeIndex::instance()->request(path);
+    // The cached source owns the initial request and listens for index change
+    // notifications. Looking it up must not start a second validation each
+    // time a Properties dialog opens or Home becomes visible again.
+    const auto snapshot = DirectorySizeIndex::instance()->snapshot(path);
+    if (snapshot.path.isEmpty() || (!entry.source->m_statsAvailable && !entry.source->calculating()))
+        DirectorySizeIndex::instance()->request(path);
     return entry.source;
 }
 
@@ -526,13 +541,16 @@ void FilePropertiesManager::inspectSelection(const QStringList &urls)
             ++knownFiles;
         } else if (S_ISDIR(info.st_mode)) {
             const auto snapshot = index->snapshot(path);
-            if (!snapshot.complete || !snapshot.available || snapshot.calculating
+            // An available, completed snapshot remains usable while its
+            // metadata is being revalidated. Do not couple Properties to an
+            // unrelated parent's in-progress verification.
+            if (!snapshot.complete || !snapshot.available
                     || (snapshot.state != QStringLiteral("ready")
                         && snapshot.state != QStringLiteral("cached"))) {
                 allKnown = false;
                 break;
             }
-            hasCachedSnapshot |= snapshot.state == QStringLiteral("cached");
+            hasCachedSnapshot |= snapshot.calculating || snapshot.state == QStringLiteral("cached");
             knownBytes += snapshot.totals.bytes;
             knownFiles += snapshot.totals.files;
             knownFolders += snapshot.totals.folders + 1;

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise Miller navigation, shared actions, large folders, tabs and split panes."""
 import os
+import signal
 from pathlib import Path
 import shlex
 import subprocess
@@ -36,4 +37,42 @@ with tempfile.TemporaryDirectory(prefix="lurviko-columns-tests-") as temporary:
         XDG_CACHE_HOME=str(root / "cache"), LURVIKO_NAVIGATION_TEST_ROOT=str(root))
     if environment["QT_QPA_PLATFORM"] == "offscreen":
         environment["QT_QUICK_BACKEND"] = "software"
-    subprocess.run(["dbus-run-session", "--", str(root / "navigation-tests")], env=environment, check=True, timeout=90)
+    command = ["dbus-run-session", "--", str(root / "navigation-tests")]
+    # Do not capture stdout with PIPE: KDE/DBus helper descendants may inherit
+    # the write end after navigation-tests exits. communicate() then waits for
+    # EOF until the 90-second timeout even though the test already passed.
+    # A regular file lets us inspect warnings without waiting for descendant EOF.
+    output_path = root / "navigation-tests.log"
+    with output_path.open("w+", encoding="utf-8", errors="replace") as output:
+        process = subprocess.Popen(command, env=environment, stdout=output,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            exit_code = process.wait(timeout=90)
+        except subprocess.TimeoutExpired:
+            # Kill the entire test process group, not just dbus-run-session.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            output.flush()
+            output.seek(0)
+            log = output.read()
+            print(log[-16000:], end="", flush=True)
+            raise RuntimeError("MillerColumns test timed out after 90 s; "
+                               "last 16 KB of captured output shown above")
+        output.flush()
+        output.seek(0)
+        log = output.read()
+    print(log, end="", flush=True)
+    if exit_code:
+        raise subprocess.CalledProcessError(exit_code, command)
+    forbidden = (
+        'QProcess: Destroyed while process ("ffprobe") is still running',
+        'Unable to assign [undefined] to bool',
+        "Property 'revealColumn' of object",
+        "Property 'genreKey' of object",
+    )
+    for warning in forbidden:
+        if warning in log:
+            raise AssertionError(f"Navigation lifecycle regression: {warning}")

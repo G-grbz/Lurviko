@@ -876,9 +876,15 @@ ApplicationWindow {
                 ? stack.currentItem.activeTabScrollPosition : 0
         readonly property point tabOrigin: {
             if (!activeTab) return Qt.point(0, 0)
+            // mapToItem() alone does not register ancestor position changes as
+            // QML binding dependencies. In compact mode the shared outline's
+            // left edge moves to x=0 while the header/tab strip stays inset.
+            // Read the outline's actual x/y explicitly so its geometry updates
+            // on collapse, expand and restored compact startup without a tab click.
             const scroll = tabScrollPosition
-            const location = activeTab.mapToItem(activePageOutline, 0, 0)
-            return Qt.point(location.x + scroll * 0, location.y)
+            const scenePosition = activeTab.mapToItem(root.contentItem, 0, 0)
+            return Qt.point(scenePosition.x - activePageOutline.x + scroll * 0,
+                            scenePosition.y - activePageOutline.y)
         }
         readonly property real tabLeft: tabOrigin.x
         readonly property real tabRight: tabLeft + (activeTab ? activeTab.width : 0)
