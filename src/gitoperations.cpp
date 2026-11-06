@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QLockFile>
+#include <QMap>
 #include <QLocale>
 #include <QPointer>
 #include <QProcess>
@@ -86,7 +87,7 @@ public:
             throw Failure{text(input.tr, "Operation cancelled.", "İşlem iptal edildi.")};
     }
     Command run(const QStringList& args, const QByteArray& data = {}, const QString& index = {},
-                bool required = true, bool network = false, bool noHooks = false, bool ignoreCancellation = false)
+                bool required = true, bool network = false, bool noHooks = false, bool ignoreCancellation = false, int timeoutMs = 0)
     {
         if (!ignoreCancellation) check();
         // These buffers also outlive QProcess destruction if a late child
@@ -130,7 +131,7 @@ public:
         do {
             process.waitForFinished(50); collect();
             if (!ignoreCancellation && input.cancelled->load()) stopped = text(input.tr, "Operation cancelled.", "İşlem iptal edildi.");
-            if (clock.elapsed() > (network ? 120000 : 30000)) stopped = text(input.tr, "Git did not respond in time.", "Git zamanında yanıt vermedi.");
+            if (clock.elapsed() > (timeoutMs > 0 ? timeoutMs : (network ? 120000 : 30000))) stopped = text(input.tr, "Git did not respond in time.", "Git zamanında yanıt vermedi.");
             if (network && input.progress && clock.elapsed() - lastProgress >= 250 && !errors.isEmpty()) {
                 auto lines = QString::fromUtf8(errors).replace('\r', '\n').split('\n', Qt::SkipEmptyParts);
                 if (!lines.isEmpty()) input.progress(displayError(lines.last()).left(250));
@@ -166,8 +167,9 @@ struct Context {
 };
 struct Result {
     QVariantMap info;
-    QVariantList changes, history, upstreamTargets;
-    QString kind, detailText, error, message, root, commonDir, localCommit;
+    QVariantList changes, history, upstreamTargets, tags, steps;
+    QVariantMap tagInfo;
+    QString kind, detailText, error, message, root, commonDir, localCommit, localTag;
     QStringList touched;
     bool ok = false, wrote = false;
 };
@@ -312,6 +314,149 @@ void pushUpstream(Runner& git, const Context& c)
         throw Failure{text(git.input.tr, "Unsupported Push remote protocol.", "Desteklenmeyen Push uzak depo protokolü.")};
     git.run({"push", "--progress", "--porcelain", "--", c.remote, c.head + ":" + c.remoteRef}, {}, {}, true, true);
 }
+struct Version {
+    quint64 major = 0, minor = 0, patch = 0;
+    bool prefix = true, stable = false, valid = false;
+};
+Version parseVersion(const QString& value)
+{
+    // A patch increment must never become a minor bump at .9: 1.5.9 -> 1.5.10.
+    static const QRegularExpression semver(QStringLiteral(R"(^(v?)(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$)"));
+    const auto match = semver.match(value);
+    Version version;
+    if (!match.hasMatch()) return version;
+    bool validMajor = false, validMinor = false, validPatch = false;
+    version.major = match.captured(2).toULongLong(&validMajor);
+    version.minor = match.captured(3).toULongLong(&validMinor);
+    version.patch = match.captured(4).toULongLong(&validPatch);
+    version.prefix = !match.captured(1).isEmpty();
+    version.stable = match.captured(5).isEmpty();
+    version.valid = validMajor && validMinor && validPatch;
+    return version;
+}
+bool newer(const Version& a, const Version& b)
+{
+    if (a.major != b.major) return a.major > b.major;
+    if (a.minor != b.minor) return a.minor > b.minor;
+    return a.patch > b.patch;
+}
+QString formatVersion(const Version& v, const QString& bump)
+{
+    const auto limit = std::numeric_limits<quint64>::max();
+    if ((bump == "major" && v.major == limit) || (bump == "minor" && v.minor == limit)
+        || (bump == "patch" && v.patch == limit)) return {};
+    const auto major = v.major + (bump == "major");
+    const auto minor = bump == "major" ? 0 : v.minor + (bump == "minor");
+    const auto patch = bump == "patch" ? v.patch + 1 : 0;
+    return (v.prefix ? "v" : "") + QString::number(major) + '.' + QString::number(minor) + '.' + QString::number(patch);
+}
+struct TagSummary {
+    QMap<QString, QString> local, remote; // Refname -> immutable tag object ID
+    QMap<QString, QString> commits, remoteCommits;
+    QString remoteName, remoteError;
+    bool verified = false;
+};
+QString tagRemote(Runner& git, const Context& c)
+{
+    if (!c.remote.isEmpty() && c.remote != ".") return c.remote;
+    const auto remotes = QString::fromUtf8(git.run({"remote"}).output).split('\n', Qt::SkipEmptyParts);
+    return remotes.size() == 1 ? remotes.first() : QString();
+}
+TagSummary inspectTags(Runner& git, const Context& c, bool requireRemote)
+{
+    TagSummary summary;
+    const auto records = git.run({"for-each-ref", "--format=%(refname:strip=2)%00%(objectname)%00%(*objectname)%00", "refs/tags"}).output.split('\0');
+    for (int i = 0; i + 2 < records.size(); i += 3) {
+        const auto name = QString::fromUtf8(records.at(i)).trimmed();
+        const auto object = oid(records.at(i + 1));
+        const auto peeled = oid(records.at(i + 2));
+        if (name.isEmpty() || object.isEmpty()) continue;
+        summary.local.insert(name, object);
+        summary.commits.insert(name, peeled.isEmpty() ? object : peeled);
+    }
+    summary.remoteName = tagRemote(git, c);
+    if (summary.remoteName.isEmpty()) {
+        summary.remoteError = text(git.input.tr, "Select a remote before verifying tags.", "Tag doğrulamak için uzak depo seç.");
+    } else {
+        try {
+            const auto url = QString::fromUtf8(git.run({"remote", "get-url", "--", summary.remoteName}).output).trimmed();
+            const auto pushUrls = QString::fromUtf8(git.run({"remote", "get-url", "--push", "--all", "--", summary.remoteName}).output).trimmed().split('\n', Qt::SkipEmptyParts);
+            if (!standardRemote(url) || pushUrls.isEmpty() || std::any_of(pushUrls.cbegin(), pushUrls.cend(), [](const QString& address) { return !standardRemote(address); }))
+                throw Failure{text(git.input.tr, "Unsupported remote address.", "Desteklenmeyen uzak depo adresi.")};
+            const auto bytes = git.run({"ls-remote", "--tags", "--", summary.remoteName}, {}, {}, true, true, true, false, 15000).output;
+            for (const auto& line : bytes.split('\n')) {
+                const int tab = line.indexOf('\t');
+                if (tab < 1) continue;
+                const auto hash = oid(line.left(tab));
+                auto ref = QString::fromUtf8(line.mid(tab + 1));
+                if (!ref.startsWith("refs/tags/") || hash.isEmpty()) continue;
+                ref.remove(0, 10);
+                if (ref.endsWith("^{}")) {
+                    ref.chop(3);
+                    summary.remoteCommits.insert(ref, hash); // Annotated tag's target commit.
+                    continue;
+                }
+                summary.remote.insert(ref, hash);
+            }
+            summary.verified = true;
+        } catch (const Failure& err) { summary.remoteError = err.text; }
+    }
+    if (requireRemote && !summary.verified) throw Failure{
+        text(git.input.tr, "Remote tags could not be verified. No commit or tag was created: ", "Uzak tag'ler doğrulanamadı. Commit veya tag oluşturulmadı: ") + summary.remoteError};
+    return summary;
+}
+QVariantMap tagInformation(const TagSummary& summary)
+{
+    Version latest; bool hasStable = false; QString name;
+    const auto consider = [&](const QString& candidate) {
+        const auto version = parseVersion(candidate);
+        if (version.valid && version.stable && (!hasStable || newer(version, latest)
+            || (!newer(latest, version) && version.prefix && !latest.prefix))) {
+            latest = version; name = candidate; hasStable = true;
+        }
+    };
+    for (auto it = summary.local.cbegin(); it != summary.local.cend(); ++it) consider(it.key());
+    for (auto it = summary.remote.cbegin(); it != summary.remote.cend(); ++it) consider(it.key());
+    if (!hasStable) { latest.prefix = true; latest.major = 0; latest.minor = 0; latest.patch = 0; }
+    return {{"latest", name}, {"assumedInitial", !hasStable},
+            {"patch", hasStable ? formatVersion(latest, "patch") : "v0.1.0"},
+            {"minor", hasStable ? formatVersion(latest, "minor") : "v0.1.0"},
+            {"major", hasStable ? formatVersion(latest, "major") : "v1.0.0"},
+            {"remoteVerified", summary.verified}, {"remoteName", summary.remoteName},
+            {"remoteError", summary.remoteError}};
+}
+QVariantList tagRows(const TagSummary& summary)
+{
+    QVariantList rows;
+    QSet<QString> names;
+    for (auto it = summary.local.cbegin(); it != summary.local.cend(); ++it) names.insert(it.key());
+    for (auto it = summary.remote.cbegin(); it != summary.remote.cend(); ++it) names.insert(it.key());
+    QStringList sorted = names.values(); sorted.sort(Qt::CaseInsensitive);
+    for (const auto& name : sorted)
+        rows.append(QVariantMap{{"name", name}, {"local", summary.local.contains(name)},
+            {"remote", summary.remote.contains(name)}, {"commit", summary.commits.value(name, summary.remoteCommits.value(name, summary.remote.value(name)))},
+            {"mismatch", summary.local.contains(name) && summary.remote.contains(name) && summary.local.value(name) != summary.remote.value(name)}});
+    return rows;
+}
+void requireTag(const Input& input, const TagSummary& tags, const QString& name)
+{
+    if (!parseVersion(name).valid || name.size() > 120)
+        throw Failure{text(input.tr, "Enter a valid Semantic Version tag (e.g. v1.6.0).", "Geçerli bir SemVer etiketi gir (ör. v1.6.0).")};
+    if (tags.local.contains(name) || tags.remote.contains(name))
+        throw Failure{text(input.tr, "That tag already exists locally or remotely. Choose a new version.", "Bu tag yerelde veya uzakta zaten var. Yeni bir sürüm seç.")};
+}
+void step(Result& result, const QString& kind, const QString& message)
+{
+    result.steps.append(QVariantMap{{"kind", kind}, {"message", message}});
+}
+void createAnnotatedTag(Runner& git, const QString& tag, const QString& commit)
+{
+    git.run({"tag", "-a", "-m", "Release " + tag, "--", tag, commit}, {}, {}, true, false, true);
+}
+void sendTag(Runner& git, const QString& remote, const QString& tag)
+{
+    git.run({"push", "--porcelain", "--", remote, "refs/tags/" + tag + ":refs/tags/" + tag}, {}, {}, true, true);
+}
 Result perform(const Input& input)
 {
     Result result; result.kind = input.kind;
@@ -320,7 +465,7 @@ Result perform(const Input& input)
     try {
         auto c = resolve(git);
         result.root = c.root; result.commonDir = c.commonDir;
-        const bool writing = QStringList{"sync", "fetch", "pull", "push", "commit", "upstream"}.contains(input.kind);
+        const bool writing = QStringList{"sync", "fetch", "pull", "push", "commit", "upstream", "create-tag", "push-tag"}.contains(input.kind);
         if (writing) {
             const auto directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/git-operations";
             if (!QDir().mkpath(directory)) throw Failure{text(input.tr, "Cannot create the Git operation lock directory.", "Git işlem kilidi dizini oluşturulamadı.")};
@@ -332,6 +477,7 @@ Result perform(const Input& input)
         snapshot(git, c, input.kind == "changes" || input.kind == "commit" || input.kind == "sync" || input.kind == "pull");
         result.info = publicInfo(c);
         if (input.kind == "metadata") { result.ok = true; return result; }
+        if (input.kind == "tags") { const auto tags = inspectTags(git, c, false); result.tags = tagRows(tags); result.tagInfo = tagInformation(tags); result.ok = true; return result; }
         if (input.kind == "changes") { result.changes = c.changes; result.ok = true; return result; }
         if (input.kind == "history") {
             if (!c.head.isEmpty()) {
@@ -427,6 +573,15 @@ Result perform(const Input& input)
         } else if (input.kind == "commit") {
             if (c.inProgress || c.conflicts) throw Failure{text(input.tr, "Resolve the current merge, rebase or conflicts before committing here.", "Buradan commit etmeden önce mevcut merge, rebase veya çakışmaları çöz.")};
             const auto message = input.parameters.value("message").toString();
+            const auto tag = input.parameters.value("tag").toString();
+            TagSummary preflight;
+            if (!tag.isEmpty()) {
+                if (!input.parameters.value("pushAfter").toBool())
+                    throw Failure{text(input.tr, "Pushing a new tag requires Push after commit.", "Yeni tag gönderimi için Commit sonrası Push gerekli.")};
+                requireUpstream(input, c);
+                preflight = inspectTags(git, c, true);
+                requireTag(input, preflight, tag);
+            }
             const auto ids = input.parameters.value("ids").toStringList();
             if (ids.isEmpty() || ids.size() > maxChanges || message.trimmed().isEmpty() || message.contains(QChar::Null) || message.size() > 65536)
                 throw Failure{text(input.tr, "Select files and enter a commit message.", "Dosyaları seç ve commit mesajı gir.")};
@@ -479,24 +634,78 @@ Result perform(const Input& input)
                 throw;
             }
             result.localCommit = commit;
+            step(result, "success", text(input.tr, "Commit created: ", "Commit oluşturuldu: ") + commit.left(8));
             git.run({"--literal-pathspecs", "reset", "-q", commit, "--pathspec-from-file=-", "--pathspec-file-nul"}, pathspec, {}, true, false, true);
+            if (!tag.isEmpty()) {
+                createAnnotatedTag(git, tag, commit);
+                result.localTag = tag;
+                step(result, "success", text(input.tr, "Local tag created: ", "Yerel tag oluşturuldu: ") + tag);
+            }
             if (input.parameters.value("pushAfter").toBool()) {
                 auto committed = resolve(git); snapshot(git, committed, false);
                 auto expected = c; expected.head = commit;
                 assertSame(input, expected, committed);
-                try { pushUpstream(git, committed); }
+                try { pushUpstream(git, committed); step(result, "success", text(input.tr, "Branch pushed.", "Dal uzak depoya gönderildi.")); }
                 catch (const Failure& failure) {
                     if (!input.cancelled->load()) { try { fetchUpstream(git, committed); } catch (...) {} }
                     throw failure;
                 }
             }
+            if (!tag.isEmpty()) {
+                sendTag(git, c.remote, tag);
+                step(result, "success", text(input.tr, "Tag pushed: ", "Tag uzak depoya gönderildi: ") + tag);
+            }
             result.message = text(input.tr, "Commit created: ", "Commit oluşturuldu: ") + commit.left(8);
+        } else if (input.kind == "create-tag" || input.kind == "push-tag") {
+            if (c.head.isEmpty()) throw Failure{text(input.tr, "Cannot tag an empty repository.", "Boş depoda tag oluşturulamaz.")};
+            const auto name = input.parameters.value("name").toString();
+            if (!parseVersion(name).valid || name.size() > 120) throw Failure{text(input.tr, "Invalid SemVer tag.", "Geçersiz SemVer etiketi.")};
+            const bool send = input.parameters.value("send").toBool() || input.kind == "push-tag";
+            if (send) requireUpstream(input, c);
+            const auto tags = inspectTags(git, c, send);
+            if (input.kind == "create-tag") {
+                requireTag(input, tags, name);
+                if (send) {
+                    const auto remoteTip = git.run({"ls-remote", "--heads", "--", tags.remoteName, c.remoteRef}, {}, {}, true, true, true, false, 15000).output;
+                    if (!remoteTip.startsWith(c.head.toUtf8() + '\t'))
+                        throw Failure{text(input.tr, "Push the current commit to its upstream branch before tagging remotely.", "Tag'i göndermeden önce geçerli commit'i upstream dalına gönder.")};
+                }
+                createAnnotatedTag(git, name, c.head);
+                result.localTag = name; result.wrote = true;
+                step(result, "success", text(input.tr, "Local tag created: ", "Yerel tag oluşturuldu: ") + name);
+            } else {
+                if (!tags.local.contains(name)) throw Failure{text(input.tr, "This tag does not exist locally.", "Bu tag yerelde bulunmuyor.")};
+                if (tags.remote.contains(name)) {
+                    if (tags.remote.value(name) != tags.local.value(name))
+                        throw Failure{text(input.tr, "Remote tag points to another object; refusing to overwrite it.", "Uzak tag başka bir nesneye işaret ediyor; üzerine yazılmayacak.")};
+                    step(result, "info", text(input.tr, "Tag is already present remotely: ", "Tag zaten uzakta mevcut: ") + name);
+                    result.message = text(input.tr, "Tag is already synchronized.", "Tag zaten eşitlenmiş.");
+                    result.ok = true; return result;
+                }
+                // Only publish tags on a commit already reachable from the configured upstream.
+                const auto target = oid(git.run({"rev-parse", "--verify", "refs/tags/" + name + "^{commit}"}).output);
+                const auto tipBytes = git.run({"ls-remote", "--heads", "--", tags.remoteName, c.remoteRef}, {}, {}, true, true, true, false, 15000).output;
+                const auto tip = oid(tipBytes.left(tipBytes.indexOf('\t')));
+                if (target.isEmpty() || tip.isEmpty() || git.run({"merge-base", "--is-ancestor", target, tip}, {}, {}, false).code != 0)
+                    throw Failure{text(input.tr, "The tag target is not confirmed on the remote branch. Push the branch first.", "Tag'in hedefi uzak dalda doğrulanamadı. Önce dalı gönder.")};
+            }
+            if (send) {
+                sendTag(git, tags.remoteName, name); result.wrote = true;
+                step(result, "success", text(input.tr, "Tag pushed: ", "Tag uzak depoya gönderildi: ") + name);
+            }
+            result.message = send ? text(input.tr, "Tag published: ", "Tag yayımlandı: ") + name
+                                  : text(input.tr, "Tag created locally: ", "Tag yerelde oluşturuldu: ") + name;
         }
         result.ok = true;
     } catch (const Failure& failure) {
         result.error = displayError(failure.text);
-        if (!result.localCommit.isEmpty()) result.error = text(input.tr, "Local commit preserved: ", "Yerel commit korundu: ") + result.localCommit.left(8) + "\n" + result.error;
-    } catch (const std::exception& failure) { result.error = displayError(QString::fromUtf8(failure.what())); }
+        step(result, "error", result.error);
+        if (!result.localCommit.isEmpty()) {
+            step(result, "info", text(input.tr, "Local commit preserved: ", "Yerel commit korundu: ") + result.localCommit.left(8));
+            result.error = text(input.tr, "Local commit preserved: ", "Yerel commit korundu: ") + result.localCommit.left(8) + "\n" + result.error;
+        }
+        if (!result.localTag.isEmpty()) step(result, "info", text(input.tr, "Local tag preserved for retry: ", "Yerel tag yeniden deneme için korundu: ") + result.localTag);
+    } catch (const std::exception& failure) { result.error = displayError(QString::fromUtf8(failure.what())); step(result, "error", result.error); }
     return result;
 }
 }
@@ -504,7 +713,8 @@ Result perform(const Input& input)
 struct GitOperations::Private {
     QString program, directory, discoveredRoot, pendingKind = "metadata", error, progress, lastCommit;
     QVariantMap info;
-    QVariantList changes, history, upstreamTargets;
+    QVariantList changes, history, upstreamTargets, tags, steps;
+    QVariantMap tagInfo;
     QString detailText;
     QPointer<GitStatusCache> cache;
     QPointer<QFutureWatcher<Result>> reader, writer;
@@ -553,6 +763,9 @@ QVariantMap GitOperations::info() const { return d->info; }
 QVariantList GitOperations::changes() const { return d->changes; }
 QVariantList GitOperations::history() const { return d->history; }
 QVariantList GitOperations::upstreamTargets() const { return d->upstreamTargets; }
+QVariantList GitOperations::tags() const { return d->tags; }
+QVariantMap GitOperations::tagInfo() const { return d->tagInfo; }
+QVariantList GitOperations::operationSteps() const { return d->steps; }
 QString GitOperations::detailText() const { return d->detailText; }
 QString GitOperations::error() const { return d->error; }
 QString GitOperations::progress() const { return d->progress; }
@@ -564,7 +777,7 @@ void GitOperations::setContext(const QString& location, bool directory)
     if (!path.isEmpty()) path = directory ? QDir::cleanPath(path) : QFileInfo(path).absolutePath();
     if (path == d->directory) return;
     ++d->generation; if (d->readCancelled) d->readCancelled->store(true);
-    d->directory = path; d->discoveredRoot.clear(); d->info.clear(); d->changes.clear(); d->history.clear(); d->upstreamTargets.clear(); d->detailText.clear();
+    d->directory = path; d->discoveredRoot.clear(); d->info.clear(); d->changes.clear(); d->history.clear(); d->upstreamTargets.clear(); d->tags.clear(); d->tagInfo.clear(); d->steps.clear(); d->detailText.clear();
     d->pendingKind = "metadata"; d->pending = false; d->metadataAfter = false;
     d->loading = !path.isEmpty() && !d->program.isEmpty();
     d->error.clear(); d->debounce.stop(); emit changed(); emit detailsChanged();
@@ -604,6 +817,7 @@ void GitOperations::startRead()
                 if (result.kind == "changes") d->changes = result.changes;
                 if (result.kind == "history") d->history = result.history;
                 if (result.kind == "targets") d->upstreamTargets = result.upstreamTargets;
+                if (result.kind == "tags") { d->tags = result.tags; d->tagInfo = result.tagInfo; }
                 if (result.kind == "diff" || result.kind == "compare") d->detailText = result.detailText;
                 emit detailsChanged();
             } else if (d->info.isEmpty()) d->info.clear();
@@ -622,14 +836,14 @@ void GitOperations::write(const QString& kind, const QVariantMap& parameters)
     Input input; input.program = d->program; input.directory = d->info.value("root").toString(); input.kind = kind; input.parameters = parameters;
     input.cancelled = d->writeCancelled = std::make_shared<std::atomic_bool>(false);
     input.tr = tr;
-    d->busy = true; d->error.clear(); d->lastCommit.clear(); d->progress = text(tr, "Git operation in progress…", "Git işlemi sürüyor…"); emit changed();
+    d->busy = true; d->error.clear(); d->lastCommit.clear(); d->steps.clear(); d->progress = text(tr, "Git operation in progress…", "Git işlemi sürüyor…"); emit changed();
     auto* watcher = new QFutureWatcher<Result>(this); d->writer = watcher;
     connect(watcher, &QFutureWatcher<Result>::progressTextChanged, this, [this](const QString& value) {
         if (d->busy) { d->progress = value; emit changed(); }
     });
     connect(watcher, &QFutureWatcher<Result>::finished, this, [this, watcher] {
         const auto result = watcher->result(); watcher->deleteLater(); d->writer = nullptr;
-        d->busy = false; d->progress.clear(); d->error = result.error; d->lastCommit = result.localCommit;
+        d->busy = false; d->progress.clear(); d->error = result.error; d->lastCommit = result.localCommit; d->steps = result.steps;
         emit changed();
         if (result.wrote) emit repositoryMutated(result.root, result.commonDir, result.touched);
         if (!d->directory.isEmpty()) { read("metadata", true); d->cache->request(this, d->directory, true); }
@@ -649,11 +863,15 @@ void GitOperations::loadChanges() { read("changes", true); }
 void GitOperations::loadHistory() { read("history", true); }
 void GitOperations::loadDiff(bool compare) { read(compare ? "compare" : "diff", true); }
 void GitOperations::loadUpstreams() { read("targets", true); }
+void GitOperations::loadTags() { read("tags", true); }
+void GitOperations::clearResult() { if (!d->busy) { d->steps.clear(); d->error.clear(); emit changed(); } }
 void GitOperations::synchronize() { write("sync"); }
 void GitOperations::fetch() { write("fetch"); }
 void GitOperations::pull() { write("pull"); }
 void GitOperations::push() { write("push"); }
-void GitOperations::commit(const QStringList& ids, const QString& message, bool pushAfter) { write("commit", {{"ids", ids}, {"message", message}, {"pushAfter", pushAfter}}); }
+void GitOperations::commit(const QStringList& ids, const QString& message, bool pushAfter, const QString& tag) { write("commit", {{"ids", ids}, {"message", message}, {"pushAfter", pushAfter}, {"tag", tag}}); }
+void GitOperations::createTag(const QString& name, bool pushRemote) { write("create-tag", {{"name", name}, {"send", pushRemote}}); }
+void GitOperations::pushTag(const QString& name) { write("push-tag", {{"name", name}}); }
 void GitOperations::setUpstream(const QString& ref) { write("upstream", {{"ref", ref}}); }
 void GitOperations::cancel() { if (d->writeCancelled) d->writeCancelled->store(true); }
 void GitOperations::openRemote()

@@ -87,6 +87,8 @@ if 'fetch' in args:
     if mode in ('redirect','redirect-push'):
         directory=args[args.index('-C')+1]
         subprocess.run([real,'-C',directory,'remote','set-url']+(['--push'] if mode=='redirect-push' else [])+['origin',os.environ['LURVIKO_GIT_TEST_REDIRECT']],check=True)
+if 'push' in args and mode=='reject-tag' and any('refs/tags/' in a for a in args):
+    print('simulated tag push failure', file=sys.stderr);sys.exit(128)
 if 'reset' in args and mode=='fail-reset':
     print('index lock failure',file=sys.stderr);sys.exit(128)
 os.execv(real,[real]+args)
@@ -404,6 +406,158 @@ os.execv(real,[real]+args)
             QVERIFY(!args.contains("push"));
         }
     }
+    void tagSuggestionsAreNumericAndRemoteAware() {
+        Fixture f;
+        command(f.local, {"tag", "v1.5.9"});
+        command(f.local, {"tag", "v1.5.10"});
+        command(f.local, {"tag", "release-test"});
+        command(f.local, {"tag", "v2.3.3-rc.1"});
+        command(f.peer, {"tag", "v2.3.4"});
+        command(f.peer, {"push", "-q", "origin", "refs/tags/v2.3.4"});
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        api.loadTags(); QTRY_VERIFY_WITH_TIMEOUT(!api.loading(), 20000);
+        const auto info = api.tagInfo();
+        QCOMPARE(info.value("latest").toString(), QString("v2.3.4"));
+        QCOMPARE(info.value("patch").toString(), QString("v2.3.5"));
+        QCOMPARE(info.value("minor").toString(), QString("v2.4.0"));
+        QCOMPARE(info.value("major").toString(), QString("v3.0.0"));
+        QVERIFY(info.value("remoteVerified").toBool());
+        bool local = false, remote = false;
+        for (const auto& item : api.tags()) {
+            const auto row = item.toMap();
+            if (row.value("name") == "v1.5.10") local = row.value("local").toBool();
+            if (row.value("name") == "v2.3.4") remote = row.value("remote").toBool();
+        }
+        QVERIFY(local); QVERIFY(remote);
+    }
+    void patchDoesNotRollOverAtNine() {
+        Fixture f;
+        command(f.local, {"tag", "v1.5.9"});
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        api.loadTags(); QTRY_VERIFY_WITH_TIMEOUT(!api.loading(), 20000);
+        QCOMPARE(api.tagInfo().value("patch").toString(), QString("v1.5.10"));
+        QCOMPARE(api.tagInfo().value("minor").toString(), QString("v1.6.0"));
+    }
+    void standaloneTagCreatesAnnotatedAndPublishesWithoutNewCommit() {
+        Fixture f; const auto before = head(f.local);
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        QSignalSpy done(&api, &GitOperations::operationFinished);
+        api.createTag("v1.6.0", true);
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY2(done.last().at(1).toBool(), qPrintable(done.last().at(2).toString()));
+        QCOMPARE(head(f.local), before);
+        QCOMPARE(QString::fromUtf8(command(f.local, {"cat-file", "-t", "refs/tags/v1.6.0"})).trimmed(), QString("tag"));
+        QCOMPARE(command(f.remote, {"rev-parse", "refs/tags/v1.6.0"}), command(f.local, {"rev-parse", "refs/tags/v1.6.0"}));
+        done.clear(); api.pushTag("v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY(done.last().at(1).toBool());
+        QCOMPARE(head(f.local), before);
+    }
+    void conflictingTagNeverOverwritesLocalOrRemote() {
+        Fixture f; command(f.local, {"tag", "v1.6.0"});
+        const auto localObject = command(f.local, {"rev-parse", "refs/tags/v1.6.0"});
+        command(f.peer, {"tag", "v1.7.0"});
+        command(f.peer, {"push", "-q", "origin", "refs/tags/v1.7.0"});
+        const auto remoteObject = command(f.remote, {"rev-parse", "refs/tags/v1.7.0"});
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        QSignalSpy done(&api, &GitOperations::operationFinished);
+        api.createTag("v1.6.0", true);
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY(!done.last().at(1).toBool());
+        QCOMPARE(command(f.local, {"rev-parse", "refs/tags/v1.6.0"}), localObject);
+        done.clear(); api.createTag("v1.7.0", true);
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY(!done.last().at(1).toBool());
+        QCOMPARE(command(f.remote, {"rev-parse", "refs/tags/v1.7.0"}), remoteObject);
+        QVERIFY(command(f.local, {"tag", "-l", "v1.7.0"}).trimmed().isEmpty());
+    }
+    void commitPushTagPreservesUnselectedStagedFiles() {
+        Fixture f;
+        writeFile(f.local + "/one.txt", "selected changed\n");
+        writeFile(f.local + "/two.txt", "staged not chosen\n"); command(f.local, {"add", "two.txt"});
+        const auto stage = command(f.local, {"show", ":two.txt"});
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        api.loadChanges(); QTRY_VERIFY_WITH_TIMEOUT(!api.loading(), 10000);
+        const auto chosen = rowId(api, "one.txt"); QVERIFY(!chosen.isEmpty());
+        QSignalSpy done(&api, &GitOperations::operationFinished);
+        api.commit({chosen}, "feat: selected commit with tag", true, "v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY2(done.last().at(1).toBool(), qPrintable(done.last().at(2).toString()));
+        QCOMPARE(head(f.local), head(f.remote));
+        QCOMPARE(command(f.local, {"show", ":two.txt"}), stage);
+        QCOMPARE(command(f.local, {"show", "HEAD:two.txt"}), QByteArray("two\n"));
+        QCOMPARE(QString::fromUtf8(command(f.local, {"cat-file", "-t", "refs/tags/v1.6.0"})).trimmed(), QString("tag"));
+        QCOMPARE(command(f.remote, {"rev-parse", "refs/tags/v1.6.0"}), command(f.local, {"rev-parse", "refs/tags/v1.6.0"}));
+        QCOMPARE(api.operationSteps().size(), 4); // Commit, local tag, branch, remote tag.
+    }
+    void branchPushFailurePreservesCommitAndTagForManualRetry() {
+        Fixture f;
+        writeFile(f.local + "/one.txt", "chosen\n");
+        command(f.local, {"remote", "set-url", "--push", "origin", f.temp.path() + "/nonexistent.git"});
+        const auto before = head(f.remote);
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        api.loadChanges(); QTRY_VERIFY_WITH_TIMEOUT(!api.loading(), 10000);
+        QSignalSpy done(&api, &GitOperations::operationFinished);
+        api.commit({rowId(api, "one.txt")}, "feat: local changes survive failure", true, "v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY(!done.last().at(1).toBool());
+        QCOMPARE(head(f.remote), before);
+        QVERIFY(!api.lastCommit().isEmpty());
+        QVERIFY(!command(f.local, {"tag", "-l", "v1.6.0"}).trimmed().isEmpty());
+        command(f.local, {"remote", "set-url", "--push", "origin", f.remote});
+        done.clear(); api.push();
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY2(done.last().at(1).toBool(), qPrintable(done.last().at(2).toString()));
+        done.clear(); api.pushTag("v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY2(done.last().at(1).toBool(), qPrintable(done.last().at(2).toString()));
+        QCOMPARE(head(f.remote), head(f.local));
+        QVERIFY(!command(f.remote, {"tag", "-l", "v1.6.0"}).trimmed().isEmpty());
+    }
+    void tagPushFailureCanRetryWithoutDuplicateCommit() {
+        Fixture f; writeFile(f.local + "/one.txt", "chosen\n");
+        GitOperations api(wrapper, nullptr); api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        api.loadChanges(); QTRY_VERIFY_WITH_TIMEOUT(!api.loading(), 10000);
+        QSignalSpy done(&api, &GitOperations::operationFinished);
+        qputenv("LURVIKO_GIT_TEST_MODE", "reject-tag");
+        api.commit({rowId(api, "one.txt")}, "feat: tag retry", true, "v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY(!done.last().at(1).toBool());
+        const auto committed = head(f.local);
+        QCOMPARE(head(f.remote), committed); // Branch push must not be undone.
+        QVERIFY(command(f.remote, {"tag", "-l", "v1.6.0"}).trimmed().isEmpty());
+        QVERIFY(!command(f.local, {"tag", "-l", "v1.6.0"}).trimmed().isEmpty());
+        QVERIFY(api.operationSteps().size() >= 5);
+        qunsetenv("LURVIKO_GIT_TEST_MODE");
+        done.clear(); api.pushTag("v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY2(done.last().at(1).toBool(), qPrintable(done.last().at(2).toString()));
+        QCOMPARE(head(f.local), committed);
+        QCOMPARE(head(f.remote), committed);
+        QVERIFY(!command(f.remote, {"tag", "-l", "v1.6.0"}).trimmed().isEmpty());
+    }
+    void unavailableRemotePreventsCommitWhenTagRequested() {
+        Fixture f; writeFile(f.local + "/one.txt", "will remain uncommitted\n");
+        command(f.local, {"remote", "set-url", "origin", f.temp.path() + "/offline.git"});
+        const auto before = head(f.local);
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        api.loadChanges(); QTRY_VERIFY_WITH_TIMEOUT(!api.loading(), 10000);
+        QSignalSpy done(&api, &GitOperations::operationFinished);
+        api.commit({rowId(api, "one.txt")}, "feat: should not write", true, "v1.6.0");
+        QTRY_COMPARE_WITH_TIMEOUT(done.size(), 1, 20000);
+        QVERIFY(!done.last().at(1).toBool());
+        QCOMPARE(head(f.local), before);
+        QVERIFY(command(f.local, {"tag", "-l", "v1.6.0"}).trimmed().isEmpty());
+    }
+
 };
 QTEST_GUILESS_MAIN(GitOperationsTests)
 #include "git_operations_tests.moc"

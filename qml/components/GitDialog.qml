@@ -14,6 +14,34 @@ GModalPopup {
     property bool resultSuccess: true
     readonly property bool tr: lang && lang.language === "tr"
     readonly property var info: controller ? controller.info : ({})
+    readonly property var tagInfo: controller ? controller.tagInfo : ({})
+    readonly property var operationSteps: controller ? controller.operationSteps : []
+    readonly property bool tagReady: !!tagInfo.remoteVerified
+    function tagSuggestion() {
+        const options = [tagInfo.patch || "", tagInfo.minor || "", tagInfo.major || ""]
+        return options[versionBump.currentIndex] || ""
+    }
+    function applyTagSuggestion() {
+        if (mode === "commit") commitTagName.text = tagSuggestion()
+        else independentTagName.text = tagSuggestion()
+    }
+    function validTag(name) {
+        return /^(v?)(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(name)
+    }
+    function historySubjectColor(subject) {
+        const name = String(subject || "")
+        if (/^feat(?:\([^)]+\))?!?:/.test(name)) return AppTheme.success
+        if (/^fix(?:\([^)]+\))?!?:/.test(name)) return AppTheme.accent
+        if (/^revert(?:\([^)]+\))?!?:/.test(name)) return AppTheme.warning
+        return AppTheme.text
+    }
+    function resultColor(kind) {
+        return kind === "success" ? AppTheme.success : kind === "error" ? AppTheme.danger
+                : kind === "warning" ? AppTheme.warning : AppTheme.textMuted
+    }
+    function resultIcon(kind) {
+        return kind === "success" ? "✓" : kind === "error" ? "✕" : kind === "warning" ? "!" : "ⓘ"
+    }
     readonly property int selectedCount: Object.keys(selected).length
     readonly property bool working: controller !== null && controller.busy
     readonly property var visibleChanges: {
@@ -32,10 +60,13 @@ GModalPopup {
     closePolicy: working ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     function show(source, action) {
         controller = source
+        if (controller) controller.clearResult()
         selected = ({})
         resultMessage = ""
         messageInput.text = ""
         pushAfter.checked = false
+        tagAfter.checked = false
+        standalonePush.checked = false
         statusFilter.currentIndex = 0
         changeMode(action === "commit" || action === "history" || action === "diff" ? action : "info")
         open()
@@ -51,6 +82,7 @@ GModalPopup {
         else if (value === "history") controller.loadHistory()
         else if (value === "diff" || value === "compare") controller.loadDiff(value === "compare")
         else if (value === "upstream") controller.loadUpstreams()
+        else if (value === "tags") controller.loadTags()
     }
     function choose(id, checked) {
         const next = Object.assign({}, selected)
@@ -69,6 +101,16 @@ GModalPopup {
     }
     Connections {
         target: dialog.controller
+        function onDetailsChanged() {
+            if (!dialog.controller || !dialog.tagInfo) return
+            if (dialog.mode === "commit" && tagAfter.checked && !commitTagName.activeFocus
+                    && !commitTagName.text.length) {
+                const choices = [dialog.tagInfo.patch || "", dialog.tagInfo.minor || "", dialog.tagInfo.major || ""]
+                commitTagName.text = choices[commitBump.currentIndex]
+            }
+            if (dialog.mode === "tags" && !independentTagName.activeFocus
+                    && !independentTagName.text.length) dialog.applyTagSuggestion()
+        }
         function onOperationFinished(operation, success, message) {
             dialog.resultMessage = message
             dialog.resultSuccess = success
@@ -78,6 +120,8 @@ GModalPopup {
                 dialog.selected = ({})
             }
             if (operation === "upstream" && success) dialog.mode = "info"
+            if (operation === "create-tag" || operation === "push-tag" || operation === "commit" && success && tagAfter.checked)
+                dialog.controller.loadTags()
             if (dialog.visible && dialog.mode === "info") dialog.controller.loadChanges()
         }
     }
@@ -93,6 +137,7 @@ GModalPopup {
                     : dialog.mode === "diff" ? (dialog.tr ? "Değişiklikler" : "Changes")
                     : dialog.mode === "compare" ? (dialog.tr ? "Dal karşılaştırması" : "Branch comparison")
                     : dialog.mode === "upstream" ? (dialog.tr ? "Upstream seç" : "Choose upstream")
+                    : dialog.mode === "tags" ? (dialog.tr ? "Sürüm etiketleri" : "Version tags")
                     : (dialog.tr ? "Git deposu" : "Git repository")
                 basePixelSize: 18; baseBold: true; baseColor: AppTheme.text
             }
@@ -112,7 +157,7 @@ GModalPopup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: notice.implicitHeight + 16
-            visible: notice.text.length > 0
+            visible: notice.text.length > 0 && (dialog.working || dialog.operationSteps.length === 0)
             radius: 9
             color: AppTheme.surfaceRaised
             GText {
@@ -122,7 +167,28 @@ GModalPopup {
                      : dialog.resultMessage || (dialog.controller ? dialog.controller.error : "")
                 textFormat: Text.PlainText; wrapMode: Text.Wrap
                 basePixelSize: 11
-                baseColor: !dialog.working && ((!dialog.resultMessage.length && dialog.controller !== null && dialog.controller.error.length) || !dialog.resultSuccess) ? AppTheme.danger : AppTheme.textMuted
+                baseColor: !dialog.working && ((!dialog.resultMessage.length && dialog.controller !== null && dialog.controller.error.length) || !dialog.resultSuccess) ? AppTheme.danger
+                    : !dialog.working && dialog.resultMessage.length > 0 ? AppTheme.success : AppTheme.textMuted
+            }
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: !dialog.working && dialog.operationSteps.length > 0
+            spacing: 3
+            Repeater {
+                model: dialog.operationSteps
+                delegate: Rectangle {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    implicitHeight: stageMessage.implicitHeight + 12
+                    radius: 8
+                    color: AppTheme.tint(dialog.resultColor(modelData.kind), AppTheme.dark ? 0.15 : 0.08)
+                    RowLayout {
+                        anchors.fill: parent; anchors.margins: 6; spacing: 7
+                        GText { text: dialog.resultIcon(modelData.kind); baseBold: true; basePixelSize: 12; baseColor: dialog.resultColor(modelData.kind) }
+                        GText { id: stageMessage; Layout.fillWidth: true; text: modelData.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; basePixelSize: 11; baseColor: dialog.resultColor(modelData.kind) }
+                    }
+                }
             }
         }
         ColumnLayout {
@@ -142,7 +208,10 @@ GModalPopup {
                     : "↑" + dialog.info.ahead + "  ↓" + dialog.info.behind)
                     : (dialog.tr ? "Commit farkı bilinmiyor" : "Commit difference unavailable"))
                     + " · " + (dialog.info.dirtyKnown ? (dialog.info.dirty ? (dialog.tr ? "Commit edilmemiş değişiklikler" : "Uncommitted changes") : (dialog.tr ? "Çalışma ağacı temiz" : "Clean working tree")) : (dialog.tr ? "Durum okunuyor" : "Reading status"))
-                wrapMode: Text.Wrap; basePixelSize: 12; baseColor: AppTheme.text
+                wrapMode: Text.Wrap; basePixelSize: 12
+                baseColor: dialog.info.countsKnown && dialog.info.ahead === 0 && dialog.info.behind === 0 && !dialog.info.dirty
+                    ? AppTheme.success : dialog.info.countsKnown && (dialog.info.ahead > 0 || dialog.info.behind > 0)
+                    ? AppTheme.warning : AppTheme.text
             }
             GText {
                 Layout.fillWidth: true
@@ -161,6 +230,7 @@ GModalPopup {
                 GModalButton { text: dialog.tr ? "Upstream seç…" : "Choose upstream…"; enabled: !dialog.working && !dialog.info.detached && !dialog.info.unborn; onClicked: dialog.changeMode("upstream") }
                 GModalButton { text: dialog.tr ? "Değişiklikler" : "Changes"; enabled: !dialog.working; onClicked: dialog.changeMode("diff") }
                 GModalButton { text: dialog.tr ? "Geçmiş" : "History"; enabled: !dialog.working; onClicked: dialog.changeMode("history") }
+                GModalButton { objectName: "gitTagsAction"; text: dialog.tr ? "Tag oluştur…" : "Create tag…"; enabled: !dialog.working && !dialog.info.unborn; onClicked: { independentTagName.text = ""; dialog.changeMode("tags") } }
                 GModalButton { text: dialog.tr ? "Uzak depoda aç" : "Open remote"; enabled: !!dialog.info.webUrl; onClicked: dialog.controller.openRemote() }
             }
         }
@@ -228,7 +298,7 @@ GModalPopup {
                 ColumnLayout {
                     id: historyRow
                     anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; spacing: 4
-                    GText { Layout.fillWidth: true; text: modelData.shortHash + "  " + modelData.subject; textFormat: Text.PlainText; wrapMode: Text.Wrap; baseColor: AppTheme.text; basePixelSize: 12 }
+                    GText { Layout.fillWidth: true; text: modelData.shortHash + "  " + modelData.subject; textFormat: Text.PlainText; wrapMode: Text.Wrap; baseColor: dialog.historySubjectColor(modelData.subject); basePixelSize: 12 }
                     GText { Layout.fillWidth: true; text: modelData.author + " · " + modelData.date; textFormat: Text.PlainText; wrapMode: Text.Wrap; baseColor: AppTheme.textMuted; basePixelSize: 10 }
                 }
             }
@@ -255,6 +325,85 @@ GModalPopup {
             Item { Layout.fillHeight: true }
         }
         ColumnLayout {
+            Layout.fillWidth: true; Layout.fillHeight: true
+            visible: dialog.mode === "tags"
+            spacing: 8
+            GText {
+                Layout.fillWidth: true
+                text: dialog.tagInfo.latest
+                    ? (dialog.tr ? "Son kararlı sürüm: " : "Latest stable release: ") + dialog.tagInfo.latest
+                    : (dialog.tr ? "Sürüm etiketi bulunamadı; başlangıç önerisi varsayılandır." : "No version tag found; the initial suggestion is a default.")
+                baseColor: AppTheme.text; basePixelSize: 12
+            }
+            GText {
+                Layout.fillWidth: true
+                text: dialog.tagReady
+                    ? (dialog.tr ? "Yerel ve uzak tag'ler doğrulandı." : "Local and remote tags verified.")
+                    : (dialog.tr ? "Uzak tag'ler doğrulanamadı: " : "Remote tags not verified: ") + (dialog.tagInfo.remoteError || "")
+                wrapMode: Text.Wrap; basePixelSize: 11; baseColor: dialog.tagReady ? AppTheme.success : AppTheme.warning
+            }
+            ListView {
+                id: tagList
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 70
+                clip: true; spacing: 3; model: dialog.controller ? dialog.controller.tags : []
+                ScrollBar.vertical: ScrollBar {}
+                delegate: Rectangle {
+                    required property var modelData
+                    width: tagList.width; height: 43; radius: 8; color: AppTheme.surfaceRaised
+                    RowLayout {
+                        anchors.fill: parent; anchors.margins: 8; spacing: 9
+                        GText { Layout.preferredWidth: 125; text: modelData.name; baseBold: true; baseColor: AppTheme.text }
+                        GText {
+                            Layout.fillWidth: true
+                            text: (modelData.local ? (dialog.tr ? "Yerel" : "Local") : "")
+                                + (modelData.local && modelData.remote ? " · " : "")
+                                + (modelData.remote ? (dialog.tr ? "Uzak" : "Remote") : "")
+                                + " · " + (modelData.commit || "").slice(0, 10)
+                            baseColor: modelData.mismatch ? AppTheme.warning : AppTheme.textMuted; basePixelSize: 11
+                        }
+                        GModalButton {
+                            text: dialog.tr ? "Gönder" : "Push"
+                            visible: modelData.local && !modelData.remote && dialog.tagReady
+                            enabled: !dialog.working
+                            onClicked: dialog.controller.pushTag(modelData.name)
+                        }
+                    }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                GComboBox {
+                    id: versionBump
+                    objectName: "gitVersionBump"
+                    Layout.preferredWidth: 155
+                    model: ["Patch", "Minor", "Major"]
+                    onActivated: dialog.applyTagSuggestion()
+                }
+                GTextField {
+                    id: independentTagName
+                    objectName: "gitIndependentTagName"
+                    Layout.fillWidth: true
+                    placeholderText: "v1.6.0"
+                    enabled: !dialog.working
+                }
+            }
+            GCheckBox {
+                id: standalonePush
+                objectName: "gitStandaloneTagPush"
+                text: dialog.tr ? "Tag'i uzak depoya gönder" : "Push tag to remote"
+                checked: false; enabled: !dialog.working && dialog.tagReady
+            }
+            GModalButton {
+                objectName: "gitIndependentTagSubmit"
+                text: dialog.tr ? "Açıklamalı tag oluştur" : "Create annotated tag"
+                primary: true
+                enabled: !dialog.working && dialog.controller !== null && !dialog.controller.loading
+                    && dialog.validTag(independentTagName.text) && (!standalonePush.checked || dialog.tagReady)
+                    && !(dialog.controller.tags || []).some(function(row) { return row.name === independentTagName.text })
+                onClicked: dialog.controller.createTag(independentTagName.text, standalonePush.checked)
+            }
+        }
+        ColumnLayout {
             Layout.fillWidth: true; visible: dialog.mode === "commit"
             GText { Layout.fillWidth: true; text: dialog.tr ? "Seçilen dosyaların çalışma kopyası commit edilir; diğer staged dosyalar korunur. Commit hook'ları çalıştırılmaz; yapılandırılmış imzalama kullanılır." : "Selected working copies are committed; other staged files are preserved. Commit hooks are not run; configured signing is used."; wrapMode: Text.Wrap; basePixelSize: 10; baseColor: AppTheme.textMuted }
             ScrollView {
@@ -271,7 +420,44 @@ GModalPopup {
                     background: Rectangle { color: AppTheme.surfaceRaised; radius: 9; border.color: AppTheme.border }
                 }
             }
-            GCheckBox { id: pushAfter; objectName: "gitPushAfterCommit"; text: dialog.tr ? "Commit sonrası gönder" : "Push after commit"; checked: false; enabled: !dialog.working }
+            GCheckBox {
+                id: pushAfter; objectName: "gitPushAfterCommit"
+                text: dialog.tr ? "Commit sonrası gönder" : "Push after commit"
+                checked: false; enabled: !dialog.working
+                onCheckedChanged: if (!checked) tagAfter.checked = false
+            }
+            GCheckBox {
+                id: tagAfter; objectName: "gitTagAfterCommit"
+                text: dialog.tr ? "Yeni sürüm tag'i oluştur ve gönder" : "Create and push a version tag"
+                checked: false; enabled: !dialog.working
+                onCheckedChanged: if (checked) { pushAfter.checked = true; dialog.controller.loadTags(); commitTagName.text = "" }
+            }
+            RowLayout {
+                visible: tagAfter.checked
+                Layout.fillWidth: true
+                GComboBox {
+                    id: commitBump; objectName: "gitCommitVersionBump"
+                    Layout.preferredWidth: 155
+                    model: ["Patch", "Minor", "Major"]
+                    onActivated: {
+                        const values = [dialog.tagInfo.patch || "", dialog.tagInfo.minor || "", dialog.tagInfo.major || ""]
+                        commitTagName.text = values[currentIndex]
+                    }
+                }
+                GTextField {
+                    id: commitTagName; objectName: "gitCommitTagName"
+                    Layout.fillWidth: true
+                    enabled: !dialog.working
+                    placeholderText: "v1.6.0"
+                }
+            }
+            GText {
+                Layout.fillWidth: true; visible: tagAfter.checked
+                text: dialog.tagReady
+                    ? (dialog.tr ? "Uzak tag'ler doğrulandı. Commit, ardından dal ve yalnızca yeni tag gönderilecek." : "Remote tags verified. Commit, branch, then only the new tag will be pushed.")
+                    : (dialog.tr ? "Uzak tag'ler henüz doğrulanmadı. Gönderim için doğrulama gerekli." : "Remote tags are not verified yet. Verification is required before publishing.")
+                basePixelSize: 10; baseColor: dialog.tagReady ? AppTheme.success : AppTheme.warning; wrapMode: Text.Wrap
+            }
         }
         RowLayout {
             Layout.fillWidth: true
@@ -285,7 +471,9 @@ GModalPopup {
                 visible: dialog.mode === "commit"; primary: true
                 text: dialog.tr ? "Commit oluştur" : "Create commit"
                 enabled: !dialog.working && dialog.controller !== null && !dialog.controller.loading && dialog.selectedCount > 0 && messageInput.text.trim().length > 0
-                onClicked: dialog.controller.commit(Object.keys(dialog.selected), messageInput.text, pushAfter.checked)
+                    && (!tagAfter.checked || (dialog.tagReady && dialog.validTag(commitTagName.text)
+                        && !(dialog.controller.tags || []).some(function(row) { return row.name === commitTagName.text })))
+                onClicked: dialog.controller.commit(Object.keys(dialog.selected), messageInput.text, pushAfter.checked, tagAfter.checked ? commitTagName.text : "")
             }
         }
     }

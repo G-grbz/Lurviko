@@ -113,6 +113,7 @@ Item {
                 tryCompare(operations, "loading", false)
                 tryVerify(function() { return operations.changes.length >= 2 })
                 compare(findChild(dialog, "gitPushAfterCommit").checked, false)
+                compare(findChild(dialog, "gitTagAfterCommit").checked, false)
                 compare(findChild(dialog, "gitCommitSubmit").enabled, false)
                 dialog.choose(operations.changes[0].id, true)
                 findChild(dialog, "gitCommitMessage").text = "Selected changes"
@@ -127,6 +128,32 @@ Item {
                 tryCompare(operations, "loading", false)
                 verify(findChild(dialog, "gitDiffText").text.indexOf("changed") >= 0)
                 dialog.close(); tryCompare(dialog, "visible", false)
+            }
+            function test_tag_controls_safe_defaults_and_version_validation() {
+                const pane = page.activePane
+                mouseClick(findChild(pane, "gitRepositoryIndicator"))
+                const dialog = findChild(pane, "gitDialog")
+                tryCompare(dialog, "opened", true)
+                dialog.changeMode("commit")
+                const operations = findChild(pane, "paneGitOperations")
+                tryCompare(operations, "loading", false)
+                const push = findChild(dialog, "gitPushAfterCommit")
+                const tag = findChild(dialog, "gitTagAfterCommit")
+                compare(push.checked, false)
+                compare(tag.checked, false)
+                compare(dialog.validTag("v1.6.0"), true)
+                compare(dialog.validTag("v1.06.0"), false)
+                compare(dialog.validTag("backup"), false)
+                tag.checked = true
+                compare(push.checked, true)
+                push.checked = false
+                compare(tag.checked, false)
+                dialog.changeMode("tags")
+                tryCompare(operations, "loading", false)
+                verify(findChild(dialog, "gitIndependentTagName") !== null)
+                verify(findChild(dialog, "gitIndependentTagSubmit") !== null)
+                dialog.close()
+                tryCompare(dialog, "visible", false)
             }
             function test_tabs_and_split_use_each_pane_repository() {
                 const primary = page.activePane

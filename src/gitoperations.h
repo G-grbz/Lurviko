@@ -17,6 +17,9 @@ class GitOperations : public QObject {
     Q_PROPERTY(QVariantList changes READ changes NOTIFY detailsChanged)
     Q_PROPERTY(QVariantList history READ history NOTIFY detailsChanged)
     Q_PROPERTY(QVariantList upstreamTargets READ upstreamTargets NOTIFY detailsChanged)
+    Q_PROPERTY(QVariantList tags READ tags NOTIFY detailsChanged)
+    Q_PROPERTY(QVariantMap tagInfo READ tagInfo NOTIFY detailsChanged)
+    Q_PROPERTY(QVariantList operationSteps READ operationSteps NOTIFY changed)
     Q_PROPERTY(QString detailText READ detailText NOTIFY detailsChanged)
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString progress READ progress NOTIFY changed)
@@ -32,6 +35,9 @@ public:
     QVariantList changes() const;
     QVariantList history() const;
     QVariantList upstreamTargets() const;
+    QVariantList tags() const;
+    QVariantMap tagInfo() const;
+    QVariantList operationSteps() const;
     QString detailText() const;
     QString error() const;
     QString progress() const;
@@ -42,11 +48,15 @@ public:
     Q_INVOKABLE void loadHistory();
     Q_INVOKABLE void loadDiff(bool compareUpstream = false);
     Q_INVOKABLE void loadUpstreams();
+    Q_INVOKABLE void loadTags();
+    Q_INVOKABLE void clearResult();
     Q_INVOKABLE void synchronize();
     Q_INVOKABLE void fetch();
     Q_INVOKABLE void pull();
     Q_INVOKABLE void push();
-    Q_INVOKABLE void commit(const QStringList& selectedIds, const QString& message, bool pushAfter = false);
+    Q_INVOKABLE void commit(const QStringList& selectedIds, const QString& message, bool pushAfter = false, const QString& tag = {});
+    Q_INVOKABLE void createTag(const QString& name, bool pushRemote = false);
+    Q_INVOKABLE void pushTag(const QString& name);
     Q_INVOKABLE void setUpstream(const QString& remoteRef);
     Q_INVOKABLE void openRemote();
     Q_INVOKABLE void cancel();

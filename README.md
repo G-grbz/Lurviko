@@ -349,3 +349,8 @@ The workflow publishes source code; it does not produce distribution packages. S
 ## License
 
 The original Lurviko application source is licensed under **GNU GPL v3 or any later version** (`GPL-3.0-or-later`); see [LICENSE](LICENSE). Bundled tools retain their own existing notices. Third-party artwork, trademarks, libraries and downloaded models are subject to their respective terms; see [THIRD_PARTY.md](THIRD_PARTY.md).
+
+
+## Git version tags / Git sürüm etiketleri
+
+See [Git sürüm etiketleri](docs/git-version-tags.md) for local/remote version checks, annotated tags, safe push retries and release workflow guidance.
