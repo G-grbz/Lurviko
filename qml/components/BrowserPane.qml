@@ -2291,6 +2291,16 @@ Rectangle {
     function renameSelection() {
         if (selectedCount < 1 || !selectedUrl.length)
             return
+        // A closing popup restores the previously focused item when its exit
+        // animation ends, which would take focus straight back from the inline
+        // editor (on slow machines the editor is already up by then). Whatever
+        // starts the rename - menu entry, shortcut or script - wait until the
+        // item menu is fully closed; its onClosed handler calls us again.
+        if (itemContextMenu.visible) {
+            itemContextMenu.pendingRenameSelection = JSON.stringify(root.selectedUrls)
+            itemContextMenu.dismiss()
+            return
+        }
         if (selectedCount > 1 && root.isCloudUrl(directory.location)) {
             root.requestToast(lang.language === "tr"
                               ? "Bulut öğeleri yalnızca tek tek yeniden adlandırılabilir."
