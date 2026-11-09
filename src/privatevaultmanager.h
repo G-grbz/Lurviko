@@ -176,6 +176,8 @@ private:
     void setBusy(bool value);
     void publishTransferProgress(bool force = false);
     void finishTransfer(bool success, const QString &message);
+    void addSizeHints(const QVariantList &urls);
+    void flushSizeHints();
     void setError(const QString &message);
     void setStatus(const QString &message);
     void secureClear(QByteArray &bytes);
@@ -238,6 +240,7 @@ private:
     mutable std::unique_ptr<VaultSecurity::RuntimeDirectory> m_runtimeDirectory;
     bool m_busy = false;
     bool m_transferActive = false;
+    QStringList m_sizeHintPaths;
     qint64 m_transferBytesDone = 0;
     qint64 m_transferBytesTotal = 0;
     int m_transferFilesDone = 0;

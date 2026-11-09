@@ -8,6 +8,7 @@ import tempfile
 import errno
 import time
 from contextlib import contextmanager
+import session_cleanup  # stops services the private D-Bus session activated
 
 
 @contextmanager
@@ -53,5 +54,5 @@ with isolated_directory() as temporary:
         GIO_USE_VFS="local", QT_NO_XDG_DESKTOP_PORTAL="1", PULSE_SERVER="unix:" + str(root / "no-pulse"),
         LURVIKO_SESSION_TEST_ROOT=str(root))
     for mode in ("defaults", "save", "restore", "disabled", "explicit", "activation", "dont-ask-yes", "dont-ask-no", "escape", "shortcut"):
-        subprocess.run(["dbus-run-session", "--", str(root / "browser-session-tests"), mode],
+        session_cleanup.run(["dbus-run-session", "--", str(root / "browser-session-tests"), mode],
                        env=environment, check=True, timeout=40)

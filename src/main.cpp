@@ -36,6 +36,9 @@
 #include <unistd.h>
 
 #include "storagemodel.h"
+#include "folderstats.h"
+#include "kdeconnectrecent.h"
+#include "diskimagemanager.h"
 #include "appmigration.h"
 #include <QSettings>
 #include "updatechecker.h"
@@ -389,6 +392,7 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(true);
 
     qmlRegisterType<StorageModel>("Lurviko.Backend", 1, 0, "StorageModel");
+    qmlRegisterType<FolderStats>("Lurviko.Backend", 1, 0, "FolderStats");
     qmlRegisterType<DesktopAppearance>("Lurviko.Backend", 1, 0, "DesktopAppearance");
     qmlRegisterType<DesktopWindowEffects>("Lurviko.Backend", 1, 0, "DesktopWindowEffects");
     qmlRegisterType<UpdateChecker>("Lurviko.Backend", 1, 0, "UpdateChecker");
@@ -423,6 +427,11 @@ int main(int argc, char *argv[])
     qmlRegisterType<PopupDismissFilter>("Lurviko.Backend", 1, 0, "PopupDismissFilter");
     qmlRegisterSingletonType<KeyboardShortcutManager>("Lurviko.Backend", 1, 0, "KeyboardShortcuts",
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new KeyboardShortcutManager; });
+
+    // One shared instance: the file context menu, the sidebar and Explore all
+    // observe the same list of mounted disk images.
+    qmlRegisterSingletonType<DiskImageManager>("Lurviko.Backend", 1, 0, "DiskImages",
+        [](QQmlEngine *, QJSEngine *) -> QObject * { return new DiskImageManager; });
 
     PlaybackResumeManager playbackResumeManager;
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PlaybackResumeManager", &playbackResumeManager);
@@ -519,6 +528,9 @@ int main(int argc, char *argv[])
         {QStringLiteral("launchLocation"), initialLaunchLocation},
         {QStringLiteral("fileManagerActivation"), activatedForFileManager}
     });
+    // KDE Connect receipts -> recently-used.xbel (Recent Files). Only the
+    // primary instance reaches this point, so files are recorded once.
+    new KdeConnectRecent(&app);
     engine.loadFromModule("Lurviko.App", "Main");
 
     QObject *rootObject = engine.rootObjects().isEmpty() ? nullptr : engine.rootObjects().constFirst();

@@ -6,11 +6,14 @@
 #include <QHash>
 #include <QSet>
 #include <QTimer>
+#include <QDateTime>
 #include <QThreadPool>
 #include <QVariantList>
 #include <functional>
 #include <atomic>
 #include <memory>
+
+class QFileSystemWatcher;
 
 class ContentIndexModel : public QAbstractListModel
 {
@@ -24,6 +27,7 @@ class ContentIndexModel : public QAbstractListModel
     Q_PROPERTY(int scanMatchedFiles READ scanMatchedFiles NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanProgressPercent READ scanProgressPercent NOTIFY scanProgressChanged)
     Q_PROPERTY(int categoryInteractionRevision READ categoryInteractionRevision NOTIFY categoryInteractionRevisionChanged)
+    Q_PROPERTY(int recentWindowDays READ recentWindowDays WRITE setRecentWindowDays NOTIFY recentWindowDaysChanged)
 
 public:
     enum Roles {
@@ -52,6 +56,11 @@ public:
     int scanMatchedFiles() const { return m_scanMatchedFiles; }
     int scanProgressPercent() const;
     int categoryInteractionRevision() const { return m_categoryInteractionRevision; }
+    int recentWindowDays() const { return m_recentWindowDays; }
+    Q_INVOKABLE void setRecentWindowDays(int days);
+    // Hides files from Recent Files only (no deletion, the desktop's shared
+    // list is untouched). A later open/save makes a file appear again.
+    Q_INVOKABLE void removeFromRecent(const QStringList &urlsOrPaths);
 
     Q_INVOKABLE QVariantList filesForCategory(const QString &key) const;
     Q_INVOKABLE int countForCategory(const QString &key) const;
@@ -85,6 +94,7 @@ signals:
     void mediaRootsChanged(const QString &category);
     void categoryIndexSettingsChanged(const QString &category);
     void categoryInteractionRevisionChanged();
+    void recentWindowDaysChanged();
 
 private:
     struct Category {
@@ -104,6 +114,7 @@ private:
         QString category;
         qint64 size = 0;
         qint64 modifiedMs = 0;
+        qint64 receivedMs = 0; // Recent: last added/modified/visited time in recently-used.xbel
     };
 
     struct ScanResult {
@@ -147,6 +158,23 @@ private:
     void reportSizeChanges(const ScanResult &result, const QString &rootPath = {}, const QString &category = {});
     void setIndexing(bool value);
     void setScanProgressVisible(bool visible);
+    static bool sameRecentFiles(const QHash<QString, IndexedFile> &a,
+                                const QHash<QString, IndexedFile> &b);
+    // Recent Files mirrors the desktop's shared recently-used list
+    // (~/.local/share/recently-used.xbel, written by GTK, Chrome, Firefox and
+    // KDE applications) instead of scanning or guessing download provenance.
+    static QString recentlyUsedPath();
+    // historyPath: Lurviko's own memory of entries seen in the shared list.
+    // Writers cap recently-used.xbel (~300 items), so a busy desktop may only
+    // keep a few days there; the history makes 30/90-day windows meaningful.
+    static QHash<QString, IndexedFile> readRecentlyUsed(const QString &xbelPath, const QStringList &roots,
+                                                        const QStringList &ignoreRules, bool includeHidden,
+                                                        int windowDays, const QString &historyPath = {},
+                                                        const QHash<QString, qint64> &newlyHidden = {});
+    static bool validRecentWindow(int days);
+    QHash<QString, QStringList> indexedCategoryRoots() const; // every category except Recent
+    void watchRecentlyUsed();
+    void reloadRecentFiles();
     void notifyCountsChanged(const QSet<QString> &changedCategories = {});
     QString indexFilePath() const;
 
@@ -154,6 +182,13 @@ private:
     QHash<QString, QStringList> m_mediaRoots;
     QHash<QString, QStringList> m_ignoreRules;
     QHash<QString, IndexedFile> m_files;
+    QHash<QString, IndexedFile> m_recentFiles;
+    QFileSystemWatcher *m_recentWatcher = nullptr;
+    QTimer m_recentReload;
+    QFutureWatcher<QHash<QString, IndexedFile>> m_recentReadWatcher;
+    bool m_recentReloadPending = false;
+    QHash<QString, qint64> m_recentHidden; // path -> hidden at (this session)
+    int m_recentWindowDays = 30;
     QHash<QString, int> m_counts;
     QTimer m_changeDebounce;
     QTimer m_saveDebounce;

@@ -86,6 +86,59 @@ Item {
         return String(location || "").startsWith("admin:")
     }
 
+    readonly property string tabHomePath: {
+        const value = String(StandardPaths.writableLocation(StandardPaths.HomeLocation))
+        return value.startsWith("file://") ? decodeURIComponent(value.substring(7)) : value
+    }
+
+    function tabLocalPath(location) {
+        let value = String(location || "")
+        if (value.startsWith("file://")) value = decodeURIComponent(value.substring(7))
+        else if (value.startsWith("admin:")) value = value.replace(/^admin:\/*/, "/")
+        else if (!value.startsWith("/")) return ""
+        return value.length > 1 ? value.replace(/\/+$/, "") : value
+    }
+
+    // Small location icon for a tab: the same artwork the sidebar and folder
+    // grid use (bundled colored folders, or the desktop icon theme).
+    function tabIconSource(location) {
+        const value = String(location || "")
+        const pick = function(bundled, system) {
+            return AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(AppTheme.systemIcon(system), 16)
+                                           : AppTheme.icon(bundled)
+        }
+        if (value.startsWith("category:/")) {
+            const icon = AppTheme.categoryDefaultIcon(value.substring("category:/".length))
+            return AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(AppTheme.systemIcon(AppTheme.systemIconName(icon)), 16)
+                                           : AppTheme.icon(icon)
+        }
+        if (value.startsWith("trash:")) return pick("trash.svg", "user-trash")
+        if (value.startsWith("gdrive://")) return pick("cloud-google.svg", "folder-cloud")
+        if (value.startsWith("onedrive://")) return pick("cloud-onedrive.svg", "folder-cloud")
+        if (value.startsWith("admin:") && tabLocalPath(value) === "/") return pick("root.svg", "folder-root")
+        const path = tabLocalPath(value)
+        if (!path.length) return pick("network.svg", "folder-network")
+        if (path === "/") return pick("drive.svg", "drive-harddisk")
+        if (path === tabHomePath) return pick("home-folder.svg", "user-home")
+        const name = path.substring(path.lastIndexOf("/") + 1)
+        return AppTheme.useSystemIcons
+                ? AppTheme.systemIconAtSize(AppTheme.systemIcon(AppTheme.folderSystemIcon(name, "folder")), 16)
+                : AppTheme.bundledFolderIcon(name, path)
+    }
+
+    // A running copy/move into this tab's folder (from either pane).
+    function tabTransfer(location) {
+        const path = tabLocalPath(location)
+        if (!path.length) return null
+        const lists = [leftPane.fileOperations ? leftPane.fileOperations.transferTargets : []]
+        if (rightPaneLoader.item && rightPaneLoader.item.fileOperations)
+            lists.push(rightPaneLoader.item.fileOperations.transferTargets)
+        for (const list of lists)
+            for (const transfer of (list || []))
+                if (transfer.path === path) return transfer
+        return null
+    }
+
     function titleFor(location) {
         location = String(location || "")
         if (!location) return "/"
@@ -1373,7 +1426,8 @@ Item {
                         id: tabRow
                         objectName: "browserTabRow"
                         onWidthChanged: Qt.callLater(page.ensureActiveTabVisible)
-                        spacing: -18
+                        // Neighbouring flares overlap completely (2 x 8 px feet).
+                        spacing: -16
                         Repeater {
                             id: tabRepeater
                             onItemAdded: function(index, item) {
@@ -1398,6 +1452,23 @@ Item {
                                 width: 208
                                 height: tabsBar.implicitHeight
                                 readonly property bool administratorTab: page.isAdminLocation(tabData.location)
+                                readonly property bool selectedTab: index === page.currentTab
+                                readonly property bool hoveredTab: tabMouse.containsMouse || tabClose.hovered
+                                // Only the visible tab lists a folder; background tabs are data.
+                                readonly property bool loadingTab: selectedTab && !!leftPane.directory && leftPane.directory.loading
+                                // Every tab switch relists the shared pane for a moment. Only a
+                                // slow listing replaces the (already cached) icon with a spinner.
+                                property bool slowLoading: false
+                                onLoadingTabChanged: {
+                                    if (loadingTab) slowLoadingDelay.restart()
+                                    else { slowLoadingDelay.stop(); slowLoading = false }
+                                }
+                                Timer {
+                                    id: slowLoadingDelay
+                                    interval: 350
+                                    onTriggered: tabDelegate.slowLoading = tabDelegate.loadingTab
+                                }
+                                readonly property var transfer: page.tabTransfer(tabData.location)
                                 FluidTabSurface {
                                     id: tabSurface
                                     objectName: "fluidTabSurface"
@@ -1484,6 +1555,24 @@ Item {
                                     anchors.topMargin: 4
                                     anchors.bottomMargin: 0
                                     spacing: 6
+                                    Item {
+                                        objectName: "browserTabIcon"
+                                        Layout.preferredWidth: 16
+                                        Layout.preferredHeight: 16
+                                        CrispIcon {
+                                            anchors.fill: parent
+                                            visible: !tabDelegate.slowLoading
+                                            source: page.tabIconSource(tabData.location)
+                                            opacity: tabDelegate.selectedTab || tabDelegate.hoveredTab ? 1 : 0.82
+                                        }
+                                        GBusyIndicator {
+                                            objectName: "browserTabLoading"
+                                            anchors.centerIn: parent
+                                            width: 16; height: 16
+                                            visible: tabDelegate.slowLoading
+                                            running: visible
+                                        }
+                                    }
                                     Rectangle {
                                         visible: parent.parent.administratorTab
                                         Layout.preferredWidth: 30
@@ -1502,15 +1591,22 @@ Item {
                                         objectName: "browserTabTitle"
                                         Layout.fillWidth: true
                                         text: page.titleFor(tabData.location)
-                                        baseColor: AppTheme.text
+                                        baseColor: tabDelegate.selectedTab || tabDelegate.hoveredTab ? AppTheme.text : AppTheme.textMuted
                                         elide: Text.ElideRight
                                         basePixelSize: 11
+                                        // Weight stays constant: selection must never reflow the title.
                                         baseFontWeight: Font.Medium
                                     }
                                     GToolButton {
+                                        id: tabClose
                                         HoverHandler { cursorShape: Qt.PointingHandCursor }
                                         objectName: "browserTabClose"
                                         visible: page.tabs.length > 1
+                                        // Keeps its slot (titles never jump); shown on the
+                                        // active or hovered tab only.
+                                        opacity: tabDelegate.selectedTab || tabDelegate.hoveredTab ? 1 : 0
+                                        enabled: opacity > 0
+                                        Behavior on opacity { NumberAnimation { duration: 90 } }
                                         text: ""
                                         display: AbstractButton.IconOnly
                                         icon.source: AppTheme.icon("close-ui.svg")
@@ -1518,7 +1614,79 @@ Item {
                                         implicitWidth: 22; implicitHeight: 22
                                         onPressed: page.dismissActivePaneTransientUi()
                                         onClicked: page.closeTab(index)
-                                        background: Rectangle { radius: 6; color: parent.hovered ? AppTheme.border : "transparent" }
+                                        background: Rectangle {
+                                            radius: width / 2
+                                            color: parent.pressed ? AppTheme.mix(AppTheme.border, AppTheme.accent, 0.25)
+                                                 : parent.hovered ? AppTheme.border : "transparent"
+                                        }
+                                    }
+                                }
+                                // Active tab: accent stripe along the upper edge.
+                                Rectangle {
+                                    objectName: "browserTabAccent"
+                                    visible: tabDelegate.selectedTab && !tabDelegate.administratorTab
+                                    x: tabSurface.wing + tabSurface.corner
+                                    y: tabSurface.capTop
+                                    width: Math.max(0, parent.width - 2 * x)
+                                    height: 2.5
+                                    radius: 1.25
+                                    color: AppTheme.accent
+                                    opacity: tabSurface.selectionProgress
+                                }
+                                // Divider between two inactive, unhovered neighbours. Drawn by the
+                                // right-hand tab: later delegates paint over earlier ones.
+                                Rectangle {
+                                    objectName: "browserTabDivider"
+                                    readonly property int previous: index - 1
+                                    readonly property Item previousTab: previous >= 0 && tabRepeater.count > previous
+                                                                        ? tabRepeater.itemAt(previous) : null
+                                    visible: index > 0 && !tabDelegate.selectedTab
+                                             && previous !== page.currentTab && !tabDelegate.hoveredTab
+                                             && !(previousTab && previousTab.hoveredTab) && page.tabDragFrom < 0
+                                    // Exactly where both vertical sides meet.
+                                    x: tabSurface.wing - 0.5
+                                    y: tabSurface.capTop + 9
+                                    width: 1
+                                    height: Math.max(0, parent.height - y - 9)
+                                    // border is nearly the window colour in light themes.
+                                    color: AppTheme.dark ? Qt.rgba(1, 1, 1, 0.16) : AppTheme.borderStrong
+                                    z: 30
+                                }
+                                // A copy/move into this tab's folder: thin progress line.
+                                Item {
+                                    id: tabTransferBar
+                                    objectName: "browserTabTransfer"
+                                    visible: tabDelegate.transfer !== null
+                                    x: tabSurface.wing + 4
+                                    width: Math.max(0, parent.width - 2 * x)
+                                    y: parent.height - 4
+                                    height: 2
+                                    clip: true
+                                    Rectangle { anchors.fill: parent; radius: 1; color: AppTheme.accentSoft }
+                                    readonly property int percent: tabDelegate.transfer ? tabDelegate.transfer.percent : -1
+                                    readonly property color barColor: tabDelegate.transfer && tabDelegate.transfer.paused
+                                                                      ? AppTheme.warning : AppTheme.accent
+                                    Rectangle {
+                                        visible: parent.percent >= 0
+                                        height: parent.height
+                                        radius: 1
+                                        color: parent.barColor
+                                        width: parent.width * Math.max(0, parent.percent) / 100
+                                        Behavior on width { NumberAnimation { duration: 180 } }
+                                    }
+                                    Rectangle {
+                                        // Unknown size: a sliding segment.
+                                        id: tabTransferSlide
+                                        visible: tabTransferBar.visible && tabTransferBar.percent < 0
+                                        height: tabTransferBar.height
+                                        radius: 1
+                                        width: tabTransferBar.width * 0.3
+                                        color: tabTransferBar.barColor
+                                        NumberAnimation on x {
+                                            running: tabTransferSlide.visible
+                                            loops: Animation.Infinite
+                                            from: -tabTransferBar.width * 0.3; to: tabTransferBar.width; duration: 1100
+                                        }
                                     }
                                 }
                                 MouseArea {
@@ -1615,6 +1783,13 @@ Item {
                 id: commandControls
                 objectName: "browserCommandControls"
                 readonly property real controlHeight: Math.max(28, AppTheme.typographySize("menu", 11) + 10)
+                // Narrow windows collapse the bar in steps instead of letting the
+                // RowLayout squeeze buttons on top of each other. Hidden actions
+                // stay available from the context menu and keyboard shortcuts.
+                readonly property int compactLevel: commandBar.width < 340 ? 4
+                                                  : commandBar.width < 420 ? 3
+                                                  : commandBar.width < 500 ? 2
+                                                  : commandBar.width < 640 ? 1 : 0
                 anchors.fill: parent
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
@@ -1625,6 +1800,9 @@ Item {
                     objectName: "commandNewFolder"
                     topPadding: 4; bottomPadding: 4
                     text: lang.t("new_folder")
+                    display: commandControls.compactLevel > 0 ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
+                    Layout.minimumWidth: implicitWidth
+                    GToolTip { visible: commandControls.compactLevel > 0 && parent.hovered; text: lang.t("new_folder") }
                     icon.source: AppTheme.icon("plus.svg")
                     icon.width: 16; icon.height: 16
                     implicitHeight: commandControls.controlHeight
@@ -1648,7 +1826,10 @@ Item {
                     delegate: GToolButton {
                         required property var modelData
                         objectName: "command_" + modelData.key
+                        visible: !((commandControls.compactLevel >= 2 && (modelData.key === "rename" || modelData.key === "properties"))
+                                   || (commandControls.compactLevel >= 3 && (modelData.key === "cut" || modelData.key === "copy")))
                         implicitWidth: 34; implicitHeight: commandControls.controlHeight
+                        Layout.minimumWidth: implicitWidth
                         icon.source: AppTheme.icon(modelData.icon)
                         icon.width: 18; icon.height: 18
                         enabled: modelData.key === "paste" ? page.activePane.canPasteHere
@@ -1668,9 +1849,11 @@ Item {
                 Item { Layout.fillWidth: true }
                 GButton {
                     id: wheelSpeedButton
+                    visible: commandControls.compactLevel < 4
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    text: "↕ " + AppTheme.wheelScrollStep
-                    implicitWidth: 72; implicitHeight: commandControls.controlHeight
+                    text: commandControls.compactLevel > 0 ? "↕" : "↕ " + AppTheme.wheelScrollStep
+                    implicitWidth: commandControls.compactLevel > 0 ? 34 : 72; implicitHeight: commandControls.controlHeight
+                    Layout.minimumWidth: implicitWidth
                     topPadding: 4; bottomPadding: 4
                     basePixelSize: 12
                     GToolTip { text: lang.t("wheel_speed") }
@@ -1685,6 +1868,8 @@ Item {
     
                 GButton {
                     id: splitButton
+                    visible: commandControls.compactLevel < 4
+                    Layout.minimumWidth: 34
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
                     implicitWidth: 34; implicitHeight: commandControls.controlHeight
@@ -1713,6 +1898,7 @@ Item {
                 }
                 GButton {
                     id: hiddenFilesButton
+                    Layout.minimumWidth: 34
                     objectName: "hiddenFilesButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
@@ -1739,6 +1925,7 @@ Item {
                 }
                 GButton {
                     id: viewButton
+                    Layout.minimumWidth: 34
                     objectName: "viewButton"
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: ""
@@ -1767,6 +1954,7 @@ Item {
                 }
                 GButton {
                     id: directoryMenuButton
+                    Layout.minimumWidth: 34
                     property bool menuWasOpenOnPress: false
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     text: "⋯"

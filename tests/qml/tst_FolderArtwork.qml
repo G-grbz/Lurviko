@@ -219,9 +219,29 @@ Item {
             function test_archive_file_icons(data) {
                 const suffix = data.extension.split(".").pop()
                 compare(page.activePane.iconForItem(false, suffix, "text-x-generic", "package." + data.extension),
-                        AppTheme.icon("archive.svg"))
+                        AppTheme.icon("file-archive.svg"))
                 compare(page.activePane.iconForItem(false, "dat", "text-x-generic", "unknown.dat", "", "application/zip"),
-                        AppTheme.icon("archive.svg"))
+                        AppTheme.icon("file-archive.svg"))
+            }
+            function test_media_file_icons_data() {
+                return [
+                    {tag: "mkv", suffix: "mkv", mime: "", icon: "file-video.svg"},
+                    {tag: "wmv", suffix: "wmv", mime: "", icon: "file-video.svg"},
+                    {tag: "m2ts", suffix: "m2ts", mime: "", icon: "file-video.svg"},
+                    {tag: "video-mime", suffix: "bin", mime: "video/x-matroska", icon: "file-video.svg"},
+                    {tag: "ts-video", suffix: "ts", mime: "video/mp2t", icon: "file-video.svg"},
+                    {tag: "ts-source", suffix: "ts", mime: "text/vnd.trolltech.linguist", icon: "file.svg"},
+                    {tag: "flac", suffix: "flac", mime: "", icon: "file-audio.svg"},
+                    {tag: "opus", suffix: "opus", mime: "", icon: "file-audio.svg"},
+                    {tag: "aac", suffix: "aac", mime: "", icon: "file-audio.svg"},
+                    {tag: "audio-mime", suffix: "bin", mime: "audio/x-wav", icon: "file-audio.svg"},
+                    {tag: "playlist", suffix: "m3u", mime: "audio/x-mpegurl", icon: "file.svg"},
+                    {tag: "go-mod", suffix: "mod", mime: "text/plain", icon: "file.svg"}
+                ]
+            }
+            function test_media_file_icons(data) {
+                compare(page.activePane.iconForItem(false, data.suffix, "text-x-generic", "item." + data.suffix, "", data.mime),
+                        AppTheme.icon(data.icon))
             }
             function test_switch_is_shown_only_for_bundled_icons() {
                 const row = findChild(page, "coloredFolderIconsSetting")
@@ -512,7 +532,7 @@ Item {
                 compare(pane.transferRemaining(operation), "Calculating remaining time")
             }
             function test_progress_cards_minimize_restore_and_clear_the_status_icon() {
-                const native = AppTheme.kioProgressEnabled
+                const nativeProgress = AppTheme.kioProgressEnabled
                 const automatic = AppTheme.operationAutoHide
                 try {
                     AppTheme.setKioProgressEnabled(false)
@@ -540,11 +560,11 @@ Item {
                     injectOperations = false
                     fakeOperations = []
                     AppTheme.setOperationAutoHide(automatic)
-                    AppTheme.setKioProgressEnabled(native)
+                    AppTheme.setKioProgressEnabled(nativeProgress)
                 }
             }
             function test_auto_hide_settings_visibility_editing_and_persistence() {
-                const native = AppTheme.kioProgressEnabled
+                const nativeProgress = AppTheme.kioProgressEnabled
                 const automatic = AppTheme.operationAutoHide
                 const seconds = AppTheme.operationAutoHideSeconds
                 const showOnCompletion = AppTheme.operationShowOnCompletion
@@ -608,7 +628,7 @@ Item {
                     AppTheme.setOperationAutoHide(automatic)
                     AppTheme.setOperationAutoHideSeconds(seconds)
                     AppTheme.setOperationShowOnCompletion(showOnCompletion)
-                    AppTheme.setKioProgressEnabled(native)
+                    AppTheme.setKioProgressEnabled(nativeProgress)
                     AppTheme.settings.sync()
                 }
             }

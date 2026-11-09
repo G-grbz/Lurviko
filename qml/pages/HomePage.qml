@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import QtCore
 import Lurviko.App
 import Lurviko.Backend
@@ -9,6 +10,16 @@ import "../components"
 Item {
     id: page
     required property var storageModel
+    // Window y of the clock block's centre as if Home were scrolled to the top.
+    // The icon-only sidebar rail centres its Discover button on it.
+    readonly property real clockAnchorY: {
+        void (page.width + page.height + homeClockBlock.y + homeClockBlock.height)
+        if (!homeClockBlock.visible || !page.Window.window)
+            return -1
+        const flick = homeScroll.contentItem
+        return homeClockBlock.mapToItem(null, 0, homeClockBlock.height / 2).y
+               + (flick && flick.contentY !== undefined ? flick.contentY : 0)
+    }
     required property var favoritesModel
     required property var quickAccessModel
     required property var contentIndexModel
@@ -984,6 +995,8 @@ Item {
                         spacing: 12
 
                         ColumnLayout {
+                            id: homeClockBlock
+                            objectName: "homeClockBlock"
                             Layout.preferredWidth: Math.min(260, homeScroll.availableWidth * 0.48)
                             Layout.minimumWidth: 0
                             spacing: 0
@@ -1495,8 +1508,10 @@ Item {
                         baseFontWeight: Font.DemiBold
                     }
                     GText {
-                        text: lang.language === "tr" ? "Sol menüden buraya sürükle" : "Drag here from the sidebar"
-                        baseColor: AppTheme.textMuted
+                        // Only while something is being dragged over the shortcuts.
+                        visible: quickDrop.containsDrag
+                        text: lang.language === "tr" ? "Bırakınca kısayol eklenir" : "Drop to add a shortcut"
+                        baseColor: AppTheme.accent
                         basePixelSize: 10
                     }
                     Item { Layout.fillWidth: true }
@@ -1507,12 +1522,13 @@ Item {
                         onClicked: page.addShortcut()
                         background: Rectangle {
                             radius: 10
-                            color: addShortcutButton.hovered ? AppTheme.accentHover : AppTheme.accent
+                            color: addShortcutButton.hovered ? AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.22 : 0.12) : "transparent"
+                            border.color: addShortcutButton.hovered ? AppTheme.accent : AppTheme.accentBorder
                         }
                         contentItem: GText {
         typographyRole: "menu"
                             text: addShortcutButton.text
-                            baseColor: "white"
+                            baseColor: AppTheme.accent
                             basePixelSize: 11
                             baseFontWeight: Font.DemiBold
                             horizontalAlignment: Text.AlignHCenter
@@ -1524,11 +1540,13 @@ Item {
                 Rectangle {
                     id: quickAccessPanel
                     Layout.fillWidth: true
-                    Layout.preferredHeight: quickGrid.implicitHeight + 28
+                    Layout.preferredHeight: quickGrid.implicitHeight + 12
                     radius: 18
-                    color: quickDrop.containsDrag ? AppTheme.accentSoft : AppTheme.panelSurface
-                    border.color: quickDrop.containsDrag ? AppTheme.accent : AppTheme.border
-                    border.width: quickDrop.containsDrag ? 2 : 1
+                    // No frame of its own: the tiles sit directly on the page,
+                    // like the disk cards. Only a drag shows the drop area.
+                    color: quickDrop.containsDrag ? AppTheme.tint(AppTheme.accent, 0.08) : "transparent"
+                    border.color: quickDrop.containsDrag ? AppTheme.accent : "transparent"
+                    border.width: quickDrop.containsDrag ? 2 : 0
 
                     DropArea {
                         id: quickDrop
@@ -1549,8 +1567,8 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: 14
-                        columns: width > 1050 ? 3 : (width > 660 ? 2 : 1)
+                        anchors.margins: 6
+                        columns: width > 940 ? 4 : (width > 700 ? 3 : (width > 460 ? 2 : 1))
                         columnSpacing: 10
                         rowSpacing: 10
 
@@ -1574,6 +1592,11 @@ Item {
                                 iconSource: AppTheme.discoveryIcon(shortcutIcon, "folder.svg")
                                 systemIconPixels: page.systemHomeIconSize
                                 path: shortcutLocation
+                                FolderStats { id: shortcutStats; path: shortcutFixed ? "" : shortcutLocation }
+                                infoText: !shortcutStats.available ? ""
+                                          : (shortcutStats.files + shortcutStats.folders).toLocaleString(Qt.locale(), "f", 0)
+                                            + (lang.language === "tr" ? " öğe" : " items")
+                                            + " · " + page.storageModel.formatBytes(shortcutStats.bytes)
                                 onOpenRequested: function(path) { page.browseRequested(path) }
                                 onOpenNewTabRequested: function(path) { page.browseNewTabRequested(path) }
                                 onEditRequested: function(index, title, path) {
@@ -1590,7 +1613,7 @@ Item {
 
                         Rectangle {
                             visible: page.quickAccessModel.count === 0
-                            Layout.columnSpan: 3
+                            Layout.columnSpan: quickGrid.columns
                             Layout.fillWidth: true
                             Layout.preferredHeight: 86
                             radius: 14
@@ -1622,12 +1645,14 @@ Item {
 
                 Rectangle {
                     id: diskOverviewPanel
+                    objectName: "diskOverviewPanel"
                     Layout.fillWidth: true
                     Layout.leftMargin: 6
                     Layout.rightMargin: 6
-                    Layout.preferredHeight: width >= 1050 ? 92 : (width >= 465 ? 182 : 258)
+                    Layout.preferredHeight: overviewColumn.implicitHeight + 32
                     radius: AppTheme.cardRadius + 2
-                    color: AppTheme.cardSurface
+                    // Opaque even with a translucent window (Qt colours, full opacity).
+                    color: AppTheme.useQtTheme && AppTheme.translucentWindow ? AppTheme.surface : AppTheme.cardSurface
                     border.color: AppTheme.border
 
                     readonly property real totalBytes: page.storageModel.totalBytes
@@ -1635,153 +1660,170 @@ Item {
                     readonly property real freeBytes: page.storageModel.freeBytes
                     readonly property real usageRatio: totalBytes > 0 ? usedBytes / totalBytes : 0
                     readonly property string usagePercent: "%" + Math.round(usageRatio * 100)
+                    // Used space per disk (largest five + "other"), then free space.
+                    readonly property var segments: {
+                        const list = []
+                        const disks = page.storageModel.usageSegments || []
+                        for (let i = 0; i < disks.length; ++i) {
+                            const disk = disks[i]
+                            list.push({
+                                bytes: Number(disk.usedBytes || 0),
+                                label: disk.other ? (page.lang.language === "tr" ? "Diğer diskler" : "Other disks") : disk.name,
+                                color: disk.other ? AppTheme.textFaint : segmentPalette[i % segmentPalette.length],
+                                free: false
+                            })
+                        }
+                        list.push({ bytes: freeBytes, label: page.lang.language === "tr" ? "Boş alan" : "Free space",
+                                    // An empty track: a shade of the card (Qt theme borders are translucent text).
+                                    color: AppTheme.dark ? Qt.rgba(1, 1, 1, 0.12)
+                                                         : AppTheme.mix(AppTheme.cardSurface, Qt.rgba(AppTheme.text.r, AppTheme.text.g, AppTheme.text.b, AppTheme.cardSurface.a), 0.09),
+                                    free: true })
+                        return list.filter(function(segment) { return segment.bytes > 0 })
+                    }
+                    readonly property var segmentPalette: ["#6E8BFF", "#A77BFA", "#E27BE8", "#FF8FB1", "#3FBFA0"]
 
-                    RowLayout {
-                        visible: diskOverviewPanel.width >= 1050
+                    ColumnLayout {
+                        id: overviewColumn
                         anchors.fill: parent
-                        anchors.margins: 18
-                        spacing: 16
+                        anchors.margins: 16
+                        spacing: 10
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 12
+                            spacing: 8
+                            CrispIcon { source: AppTheme.icon("drive.svg"); Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                            GText {
+                                text: page.lang.language === "tr" ? "Toplam Depolama" : "Total Storage"
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 11
+                                baseFontWeight: Font.DemiBold
+                            }
                             Rectangle {
-                                Layout.preferredWidth: 40
-                                Layout.preferredHeight: 40
-                                radius: 12
+                                radius: height / 2
+                                implicitHeight: 20
+                                implicitWidth: diskCountText.implicitWidth + 16
                                 color: AppTheme.accentSoft
                                 border.color: AppTheme.accentBorder
-                                CrispIcon { anchors.centerIn: parent; source: AppTheme.icon("drive.svg"); width: 18; height: 18 }
+                                GText {
+                                    id: diskCountText
+                                    anchors.centerIn: parent
+                                    text: page.storageModel.count + " " + (page.lang.language === "tr" ? "disk" : (page.storageModel.count === 1 ? "disk" : "disks"))
+                                    baseColor: AppTheme.accent
+                                    basePixelSize: 10
+                                    baseFontWeight: Font.DemiBold
+                                }
                             }
-                            ColumnLayout {
-                                spacing: 2
-                                GText { text: page.storageModel.count + " " + (page.lang.language === "tr" ? "Disk" : "Disks"); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
-                                GText { text: page.lang.language === "tr" ? "Bağlı depolama birimi" : "Connected storage devices"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
+                            Item { Layout.fillWidth: true }
+                            GText {
+                                text: diskOverviewPanel.usagePercent + (page.lang.language === "tr" ? " kullanımda" : " in use")
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 11
                             }
                         }
 
-                        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: AppTheme.border }
-
-                        ColumnLayout {
-                            Layout.preferredWidth: Math.max(108, Math.min(170, diskOverviewPanel.width * 0.115))
-                            spacing: 2
-                            GText { text: page.storageModel.formatBytes(diskOverviewPanel.totalBytes); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
-                            GText { text: page.lang.language === "tr" ? "Toplam kapasite" : "Total capacity"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                        }
-
-                        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: AppTheme.border }
-
-                        ColumnLayout {
-                            Layout.preferredWidth: Math.max(108, Math.min(170, diskOverviewPanel.width * 0.115))
-                            spacing: 2
-                            GText { text: page.storageModel.formatBytes(diskOverviewPanel.usedBytes); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
-                            GText { text: page.lang.language === "tr" ? "Kullanılan alan" : "Used space"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                        }
-
-                        Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: AppTheme.border }
-
-                        ColumnLayout {
-                            Layout.preferredWidth: Math.max(100, Math.min(150, diskOverviewPanel.width * 0.105))
-                            spacing: 2
-                            GText { text: page.storageModel.formatBytes(diskOverviewPanel.freeBytes); baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold }
-                            GText { text: page.lang.language === "tr" ? "Boş alan" : "Free space"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Rectangle {
+                        RowLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 7
-                            Layout.minimumWidth: 140
-                            radius: height / 2
-                            color: AppTheme.surfaceHover
-                            Rectangle {
-                                width: parent.width * Math.max(0, Math.min(1, diskOverviewPanel.usageRatio))
-                                height: parent.height
-                                radius: height / 2
-                                gradient: Gradient {
-                                    orientation: Gradient.Horizontal
-                                    GradientStop { position: 0; color: Qt.lighter(AppTheme.accent, 1.38) }
-                                    GradientStop { position: 1; color: Qt.darker(AppTheme.accent, 1.08) }
+                            spacing: 6
+                            GText {
+                                objectName: "diskOverviewUsed"
+                                text: page.storageModel.formatBytes(diskOverviewPanel.usedBytes)
+                                baseColor: AppTheme.text
+                                basePixelSize: 22
+                                baseFontWeight: Font.DemiBold
+                            }
+                            GText {
+                                Layout.alignment: Qt.AlignBaseline
+                                text: page.lang.language === "tr" ? "kullanıldı" : "used"
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 12
+                            }
+                            Item { Layout.fillWidth: true }
+                            GText {
+                                Layout.alignment: Qt.AlignBaseline
+                                text: page.lang.language === "tr" ? "Toplam" : "From"
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 12
+                            }
+                            GText {
+                                objectName: "diskOverviewTotal"
+                                text: page.storageModel.formatBytes(diskOverviewPanel.totalBytes)
+                                baseColor: AppTheme.text
+                                basePixelSize: 16
+                                baseFontWeight: Font.DemiBold
+                            }
+                        }
+
+                        // Segmented usage bar: one rounded part per disk, then free space.
+                        Item {
+                            id: segmentBar
+                            objectName: "diskOverviewSegments"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 10
+                            readonly property real gap: 6
+                            readonly property var widths: {
+                                const parts = diskOverviewPanel.segments
+                                const total = parts.reduce(function(sum, part) { return sum + part.bytes }, 0)
+                                const space = Math.max(0, width - gap * Math.max(0, parts.length - 1))
+                                if (total <= 0 || space <= 0) return parts.map(function() { return 0 })
+                                // Keep tiny disks visible, then shrink the rest to fit.
+                                const minimum = Math.min(8, space / Math.max(1, parts.length))
+                                let raw = parts.map(function(part) { return Math.max(minimum, space * part.bytes / total) })
+                                const excess = raw.reduce(function(sum, value) { return sum + value }, 0) - space
+                                if (excess > 0) {
+                                    const shrinkable = raw.reduce(function(sum, value) { return sum + Math.max(0, value - minimum) }, 0)
+                                    raw = raw.map(function(value) {
+                                        return shrinkable > 0 ? value - excess * Math.max(0, value - minimum) / shrinkable : value
+                                    })
+                                }
+                                return raw
+                            }
+                            Row {
+                                anchors.fill: parent
+                                spacing: segmentBar.gap
+                                Repeater {
+                                    model: diskOverviewPanel.segments.length
+                                    Rectangle {
+                                        required property int index
+                                        width: segmentBar.widths[index] || 0
+                                        height: segmentBar.height
+                                        radius: height / 2
+                                        color: diskOverviewPanel.segments[index].color
+                                        Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                                        HoverHandler { id: segmentHover }
+                                        GToolTip {
+                                            visible: segmentHover.hovered
+                                            text: diskOverviewPanel.segments[index].label + " · "
+                                                  + page.storageModel.formatBytes(diskOverviewPanel.segments[index].bytes)
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        ColumnLayout {
-                            Layout.alignment: Qt.AlignVCenter
-                            spacing: 2
-                            GText { text: diskOverviewPanel.usagePercent; baseColor: AppTheme.text; basePixelSize: 15; baseFontWeight: Font.DemiBold; horizontalAlignment: Text.AlignRight }
-                            GText { text: page.lang.language === "tr" ? "Kullanım" : "Usage"; baseColor: AppTheme.textMuted; basePixelSize: 10; horizontalAlignment: Text.AlignRight }
-                        }
-                    }
-
-                    // At small widths the six-part horizontal summary cannot fit.
-                    // Use a two/one-column metrics grid and a separate usage bar.
-                    ColumnLayout {
-                        visible: diskOverviewPanel.width < 1050
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 8
-
-                        RowLayout {
+                        Flow {
                             Layout.fillWidth: true
-                            spacing: 10
-                            Rectangle {
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 32
-                                radius: 10
-                                color: AppTheme.accentSoft
-                                border.color: AppTheme.accentBorder
-                                CrispIcon { anchors.centerIn: parent; source: AppTheme.icon("drive.svg"); width: 17; height: 17 }
-                            }
-                            GText {
-                                Layout.fillWidth: true
-                                text: page.storageModel.count + " " + (page.lang.language === "tr" ? "Disk" : "Disks")
-                                baseColor: AppTheme.text
-                                basePixelSize: 14
-                                baseFontWeight: Font.DemiBold
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: diskOverviewPanel.width >= 465 ? 2 : 1
-                            columnSpacing: 12
-                            rowSpacing: 7
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Toplam" : "Total"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                                GText { text: page.storageModel.formatBytes(diskOverviewPanel.totalBytes); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Kullanılan" : "Used"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                                GText { text: page.storageModel.formatBytes(diskOverviewPanel.usedBytes); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Boş" : "Free"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                                GText { text: page.storageModel.formatBytes(diskOverviewPanel.freeBytes); baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                GText { Layout.fillWidth: true; text: page.lang.language === "tr" ? "Kullanım" : "Usage"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                                GText { text: diskOverviewPanel.usagePercent; baseColor: AppTheme.text; basePixelSize: 12; baseFontWeight: Font.DemiBold }
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 7
-                            radius: height / 2
-                            color: AppTheme.surfaceHover
-                            Rectangle {
-                                height: parent.height
-                                width: parent.width * Math.max(0, Math.min(1, diskOverviewPanel.usageRatio))
-                                radius: height / 2
-                                color: AppTheme.accent
+                            spacing: 16
+                            Repeater {
+                                model: diskOverviewPanel.segments.length
+                                Row {
+                                    required property int index
+                                    spacing: 6
+                                    readonly property var segment: diskOverviewPanel.segments[index]
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 8; height: 8; radius: 4
+                                        color: parent.segment.free ? AppTheme.textFaint : parent.segment.color
+                                        opacity: parent.segment.free ? 0.45 : 1
+                                    }
+                                    GText {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: parent.segment.free
+                                              ? parent.segment.label + "  " + page.storageModel.formatBytes(diskOverviewPanel.freeBytes)
+                                              : parent.segment.label + "  " + page.storageModel.formatBytes(parent.segment.bytes)
+                                        baseColor: AppTheme.textMuted
+                                        basePixelSize: 10
+                                    }
+                                }
                             }
                         }
                     }
@@ -1791,7 +1833,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.leftMargin: 6
                     Layout.rightMargin: 6
-                    columns: width > 1380 ? 4 : (width > 980 ? 3 : (width > 640 ? 2 : 1))
+                    columns: width > 940 ? 4 : (width > 700 ? 3 : (width > 460 ? 2 : 1))
                     columnSpacing: 14
                     rowSpacing: 14
 
@@ -1840,6 +1882,66 @@ Item {
                             onFavoriteToggleRequested: function(path, diskTitle) {
                                 page.storageModel.toggleFavorite(path)
                             }
+                        }
+                    }
+                }
+
+                // Mounted disk images. Shown with the same cards as Disks, and
+                // not at all (header included) while no image is mounted.
+                SectionHeader {
+                    visible: DiskImages.count > 0
+                    Layout.fillWidth: true
+                    title: lang.t("mounted_images")
+                    actionText: lang.t("refresh")
+                    onActionTriggered: DiskImages.refresh()
+                }
+
+                GridLayout {
+                    visible: DiskImages.count > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 6
+                    Layout.rightMargin: 6
+                    columns: width > 940 ? 4 : (width > 700 ? 3 : (width > 460 ? 2 : 1))
+                    columnSpacing: 14
+                    rowSpacing: 14
+
+                    Repeater {
+                        model: DiskImages
+                        delegate: DiskCard {
+                            language: page.lang.language
+                            diskReorder: false
+                            favoritesEnabled: false
+                            editable: false
+                            unmountInMenu: true
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: responsiveHeight
+                            title: model.name
+                            stableId: model.stableId
+                            iconName: "drive-optical.svg"
+                            systemIconPixels: page.systemHomeIconSize
+                            subtitle: model.rootPath
+                            fileSystem: model.fileSystem
+                            rootPath: model.rootPath
+                            // The card hands this back when it is asked to unmount;
+                            // for images that is the image file, not a block device.
+                            device: model.imagePath
+                            mounted: true
+                            canMountToggle: true
+                            mountBusy: model.busy
+                            mountActionText: model.busy ? lang.t("unmounting")
+                                                        : (lang.language === "tr" ? "Bağlantıyı kes" : "Disconnect")
+                            mountedStatusText: lang.language === "tr" ? "Bağlı" : "Connected"
+                            usedText: model.totalBytes > 0 ? page.storageModel.formatBytes(model.usedBytes) : ""
+                            totalText: model.totalBytes > 0 ? page.storageModel.formatBytes(model.totalBytes)
+                                                            : (lang.language === "tr" ? "Kapasite bilinmiyor" : "Capacity unavailable")
+                            ratio: model.usedRatio
+                            onOpenRequested: function(path) { page.browseRequested(path) }
+                            onOpenNewTabRequested: function(path) { page.browseNewTabRequested(path) }
+                            onMountToggleRequested: function(imagePath) { DiskImages.unmountImage(imagePath) }
+                            onPropertiesRequested: function(path, diskTitle, iconName) {
+                                page.openDiskProperties(path, diskTitle, iconName)
+                            }
+                            onRefreshRequested: DiskImages.refresh()
                         }
                     }
                 }

@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import session_cleanup  # stops services the private D-Bus session activated
 
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", str(repo / "build"))).resolve()
@@ -39,4 +40,4 @@ with tempfile.TemporaryDirectory(prefix="lurviko-file-operations-", dir=build) a
         PULSE_SERVER="unix:" + str(root / "no-pulse"))
     if environment["QT_QPA_PLATFORM"] == "offscreen":
         environment["QT_QUICK_BACKEND"] = "software"
-    subprocess.run(["dbus-run-session", "--", str(root / "file-operations-tests")], env=environment, check=True, timeout=120)
+    session_cleanup.run(["dbus-run-session", "--", str(root / "file-operations-tests")], env=environment, check=True, timeout=120)

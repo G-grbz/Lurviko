@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import session_cleanup  # stops services the private D-Bus session activated
 
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", repo / "build")).resolve()
@@ -39,4 +40,4 @@ with tempfile.TemporaryDirectory(prefix="lurviko-category-selection-") as tempor
     command = [str(root / "category-selection-tests")]
     if os.environ.get("LURVIKO_CATEGORY_GDB") == "1":
         command = ["gdb", "-batch", "-ex", "run", "-ex", "bt", "--args", *command]
-    subprocess.run(["dbus-run-session", "--", *command], env=environment, check=True, timeout=90)
+    session_cleanup.run(["dbus-run-session", "--", *command], env=environment, check=True, timeout=90)

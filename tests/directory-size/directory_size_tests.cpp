@@ -1113,6 +1113,126 @@ private slots:
         index.retain(&reader, root); index.request(root);
         QVERIFY(wait(index, root, 23));
     }
+    void remountedVolumeWithNewDeviceKeepsItsCachedTree()
+    {
+        // FUSE/CIFS/sshfs and re-enumerated USB disks get a new st_dev on each
+        // (auto)mount. That must not erase and rescan the whole volume.
+        QTemporaryDir temp;
+        const auto volume = temp.path() + "/mnt/disk", database = temp.path() + "/cache/index.sqlite";
+        for (int i = 0; i < 20; ++i)
+            write(volume + "/folder-" + QString::number(i) + "/data", 10);
+        auto work = workFor(database, {volume}, "first");
+        work.mountBoundaries = {volume};
+        auto result = runDirectorySizeWork(work);
+        QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+        QCOMPARE(result.snapshots.value(volume).totals.bytes, 200);
+        const auto connection = QStringLiteral("remount-fixture");
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec("UPDATE entries SET device='987654' WHERE kind=1 AND scope=0 AND name LIKE 'folder-%'"));
+            QVERIFY(q.exec("UPDATE entries SET device='987654' WHERE name='disk'"));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(connection);
+        work.session = "after-remount";
+        work.requested = {volume + "/folder-3", volume};
+        result = runDirectorySizeWork(work);
+        QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+        QCOMPARE(result.snapshots.value(volume).state == QString("unavailable"), false);
+        QCOMPARE(result.snapshots.value(volume).totals.bytes, 200);
+        QCOMPARE(result.snapshots.value(volume + "/folder-3").totals.bytes, 10);
+        QCOMPARE(result.directoryListings, 0);
+    }
+    void interruptedRootReusesCompleteSubtreesFromEarlierSessions()
+    {
+        // A scan cancelled by navigation leaves its root incomplete. The next
+        // session must list only that root, not walk every cached subtree.
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        for (int i = 0; i < 20; ++i)
+            write(root + "/folder-" + QString::number(i) + "/nested/data", 3);
+        auto work = workFor(database, {root}, "first");
+        QVERIFY(runDirectorySizeWork(work).error.isEmpty());
+        const auto connection = QStringLiteral("interrupted-fixture");
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec("UPDATE entries SET known=0,unknowns=unknowns+1 WHERE name='files'"));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(connection);
+        work.session = "second";
+        const auto result = runDirectorySizeWork(work);
+        QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+        QCOMPARE(result.snapshots.value(root).totals.bytes, 60);
+        QVERIFY(result.snapshots.value(root).complete);
+        QCOMPARE(result.directoryListings, 1);
+    }
+    void interruptedVerificationResumesAcrossRestarts()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        for (int i = 0; i < 10; ++i) {
+            write(root + "/done/file-" + QString::number(i), 1);
+            write(root + "/todo/file-" + QString::number(i), 1);
+        }
+        auto work = workFor(database, {root}, "first");
+        work.invalidateAll = true; // starts a verification epoch
+        QVERIFY(runDirectorySizeWork(work).error.isEmpty());
+        const auto connection = QStringLiteral("resume-fixture");
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT value FROM cache_info WHERE key='verification-epoch'") && q.next());
+            const QString epoch = q.value(0).toString();
+            q.finish();
+            QVERIFY(!epoch.isEmpty());
+            // A previous launch finished "done" before being interrupted.
+            QVERIFY(q.exec("UPDATE roots SET needs_verify=2"));
+            QVERIFY(q.exec("UPDATE entries SET verified='' WHERE name IN ('files','todo')"));
+            QVERIFY(q.exec(QString("UPDATE entries SET verified='tree:%1:previous-launch' WHERE name='done'").arg(epoch)));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(connection);
+        work.session = "next-launch";
+        work.invalidateAll = false;
+        const auto result = runDirectorySizeWork(work);
+        QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+        QCOMPARE(result.snapshots.value(root).totals.bytes, 20);
+        QCOMPARE(result.fileStats, 10); // only the unfinished "todo" subtree
+    }
+    void legacyFullVerificationFlagsDoNotWalkTrees()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        for (int i = 0; i < 10; ++i)
+            write(root + "/folder/file-" + QString::number(i), 1);
+        auto work = workFor(database, {root}, "first");
+        QVERIFY(runDirectorySizeWork(work).error.isEmpty());
+        const auto connection = QStringLiteral("legacy-verify-fixture");
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM cache_info WHERE key='verification-epoch'"));
+            QVERIFY(q.exec("UPDATE roots SET needs_verify=2"));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(connection);
+        work.session = "upgraded";
+        const auto result = runDirectorySizeWork(work);
+        QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+        QCOMPARE(result.snapshots.value(root).totals.bytes, 10);
+        QCOMPARE(result.fileStats, 0);
+    }
     void lostEventsInvalidateEvictedRecords()
     {
         QTemporaryDir temp;

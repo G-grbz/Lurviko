@@ -129,10 +129,12 @@ ApplicationWindow {
         QMouseEvent move(QEvent::MouseMove, position, global, Qt::NoButton, Qt::NoButton, Qt::NoModifier);
         QApplication::sendEvent(window, &move);
         pause(20);
+        // Construct each event right before delivery (Qt 6.8 shares event-point
+        // state between QMouseEvent instances of the same device).
         QMouseEvent press(QEvent::MouseButtonPress, position, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-        QMouseEvent release(QEvent::MouseButtonRelease, position, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
         QApplication::sendEvent(window, &press);
         pause(settleMs >= 240 ? 90 : 5);
+        QMouseEvent release(QEvent::MouseButtonRelease, position, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
         QApplication::sendEvent(window, &release);
         pause(settleMs);
     };
@@ -364,6 +366,33 @@ ApplicationWindow {
             "text default app restored after switching back from svg");
     require(evaluatePane("itemContextMenu.itemAt(0).text.indexOf('Lurviko Menu Fixture') >= 0").toBool(),
             "text default-app label is refreshed on new right-click");
+    // Right-clicking another file while a menu is open reloads the service
+    // actions. Their count must only toggle the submenu's entry, never open
+    // the Application Actions popup by itself.
+    require(evaluatePane("serviceMenuModel.clear(); applicationServiceMenu.visible").toBool() == false,
+            "application actions closed while its model is empty");
+    require(evaluatePane("updateServiceMenuContext(); serviceMenuModel.count > 0 && !applicationServiceMenu.visible").toBool(),
+            "loading the next file's actions does not pop up Application Actions");
+    pause(200);
+    require(!item(pane, paneContext, "applicationServiceMenu")->property("visible").toBool(),
+            "Application Actions stays closed after the reload settles");
+    // Several files: the label names their default application(s). Each file
+    // still opens with its own type's default (openDefaults), unchanged.
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(textIndex)),
+                                      Q_ARG(QVariant, QVariant(0))), "text fixture selected for multi-selection");
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(svgIndex)),
+                                      Q_ARG(QVariant, QVariant(int(Qt::ControlModifier)))), "svg added to the selection");
+    evaluatePane("showContextMenu(itemContextMenu, root, 110, 115)");
+    pause(260);
+    const QString mixedLabel = evaluatePane("itemContextMenu.itemAt(0).text").toString();
+    require(evaluatePane("selectedCount").toInt() == 2 && mixedLabel.contains("Lurviko Menu Fixture")
+            && mixedLabel.contains("Lurviko SVG Fixture"),
+            qPrintable("mixed selection lists both default applications: " + mixedLabel));
+    require(QMetaObject::invokeMethod(pane, "selectIndex", Q_ARG(QVariant, QVariant(textIndex)),
+                                      Q_ARG(QVariant, QVariant(0))), "text fixture reselected after multi-selection");
+    // Leave the text file's menu open as the following checks expect.
+    evaluatePane("showContextMenu(itemContextMenu, root, 110, 115)");
+    pause(260);
     require(evaluatePane("openWithModel.quickApps.some(app => app.name === 'Lurviko Menu Fixture')").toBool(), "Open With includes the installed desktop-file fixture");
     auto appEntry = item(pane, paneContext,
         "(function(){for(let i=0;i<openWithMenu.count;++i){const e=openWithMenu.itemAt(i);if(e.text.indexOf('Lurviko Menu Fixture')===0) return e;}return null;})()");

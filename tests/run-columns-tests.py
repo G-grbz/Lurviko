@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import session_cleanup  # stops services the private D-Bus session activated
 
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", repo / "build")).resolve()
@@ -49,11 +50,8 @@ with tempfile.TemporaryDirectory(prefix="lurviko-columns-tests-") as temporary:
         try:
             exit_code = process.wait(timeout=90)
         except subprocess.TimeoutExpired:
-            # Kill the entire test process group, not just dbus-run-session.
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            # Kill the entire test session, not just dbus-run-session.
+            session_cleanup.terminate_session(process.pid, grace=0.5)
             process.wait()
             output.flush()
             output.seek(0)
@@ -61,6 +59,9 @@ with tempfile.TemporaryDirectory(prefix="lurviko-columns-tests-") as temporary:
             print(log[-16000:], end="", flush=True)
             raise RuntimeError("MillerColumns test timed out after 90 s; "
                                "last 16 KB of captured output shown above")
+        finally:
+            # Services the private bus activated outlive it; stop them too.
+            session_cleanup.terminate_session(process.pid)
         output.flush()
         output.seek(0)
         log = output.read()

@@ -125,7 +125,8 @@ Item {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignLeft
                     elide: Text.ElideRight
-                    text: files.length + " " + (lang.language === "tr" ? "öğe · Ev dizini indeksi" : "items · Home index")
+                    text: files.length + " " + (lang.language === "tr" ? (page.categoryKey === "recent" ? "dosya · Son kullanılanlar" : "öğe · Ev dizini indeksi")
+                                         : (page.categoryKey === "recent" ? "files · Recently used" : "items · Home index"))
                     baseColor: AppTheme.textMuted
                     basePixelSize: 10
                 }
@@ -333,6 +334,12 @@ Item {
                                     else
                                         Qt.openUrlExternally(delegateRoot.modelData.url)
                                 }
+                            }
+                            GMenuItem {
+                                // Hides the entry from Recent Files only; nothing is deleted.
+                                visible: page.categoryKey === "recent"
+                                text: lang.language === "tr" ? "Son Dosyalardan kaldır" : "Remove from Recent Files"
+                                onTriggered: contentIndexModel.removeFromRecent([delegateRoot.modelData.url])
                             }
                         }
                     }

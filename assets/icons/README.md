@@ -23,7 +23,11 @@ resource names and the original artwork remain available.
 `color/last-location.svg` is the Last Location fallback when a selected external
 icon cannot be loaded. Replace that file to customize the bundled fallback.
 
-Keep filenames unique across these folders. CMake automatically discovers PNGs
+Keep filenames unique across these folders. The one exception is a
+single-colour twin of colour artwork: `symbolic/drive.svg` next to
+`color/drive.svg` is published as `drive-symbolic.svg`, while the colour icon
+keeps the plain name. The sidebar uses these twins when its icon size is 24 px
+or smaller (bundled icons only). CMake automatically discovers PNGs
 in `png/` and SVGs in `symbolic/` and recursively in `color/`. The compiled resource aliases keep
 the existing icon names usable in settings and in both QML and native rendering.
 Moving a glyph between the SVG folders does not change its rendering behavior.

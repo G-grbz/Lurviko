@@ -9,6 +9,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import session_cleanup  # stops services the private D-Bus session activated
 
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", repo / "build")).resolve()
@@ -40,4 +41,4 @@ with tempfile.TemporaryDirectory(prefix="gfile-search-tests-") as temporary:
     environment = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
                        XDG_CONFIG_HOME=str(root / "config"), XDG_DATA_HOME=str(root / "data"),
                        XDG_CACHE_HOME=str(root / "cache"), LURVIKO_SEARCH_TEST_ROOT=str(root))
-    subprocess.run(["dbus-run-session", "--", str(root / "search-tests")], env=environment, check=True, timeout=90)
+    session_cleanup.run(["dbus-run-session", "--", str(root / "search-tests")], env=environment, check=True, timeout=90)

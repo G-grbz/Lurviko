@@ -24,8 +24,8 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="7.125"
-     inkscape:cx="32"
-     inkscape:cy="32"
+     inkscape:cx="31.859649"
+     inkscape:cy="31.859649"
      inkscape:window-width="1536"
      inkscape:window-height="799"
      inkscape:window-x="0"
@@ -278,7 +278,7 @@
      id="root-rect35" />
   <g
      id="root-symbol"
-     transform="matrix(1.062500000,0,0,1.062500000,7.786812500,6.849953125)">
+     transform="matrix(1.0625,0,0,1.0625,7.6871199,6.8499531)">
     <g
        id="root-symbol-shadow"
        transform="translate(0.55,0.75)"
@@ -305,7 +305,7 @@
       <path
          d="m 28.149955,36.026435 h 13.168007 c 3.360188,0.01303 3.360188,4.033378 0,4.046284 H 28.149955 c -3.360161,-0.01306 -3.360161,-4.033376 0,-4.046284 z m 13.168007,0.809241 z"
          id="root-path8-6-7-36-2-9-3-6-6"
-         style="color:#d6dbf1;fill:#ffffff;fill-opacity:1;stroke-width:0.452687"
+         style="color:#d6dbf1;fill:#f9fcff;fill-opacity:1;stroke-width:0.452687"
          class="ColorScheme-Text" />
     </g>
   </g>

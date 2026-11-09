@@ -15,6 +15,9 @@
 #include <QDateTime>
 #include <QtConcurrent>
 #include <sys/resource.h>
+#if defined(Q_OS_LINUX)
+#include <sys/xattr.h>
+#endif
 #include <cstdio>
 #define private public
 #include "contentindexmodel.h"
@@ -26,6 +29,29 @@ static void makeFile(const QString &path, int bytes = 32768) {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(QByteArray(bytes, 'x')) != bytes)
         qFatal("Cannot create fixture");
+}
+// Writes the desktop's shared recent list (as GTK/Chrome/KDE apps do), using
+// an atomic replace like real writers. Each entry: path + age in days.
+static void writeRecentlyUsed(const QList<QPair<QString, double>> &entries) {
+    QString xml = QStringLiteral(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<xbel version=\"1.0\" xmlns:bookmark=\"http://www.freedesktop.org/standards/desktop-bookmarks\" "
+        "xmlns:mime=\"http://www.freedesktop.org/standards/shared-mime-info\">\n");
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    for (const auto &entry : entries) {
+        const QString when = now.addMSecs(qint64(-entry.second * 86400000.0)).toString(Qt::ISODateWithMs);
+        xml += QStringLiteral("  <bookmark href=\"%1\" added=\"%2\" modified=\"%2\" visited=\"%2\">"
+                              "<info><metadata owner=\"http://freedesktop.org\"><mime:mime-type type=\"application/octet-stream\"/>"
+                              "<bookmark:applications><bookmark:application name=\"Test\" exec=\"&apos;test %u&apos;\" "
+                              "modified=\"%2\" count=\"1\"/></bookmark:applications></metadata></info></bookmark>\n")
+                   .arg(QString::fromUtf8(QUrl::fromLocalFile(entry.first).toEncoded()).toHtmlEscaped(), when);
+    }
+    xml += QStringLiteral("</xbel>\n");
+    const QString path = ContentIndexModel::recentlyUsedPath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(xml.toUtf8()) < 0 || !file.commit())
+        qFatal("Cannot write recently-used.xbel fixture");
 }
 static double cpuSeconds() {
     rusage usage{}; getrusage(RUSAGE_SELF, &usage);
@@ -71,6 +97,89 @@ int main(int argc, char **argv) {
         }
         std::fprintf(stderr, "  Result digest: %s\n", hash.result().toHex().constData());
         return cancel->load() ? 1 : 0;
+    }
+    // Recent Files mirror the desktop's shared recently-used.xbel: anything an
+    // application (browser, KDE Connect, editors) saved or opened, filtered by
+    // Recent's roots, ignore rules, hidden policy, file type and time window.
+    {
+        QTemporaryDir recentRoot;
+        const QString base = recentRoot.path();
+        QTemporaryDir elsewhere;
+        const QString recentDoc = base + "/Belgeler/VÜCUT ÖLÇÜM #1.pdf";
+        const QString oldDoc = base + "/old.pdf";
+        const QString code = base + "/script.py";
+        const QString hidden = base + "/.secret/hidden.pdf";
+        const QString outside = elsewhere.path() + "/outside.pdf";
+        const QString deleted = base + "/deleted.pdf";
+        const QString ignored = base + "/build/ignored.pdf";
+        const QString newer = base + "/photo.jpg";
+        for (const QString &path : {recentDoc, oldDoc, code, hidden, outside, ignored, newer})
+            makeFile(path);
+        writeRecentlyUsed({{recentDoc, 1}, {oldDoc, 40}, {code, 1}, {hidden, 1}, {outside, 1},
+                           {deleted, 1}, {ignored, 1}});
+        app.setOrganizationName("Lurviko-QA-Recent");
+        app.setApplicationName("Index");
+        QSettings settings;
+        for (const QString &key : allCategoryKeys())
+            settings.setValue("contentIndex/mediaRoots/" + key, key == "recent" ? QStringList{base} : QStringList{});
+        settings.setValue("contentIndex/ignoreRules/recent", QStringList{"path:build"});
+        settings.setValue("contentIndex/recentWindowDays", 30);
+        settings.sync();
+        ContentIndexModel model;
+        const auto waitRecent = [&](int expected) {
+            QElapsedTimer clock; clock.start();
+            while (model.countForCategory("recent") != expected && clock.elapsed() < 5000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+                QThread::msleep(10);
+            }
+            return model.countForCategory("recent") == expected;
+        };
+        if (!waitRecent(1) || !model.m_recentFiles.contains(recentDoc)) return 38;
+        // Refreshing Recent re-reads the list; it never walks directories.
+        model.refreshCategory("recent");
+        if (model.indexing() || model.m_scanRunning) return 39;
+        // Another application records a newer file: picked up without a rescan.
+        writeRecentlyUsed({{recentDoc, 1}, {newer, 0.01}, {oldDoc, 40}});
+        if (!waitRecent(2) || !model.m_recentFiles.contains(newer)) return 40;
+        const QVariantList ordered = model.filesForCategory("recent");
+        if (ordered.isEmpty() || ordered.first().toMap().value("path").toString() != newer) return 41;
+        // A wider window includes the 40-day-old entry.
+        model.setRecentWindowDays(90);
+        if (!waitRecent(3) || !model.m_recentFiles.contains(oldDoc)) return 42;
+        // Files deleted after being recorded disappear on the next read.
+        if (!QFile::remove(newer)) return 43;
+        model.refreshCategory("recent");
+        if (!waitRecent(2)) return 44;
+        // Writers cap the shared list; Lurviko's history keeps evicted entries.
+        writeRecentlyUsed({{recentDoc, 1}});
+        model.refreshCategory("recent");
+        QThread::msleep(300);
+        if (!waitRecent(2) || !model.m_recentFiles.contains(oldDoc)) return 45;
+        // "Today" only shows today's use.
+        model.setRecentWindowDays(1);
+        if (!waitRecent(0)) return 46;
+        model.setRecentWindowDays(90);
+        if (!waitRecent(2)) return 47;
+        // Remove from Recent hides the entry without touching the file.
+        model.removeFromRecent({QUrl::fromLocalFile(recentDoc).toString()});
+        if (model.countForCategory("recent") != 1 || !QFileInfo::exists(recentDoc)) return 48;
+        QThread::msleep(300);
+        model.refreshCategory("recent");
+        QThread::msleep(300);
+        if (!waitRecent(1) || model.m_recentFiles.contains(recentDoc)) return 49;
+        {
+            ContentIndexModel restarted; // the hide survives a restart
+            QElapsedTimer clock; clock.start();
+            while (restarted.countForCategory("recent") != 1 && clock.elapsed() < 5000)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            if (restarted.countForCategory("recent") != 1 || restarted.m_recentFiles.contains(recentDoc)) return 50;
+        }
+        // Using the file again brings it back.
+        QThread::msleep(20);
+        writeRecentlyUsed({{recentDoc, 0}});
+        if (!waitRecent(2) || !model.m_recentFiles.contains(recentDoc)) return 51;
+        app.setOrganizationName("Lurviko-QA");
+        app.setApplicationName("Index");
     }
     QTemporaryDir temp;
     const QString base = temp.path();
@@ -185,6 +294,23 @@ int main(int argc, char **argv) {
         makeFile(root + "/sample" + it.value(), it.key() == "videos" ? 1048576 : 32768);
         countSettings.setValue("contentIndex/mediaRoots/" + it.key(), QStringList{root});
     }
+    // The Recent category defaults to the real home directory if no root is
+    // configured. That makes the otherwise hermetic count test depend on
+    // downloads the developer has just made (and can turn 0 into 1). Keep it
+    // inside our temporary fixture, with one positive Recent membership
+    // recorded in the (isolated) recently-used.xbel.
+    // Keep this root outside `separate`: later directory-size assertions
+    // intentionally count only the six primary-category fixtures there.
+    QTemporaryDir recentSeparate;
+    const QString recentRoot = recentSeparate.path();
+    const QString recentFixture = recentRoot + "/recent-download.pdf";
+    makeFile(recentFixture);
+    countSettings.setValue("contentIndex/mediaRoots/recent", QStringList{recentRoot});
+    // The fixture lives beneath /tmp, which the production Recent rules
+    // normally ignore. Disable only this category's ignore rules for the test.
+    countSettings.setValue("contentIndex/ignoreRules/recent", QStringList{});
+    writeRecentlyUsed({{recentFixture, 0.1}});
+    const int expectedRecentCount = 1;
     countSettings.sync();
     ContentIndexModel counts;
     counts.refresh();
@@ -193,12 +319,16 @@ int main(int argc, char **argv) {
         for (int row = 0; row < counts.rowCount(); ++row) {
             const auto item = counts.index(row);
             const QString key = counts.data(item, ContentIndexModel::KeyRole).toString();
-            const int expectedCount = key == "private" ? 0 : 1;
-            if (counts.countForCategory(key) != expectedCount
-                    || counts.data(item, ContentIndexModel::CountRole).toInt() != expectedCount)
-                qFatal("Committed category count changed during an unchanged scan: %s", qPrintable(key));
+            const int expectedCount = key == "recent" ? expectedRecentCount : (key == "private" ? 0 : 1);
+            const int committed = counts.countForCategory(key);
+            const int cardCount = counts.data(item, ContentIndexModel::CountRole).toInt();
+            if (committed != expectedCount || cardCount != expectedCount)
+                qFatal("Committed category count changed during an unchanged scan: %s (expected=%d, model=%d, card=%d)",
+                       qPrintable(key), expectedCount, committed, cardCount);
         }
     };
+    // Verify the *initial* committed state, not just intermediate progress.
+    stableCounts();
     int progressUpdates = 0, countNotifications = 0, fileNotifications = 0;
     auto progress = QObject::connect(&counts, &ContentIndexModel::scanProgressChanged, [&] {
         if (counts.scanProgressVisible()) { ++progressUpdates; stableCounts(); }

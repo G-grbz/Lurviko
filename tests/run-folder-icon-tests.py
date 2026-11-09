@@ -9,8 +9,13 @@ import tempfile
 repo = Path(__file__).resolve().parents[1]
 build = Path(os.environ.get("LURVIKO_TEST_BUILD_DIR", str(repo / "build"))).resolve()
 objects = [build / "CMakeFiles/lurviko.dir/src/bundlediconprovider.cpp.o"]
-for name in ("folder_rasters", "lurviko_raw_res_0"):
-    candidates = list((build / "CMakeFiles/lurviko.dir").rglob(f"qrc_{name}.cpp.o"))
+# Qt 6.9+ puts module RESOURCES into lurviko_raw_res_0; Qt 6.8 embeds them in
+# the QML resource object (lurviko_raw_qml_0).
+for names in (("folder_rasters",), ("lurviko_raw_res_0", "lurviko_raw_qml_0")):
+    for name in names:
+        candidates = list((build / "CMakeFiles/lurviko.dir").rglob(f"qrc_{name}.cpp.o"))
+        if candidates:
+            break
     if len(candidates) != 1:
         raise SystemExit("Build Lurviko first (one folder resource object is required).")
     objects.append(candidates[0])

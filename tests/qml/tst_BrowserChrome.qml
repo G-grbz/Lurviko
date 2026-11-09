@@ -207,6 +207,38 @@ Item {
                     BrowserSession.setWarnOnMultipleTabs(savedWarn)
                 }
             }
+            function test_command_bar_never_overlaps_when_narrow_data() {
+                return [{tag: "wide", width: 1280}, {tag: "medium", width: 860},
+                        {tag: "narrow", width: 760}, {tag: "tight", width: 700}, {tag: "minimum", width: 620}]
+            }
+            function test_command_bar_never_overlaps_when_narrow(data) {
+                const savedWidth = window.width
+                try {
+                    window.width = data.width
+                    wait(120)
+                    const bar = findChild(page, "browserCommandBar")
+                    const row = findChild(page, "browserCommandControls")
+                    verify(bar !== null && row !== null)
+                    const boxes = []
+                    for (let i = 0; i < row.children.length; ++i) {
+                        const item = row.children[i]
+                        if (!item.visible || item.width <= 0 || item.objectName === "categoryToolsHost") continue
+                        if (item.implicitWidth > 0)
+                            verify(item.width >= item.implicitWidth - 0.5,
+                                   (item.objectName || item) + " squeezed below its size at " + data.width)
+                        const p = item.mapToItem(bar, 0, 0)
+                        boxes.push({name: item.objectName || String(item), left: p.x, right: p.x + item.width})
+                    }
+                    boxes.sort(function(a, b) { return a.left - b.left })
+                    for (let i = 1; i < boxes.length; ++i)
+                        verify(boxes[i].left >= boxes[i - 1].right - 0.5,
+                               boxes[i - 1].name + " overlaps " + boxes[i].name + " at " + data.width)
+                    verify(boxes[boxes.length - 1].right <= bar.width, "Last command button leaves the bar at " + data.width)
+                } finally {
+                    window.width = savedWidth
+                    wait(80)
+                }
+            }
             function test_fluid_tabs_join_navigation_and_preserve_switching() {
                 const savedTabs = page.tabs
                 const savedCurrent = page.currentTab
@@ -231,7 +263,8 @@ Item {
                         navigation.mapToItem(window.contentItem, 0, 0).y, 0.1)
                     compare(active.base, active.height)
                     compare(inactive.base, inactive.height)
-                    verify(inactive.lowerRadius <= 6 && inactive.corner <= 8)
+                    // Chrome / Windows 11 style: vertical sides, small concave feet.
+                    verify(inactive.lowerRadius <= 8 && inactive.corner <= 8 && inactive.sideInset === 0)
                     compare(inactive.capTop, active.capTop)
                     verify(findChild(active, "fluidTabGlow") === null,
                         "Tabs must not allocate glow effects or offscreen textures")

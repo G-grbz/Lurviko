@@ -529,6 +529,12 @@ QVector<StorageModel::Entry> StorageModel::discoverLiveEntries()
         for (const QJsonValue &value : devices) {
             QVector<Entry> candidates;
             const QJsonObject top = value.toObject();
+            // Mounted disk images (loop / qemu-nbd devices) are listed by
+            // DiskImageManager in their own sidebar and Explore sections.
+            const QString topType = top.value(QStringLiteral("type")).toString().trimmed();
+            const QString topName = top.value(QStringLiteral("name")).toString().trimmed();
+            if (topType == QStringLiteral("loop") || topName.startsWith(QStringLiteral("nbd")))
+                continue;
             collect(top, QString(), QString(), candidates);
             if (candidates.isEmpty())
                 continue;
@@ -791,6 +797,7 @@ bool StorageModel::updateDiskAppearance(const QString &stableId, const QString &
     settings.setValue(QStringLiteral("navigation/diskCustomTitles"), titles);
     settings.setValue(QStringLiteral("navigation/diskCustomIcons"), icons);
     emit dataChanged(index(row), index(row), {NameRole, IconRole});
+    emit totalsChanged(); // usageSegments carries the (renamed) disk titles
     emit favoritesChanged();
     return true;
 }
@@ -842,6 +849,44 @@ void StorageModel::refreshNetworkCapacities()
         }
         return capacities;
     }));
+}
+
+QVariantList StorageModel::usageSegments() const
+{
+    struct Segment { QString name; qint64 used = 0; qint64 total = 0; };
+    QVector<Segment> disks;
+    for (const Entry &entry : std::as_const(m_entries)) {
+        if (!entry.mounted || entry.total <= 0)
+            continue; // same rule as recalculateTotals()
+        disks.push_back({m_customDiskTitles.value(entry.stableId, entry.name),
+                         qMax<qint64>(0, entry.total - entry.free), entry.total});
+    }
+    std::stable_sort(disks.begin(), disks.end(), [](const Segment &a, const Segment &b) { return a.used > b.used; });
+    constexpr int kShown = 5;
+    QVariantList result;
+    Segment other;
+    for (int i = 0; i < disks.size(); ++i) {
+        if (i < kShown || disks.size() == kShown + 1) {
+            QVariantMap item;
+            item.insert(QStringLiteral("name"), disks.at(i).name);
+            item.insert(QStringLiteral("usedBytes"), disks.at(i).used);
+            item.insert(QStringLiteral("totalBytes"), disks.at(i).total);
+            item.insert(QStringLiteral("other"), false);
+            result.push_back(item);
+        } else {
+            other.used += disks.at(i).used;
+            other.total += disks.at(i).total;
+        }
+    }
+    if (other.total > 0) {
+        QVariantMap item;
+        item.insert(QStringLiteral("name"), QString());
+        item.insert(QStringLiteral("usedBytes"), other.used);
+        item.insert(QStringLiteral("totalBytes"), other.total);
+        item.insert(QStringLiteral("other"), true);
+        result.push_back(item);
+    }
+    return result;
 }
 
 void StorageModel::recalculateTotals()

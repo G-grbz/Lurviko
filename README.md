@@ -8,7 +8,7 @@
   <a href="https://github.com/G-grbz/Lurviko/actions/workflows/codeql.yml"><img src="https://github.com/G-grbz/Lurviko/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="Source license: GPL 3.0 or later"></a>
   <img src="https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black" alt="Platform: Linux">
-  <img src="https://img.shields.io/badge/Qt-6.9%2B-41CD52?logo=qt&logoColor=white" alt="Qt 6.9 or newer">
+  <img src="https://img.shields.io/badge/Qt-6.8%2B-41CD52?logo=qt&logoColor=white" alt="Qt 6.8 or newer">
   <img src="https://img.shields.io/badge/KDE%20Frameworks-6-1D99F3?logo=kde&logoColor=white" alt="KDE Frameworks 6">
 </p>
 <p align="center"><a href="#features">Features</a> · <a href="#screenshots">Screenshots</a> · <a href="#build-and-install">Build & install</a> · <a href="#distribution-support">Distribution support</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
@@ -39,6 +39,7 @@ The screenshots show the current application with a locally selected icon theme.
 - **Folder sharing:** [Samba usershares in Properties](docs/network-sharing.md), read-only by default, with asynchronous creation, updates and removal. Samba server setup and a network login are required.
 - **Git management:** [Selected-file commits and safe repository synchronization](docs/git-management.md), an upstream-aware branch indicator, Fetch/Push/fast-forward Pull, history and change comparison, with no automatic stash or history rewrite.
 - **Desktop integration:** KDE KIO transfers, selectable in-app progress, system icon themes, trash, network locations and `org.freedesktop.FileManager1` support for “Show in folder”. Files open through their MIME default applications.
+- **Disk images:** right-click an image and choose **Mount** (**Unmount** when attached). ISO, IMG/RAW, SquashFS, EROFS, UDF and ext/FAT/NTFS/Btrfs/XFS images mount through UDisks without a root password; qcow2, VMDK, VDI, VHD/VHDX and DMG use `qemu-nbd` (asks for administrator rights, appears only when installed). Mounted images get their own sidebar section and an Explore section with the same cards as Disks; both are hidden while nothing is mounted. Encrypted (LUKS) volumes are not supported.
 - **Explore:** configurable category shortcuts, filtered home indexing, media roots, date-grouped photo/video libraries, quick access and disk capacity indicators.
 - **Media:** cached previews, photo viewing, video playback with subtitles, a music player and DLNA browsing/playback. Supported codecs depend on the installed Qt Multimedia backend.
 - **Subtitles:** optional local AI translation and Whisper transcription, live translated cues and readable timing-aware splitting.
@@ -53,7 +54,7 @@ Folder drop targets use a distinct highlight and a plus badge at the top-left of
 
 **Primary target: Linux with KDE Plasma.** Development and desktop testing have been performed on **Manjaro Linux, x86_64, KDE Plasma/Wayland, Qt 6.11.2**. X11 launch profiles are available but do not imply equivalent testing on every graphics stack.
 
-The current build requires **Qt ≥ 6.9**, **OpenSSL ≥ 3.2**, **KDE Frameworks 6**, **CMake ≥ 3.21** and a **C++17 compiler**. Merely installing a package called “Qt 6” is not sufficient.
+The current build requires **Qt ≥ 6.8**, **OpenSSL ≥ 3.2**, **KDE Frameworks 6**, **CMake ≥ 3.21** and a **C++17 compiler**. Merely installing a package called “Qt 6” is not sufficient.
 
 | Distribution | Current status |
 | --- | --- |
@@ -61,7 +62,7 @@ The current build requires **Qt ≥ 6.9**, **OpenSSL ≥ 3.2**, **KDE Frameworks
 | Arch Linux / EndeavourOS, fully updated | Appropriate dependency baseline; Arch Linux is the CI build target. Desktop behavior still needs testing on your installation. |
 | Fedora KDE 43 / 44 | Qt package versions meet the minimum; source builds are expected when all listed KDE/OpenSSL development dependencies are installed. Not desktop-tested by this project. |
 | openSUSE Tumbleweed | Candidate for source builds if the installed Qt/OpenSSL/KF6 packages meet the requirements; not yet verified by this project. |
-| Debian 13 (trixie) | Stock Qt 6.8 does **not** meet the Qt 6.9 requirement. A newer complete Qt/KF6 stack is required. |
+| Debian 13 (trixie) | Builds against the stock Qt 6.8 / KF6 packages, and the automated test suite runs in a Debian 13 container. Install `kio6` for local file operations. Not desktop-tested by this project. |
 | Ubuntu 24.04 LTS / Linux Mint 22 | Stock Qt 6.4 does **not** meet the minimum. A source build against the stock packages is unsupported. |
 | Other/newer Linux distributions | Check the complete dependency versions before building; no blanket compatibility claim. |
 | Windows / macOS | Not supported by this project. |
@@ -69,6 +70,36 @@ The current build requires **Qt ≥ 6.9**, **OpenSSL ≥ 3.2**, **KDE Frameworks
 Package references: [Arch Qt](https://archlinux.org/packages/extra/x86_64/qt6-declarative/), [Fedora Qt](https://packages.fedoraproject.org/pkgs/qt6-qtdeclarative/qt6-qtdeclarative/index.html), [Debian stable Qt](https://packages.debian.org/stable/qt6-declarative-dev), [Ubuntu 24.04 Qt](https://packages.ubuntu.com/zh-cn/noble/qt6-declarative-dev). Distribution packages change; CMake checks your installed versions at configuration time.
 
 On another Linux desktop, KDE libraries, KIO workers, D-Bus, a wallet service and any required authentication agents must still be installed. Integration may differ from Plasma. Only x86_64 has been tested; other architectures are unverified.
+
+## Download prebuilt packages
+
+Every release on the [Releases page](https://github.com/G-grbz/Lurviko/releases/latest)
+includes ready-to-install x86_64 packages, so you do not need to compile anything.
+Before a release is published, each package is installed and launched on a
+clean system of its target distribution.
+
+| Package | For | Install |
+| --- | --- | --- |
+| `Lurviko-<version>-x86_64.AppImage` | Any distribution with glibc 2.39+ (Ubuntu 24.04 / Mint 22, Debian 13, Fedora, openSUSE, Arch, …) | `chmod +x Lurviko-*.AppImage && ./Lurviko-*.AppImage` |
+| `lurviko_<version>-1_amd64.deb` | Debian 13 (trixie) | `sudo apt install ./lurviko_*_amd64.deb` |
+| `lurviko-<version>-1.x86_64.rpm` | Fedora 43 and newer | `sudo dnf install ./lurviko-*.x86_64.rpm` |
+| `lurviko-<version>-1-x86_64.pkg.tar.zst` | Arch Linux / Manjaro / EndeavourOS | `sudo pacman -U lurviko-*.pkg.tar.zst` |
+
+Verify downloads with `sha256sum -c SHA256SUMS --ignore-missing`.
+
+**AppImage notes**
+
+- Qt, KDE Frameworks (KIO workers for copy/move/trash) and the FFmpeg media
+  backend are bundled. The desktop must still provide the usual base libraries
+  (OpenGL/EGL, fontconfig, HarfBuzz, D-Bus); every desktop installation does.
+- Delta updates: the AppImage embeds update information and each release ships
+  a `.zsync` file, so [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate),
+  Gear Lever or AppImageLauncher download only the changed blocks.
+- Without FUSE (some minimal systems), run it with
+  `APPIMAGE_EXTRACT_AND_RUN=1 ./Lurviko-*.AppImage`.
+- Only the bundled KIO workers are available: `file:`, `trash:`, `remote:`,
+  `ftp:` and `http(s):`. SFTP, SMB, MTP and other `kio-extras` protocols need a
+  native package (.deb, .rpm, pkg.tar.zst or AUR).
 
 ## Build and install
 
@@ -112,8 +143,27 @@ Useful runtime helpers:
 ```bash
 sudo pacman -S --needed \
   ffmpeg ffmpegthumbnailer poppler 7zip libarchive squashfs-tools \
-  mkvtoolnix-cli qt6-imageformats breeze-icons desktop-file-utils python
+  mkvtoolnix-cli qt6-imageformats breeze-icons desktop-file-utils python \
+  udisks2
 ```
+
+**Debian 13 (trixie)**
+
+```bash
+sudo apt install --no-install-recommends \
+  build-essential git cmake ninja-build extra-cmake-modules pkg-config \
+  qt6-base-dev qt6-declarative-dev qt6-multimedia-dev libqt6networkauth6-dev \
+  qt6-svg-dev qt6-svg-plugins qt6-wayland libqt6sql6-sqlite \
+  libkf6kio-dev libkf6service-dev libkf6wallet-dev libkf6iconthemes-dev \
+  libkf6archive-dev libkf6windowsystem-dev kio6 libssl-dev \
+  qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+  qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtquick-effects \
+  qml6-module-qtquick-dialogs qml6-module-qtquick-shapes qml6-module-qtqml-models \
+  qml6-module-qtqml-workerscript qml6-module-qtcore qml6-module-qtmultimedia
+```
+
+`qt6-svg-plugins` is also needed while building (folder artwork is rendered
+to PNG during the build), and `kio6` provides the local `file:` worker.
 
 **Other distributions**
 
@@ -121,7 +171,7 @@ Install the development packages providing the following CMake targets/modules. 
 
 | Dependency | Required components |
 | --- | --- |
-| Qt 6.9+ | Quick, QuickControls2, Network, NetworkAuth, Concurrent, Widgets, DBus, Multimedia, Sql (SQLite driver) |
+| Qt 6.8+ | Quick, QuickControls2, Network, NetworkAuth, Concurrent, Widgets, DBus, Multimedia, Sql (SQLite driver) |
 | KDE Frameworks 6 | KIO, Service, Wallet, IconThemes, Archive, WindowSystem; Extra CMake Modules |
 | OpenSSL 3.2+ | Crypto development library |
 | Toolchain | CMake 3.21+, Ninja or Make, C++17 compiler |
@@ -248,6 +298,15 @@ skips symbolic links, and supports cancellation. Execute permissions apply to
 subfolders and already executable files without making ordinary documents
 executable. Cancellation stops further changes; changes already applied remain.
 
+### Recent Files in Discover
+
+The **Recent Files / Son Dosyalar** category shows archives, documents, images,
+audio and video from the desktop's shared recently used list
+(`~/.local/share/recently-used.xbel`): browser downloads, files received via
+KDE Connect, and files opened or saved in applications. It does not scan
+folders. Date window, roots and ignore rules are configurable. See
+[Recent Files](docs/recent-files.md).
+
 ### Cloud accounts
 
 Follow [Connect Google Drive and OneDrive](docs/cloud-accounts.md) for account
@@ -329,22 +388,6 @@ include a `g-file` command or desktop entry.
 ### Release notifications
 
 Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asynchronously after startup and every six hours. A dot on Explore's information button and a release card beneath **Features** appear when a newer stable version is available. Clicking the card opens the official release page. This check announces releases; installation is manual. Offline checks never block startup or show error popups.
-
-### Publishing a source release
-
-Published tags are immutable: source fixes need a new version/tag rather than
-replacing an existing archive. Packaging-only fixes use a new AUR `pkgrel`.
-
-Set `project(Lurviko VERSION ...)` in `CMakeLists.txt` and push `main`. After that exact commit's build/tests and CodeQL checks pass, create and push a matching tag such as **`v1.5.1`** (or `Lurviko-v1.5.1`). The release workflow verifies those existing main-branch runs, checks for open CodeQL findings, then creates **Lurviko v1.5.1** with generated notes, source `.tar`, `.tar.gz` / `.zip` archives and SHA-256 checksums. It does not start a duplicate build. Tags must match the version in their source commit. Existing releases are preserved on workflow reruns.
-
-Release archives use the exported Git tree with a fixed timestamp. AUR recipe
-metadata stays in Git but is excluded from source archives because it contains
-their own checksum. This allows the source archive and final AUR metadata to
-be prepared before committing, then verified against the tagged release. AUR
-uses the uncompressed `.tar` asset so different gzip libraries cannot change
-its checksum; compressed formats remain available for source downloads.
-
-The workflow publishes source code; it does not produce distribution packages. See [GitHub tag triggers](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push) and [release creation](https://cli.github.com/manual/gh_release_create).
 
 ## License
 

@@ -57,6 +57,19 @@ SizeCache *sizeCache()
     return cache;
 }
 
+// admin:///path (kio-admin) is the same local filesystem with elevated
+// access. Size/contents/metadata read it as the ordinary path, so Properties
+// reuse the shared size index (no new indexing, same mount/volume exclusions);
+// privileged changes still go through the explicit administrator option.
+QString adminAsLocal(const QString &value)
+{
+    const QUrl url(value.trimmed());
+    if (url.scheme() != QStringLiteral("admin"))
+        return value;
+    const QString path = QDir::cleanPath(url.path().isEmpty() ? QStringLiteral("/") : url.path());
+    return QUrl::fromLocalFile(path).toString();
+}
+
 QString localPathFromInput(const QString &value, const QString &baseDirectory)
 {
     const QString trimmed = value.trimmed();
@@ -212,17 +225,17 @@ bool FilePropertiesManager::reuseStatsOrWait(const QStringList &paths, bool sele
 
 void FilePropertiesManager::inspect(const QString &urlOrPath)
 {
-    inspectInternal(urlOrPath, false);
+    inspectInternal(adminAsLocal(urlOrPath), false);
 }
 
 void FilePropertiesManager::inspectCached(const QString &urlOrPath)
 {
-    inspectInternal(urlOrPath, true);
+    inspectInternal(adminAsLocal(urlOrPath), true);
 }
 
 bool FilePropertiesManager::restoreCachedStats(const QString &urlOrPath)
 {
-    const QUrl url = QUrl::fromUserInput(urlOrPath);
+    const QUrl url = QUrl::fromUserInput(adminAsLocal(urlOrPath));
     if (!url.isLocalFile() || !cachedStats(QDir::cleanPath(url.toLocalFile()), true)) return false;
     inspectCached(urlOrPath);
     return true;
@@ -230,7 +243,7 @@ bool FilePropertiesManager::restoreCachedStats(const QString &urlOrPath)
 
 void FilePropertiesManager::invalidateCachedStats(const QString &urlOrPath)
 {
-    const QUrl url = QUrl::fromUserInput(urlOrPath);
+    const QUrl url = QUrl::fromUserInput(adminAsLocal(urlOrPath));
     if (!url.isLocalFile()) return;
     auto *index = DirectorySizeIndex::instance();
     if (!index->snapshot(url.toLocalFile()).path.isEmpty())
@@ -241,7 +254,7 @@ void FilePropertiesManager::invalidateCachedStats(const QString &urlOrPath)
 
 void FilePropertiesManager::verifyCachedStats(const QString &urlOrPath)
 {
-    DirectorySizeIndex::instance()->request(urlOrPath, true);
+    DirectorySizeIndex::instance()->request(adminAsLocal(urlOrPath), true);
 }
 
 FilePropertiesManager *FilePropertiesManager::cachedStats(const QString &path, bool lookupOnly)
@@ -467,13 +480,13 @@ void FilePropertiesManager::inspectSelection(const QStringList &urls)
     QStringList selection;
     bool local = true;
     for (const auto &input : urls) {
-        const QUrl url = QUrl::fromUserInput(input);
+        const QUrl url = QUrl::fromUserInput(adminAsLocal(input));
         const QString item = url.isLocalFile() ? QDir::cleanPath(url.toLocalFile()) : url.toString();
         if (item.isEmpty() || selection.contains(item)) continue;
         selection.append(item);
         local &= url.isLocalFile();
     }
-    if (selection.size() == 1) { inspect(urls.first()); return; }
+    if (selection.size() == 1) { inspect(urls.first()); return; }  // inspect() maps admin:
     cancelInspection();
     m_statsCancelled = std::make_shared<std::atomic_bool>(false);
     m_statsDemand = std::make_shared<std::atomic_int>(0);

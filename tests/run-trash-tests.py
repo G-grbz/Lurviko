@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import session_cleanup  # stops services the private D-Bus session activated
 
 repo = Path(__file__).resolve().parents[1]
 build = repo / "build"
@@ -39,5 +40,5 @@ with tempfile.TemporaryDirectory(prefix="trash-qa-", dir=repo / ".tools") as tem
         XDG_CONFIG_HOME=str(root / "config"), XDG_DATA_HOME=str(root / "data"),
         XDG_CACHE_HOME=str(root / "cache"), XDG_RUNTIME_DIR=str(runtime),
         LURVIKO_TRASH_TEST_ROOT=str(root))
-    subprocess.run(["dbus-run-session", "--", str(root / "trash-tests")],
+    session_cleanup.run(["dbus-run-session", "--", str(root / "trash-tests")],
                    env=environment, check=True, timeout=90)

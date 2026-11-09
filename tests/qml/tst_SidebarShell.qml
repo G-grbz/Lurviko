@@ -135,7 +135,7 @@ Item {
             compare(shell.width, 248)
             compare(shell.panel.sectionFilter, "")
             verify(shell.panel.footer.visible)
-            compare(shell.panel.footer.columns, 6)
+            compare(shell.panel.footer.columns, 5)
             for (const key of ["places", "favorites", "network", "disks"])
                 verify(findChild(shell.panel, "sidebarSection_" + key).visible)
         }
@@ -229,12 +229,18 @@ Item {
         function test_icon_mode_centers_the_dock_and_marks_the_selected_destination() {
             collapse()
             AppTheme.setSidebarRailMode("icon")
-            const keys = ["dashboard", "places", "favorites", "network", "disks"]
+            // Discover stays pinned at the top; the section badges form the dock.
+            const keys = ["places", "favorites", "network", "disks"]
             const admin = findChild(shell, "sidebarRailAdministrator")
             try {
                 for (const height of [580, 700, 900]) {
                     shell.height = height
                     wait(50)
+                    const discover = badge("dashboard")
+                    const discoverTop = discover.mapToItem(shell, 0, 0).y
+                    fuzzyCompare(discoverTop, 8, 0.1)
+                    fuzzyCompare(discover.mapToItem(shell, 0, 0).x + discover.width / 2, shell.width / 2, 0.1)
+                    let top = -1
                     let previousBottom = -1
                     for (const key of keys) {
                         const button = badge(key)
@@ -244,13 +250,15 @@ Item {
                         else compare(button.background.color.a, 0)
                         compare(button.background.border.width, button.selected ? 0.75 : 0)
                         if (previousBottom >= 0) fuzzyCompare(position.y - previousBottom, 6, 0.1)
+                        else top = position.y
                         previousBottom = position.y + button.height
                     }
-                    const top = badge("dashboard").mapToItem(shell, 0, 0).y
                     const adminTop = admin.mapToItem(shell, 0, 0).y
-                    fuzzyCompare((top + previousBottom) / 2, adminTop / 2, 0.1)
+                    const areaTop = discoverTop + discover.height + 13
+                    verify(top >= areaTop - 0.1)
                     verify(previousBottom < adminTop)
-                    verify((top + previousBottom) / 2 < shell.height / 2 - 40)
+                    // Centred between the pinned Discover button and the controls.
+                    fuzzyCompare((top + previousBottom) / 2, (areaTop + adminTop - 8) / 2, 0.6)
                 }
                 shell.height = 700
                 wait(50)
@@ -310,7 +318,7 @@ Item {
                 verify(!shell.sectionPopup.visible)
                 AppTheme.setSidebarAutoHide(false)
                 compare(shell.panel.footer, footer)
-                tryCompare(footer, "columns", 6)
+                tryCompare(footer, "columns", 5)
                 verify(footer.visible)
             } finally {
                 language.language = savedLanguage

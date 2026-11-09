@@ -15,6 +15,9 @@ class OpenWithModel : public QAbstractListModel
     Q_PROPERTY(QString defaultDesktopEntry READ defaultDesktopEntry NOTIFY defaultChanged)
     Q_PROPERTY(QString defaultApplicationName READ defaultApplicationName NOTIFY defaultChanged)
     Q_PROPERTY(QString defaultApplicationIconName READ defaultApplicationIconName NOTIFY defaultChanged)
+    // Distinct default applications of a (multi-)selection, one per app, in
+    // selection order. One entry: every file opens in that application.
+    Q_PROPERTY(QStringList defaultApplicationNames READ defaultApplicationNames NOTIFY defaultChanged)
     Q_PROPERTY(QVariantList quickApps READ quickApps NOTIFY quickAppsChanged)
 
 public:
@@ -36,6 +39,7 @@ public:
     QString defaultDesktopEntry() const { return m_defaultDesktopEntry; }
     QString defaultApplicationName() const { return m_defaultApplicationName; }
     QString defaultApplicationIconName() const { return m_defaultApplicationIconName; }
+    QStringList defaultApplicationNames() const { return m_defaultApplicationNames; }
     QVariantList quickApps() const { return m_quickApps; }
 
     Q_INVOKABLE void setContext(const QString &itemUrl, const QString &mimeType);
@@ -70,6 +74,7 @@ private:
     QString m_defaultDesktopEntry;
     QString m_defaultApplicationName;
     QString m_defaultApplicationIconName;
+    QStringList m_defaultApplicationNames;
     QVariantList m_quickApps;
 
     void rebuildQuickApps();

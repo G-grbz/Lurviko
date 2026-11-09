@@ -8,10 +8,28 @@ import argparse
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import tempfile
 
 repo = Path(__file__).resolve().parents[1]
+
+
+def find_moc():
+    """Qt keeps moc in QT_INSTALL_LIBEXECS (Arch: /usr/lib/qt6, Debian: .../qt6/libexec)."""
+    import shutil
+    for tool in ("qmake6", "qtpaths6", "qmake"):
+        if shutil.which(tool):
+            query = subprocess.run([tool, "-query", "QT_INSTALL_LIBEXECS"] if "qmake" in tool
+                                   else [tool, "--query", "QT_INSTALL_LIBEXECS"],
+                                   capture_output=True, text=True)
+            candidate = Path(query.stdout.strip()) / "moc"
+            if query.returncode == 0 and candidate.is_file():
+                return str(candidate)
+    return shutil.which("moc-qt6") or "/usr/lib/qt6/moc"
+
+
+moc = find_moc()
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--baseline', type=Path)
 parser.add_argument('--home-settings', type=Path)
@@ -20,9 +38,9 @@ flags = shlex.split(subprocess.check_output(
     ['pkg-config', '--cflags', '--libs', 'Qt6Core', 'Qt6Concurrent', 'Qt6Sql'], text=True))
 with tempfile.TemporaryDirectory(prefix='lurviko-index-tests-') as temporary:
     root = Path(temporary)
-    subprocess.run(['/usr/lib/qt6/moc', str(repo / 'src/contentindexmodel.h'),
+    subprocess.run([moc, str(repo / 'src/contentindexmodel.h'),
                     '-o', str(root / 'moc.cpp')], check=True)
-    subprocess.run(['/usr/lib/qt6/moc', str(repo / 'src/directorysizeindex.h'),
+    subprocess.run([moc, str(repo / 'src/directorysizeindex.h'),
                     '-o', str(root / 'moc_size.cpp')], check=True)
     environment = dict(os.environ, XDG_CONFIG_HOME=str(root / 'config'),
         XDG_DATA_HOME=str(root / 'data'), XDG_CACHE_HOME=str(root / 'cache'))

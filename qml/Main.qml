@@ -39,6 +39,7 @@ ApplicationWindow {
     palette.highlightedText: AppTheme.highlightedText
     palette.placeholderText: AppTheme.textFaint
     property string launchLocation: ""
+    property real homeClockY: -1  // window y of the Home clock (see HomePage.clockAnchorY)
     DesktopWindowEffects {
         window: root
         enabled: AppTheme.translucentWindow
@@ -755,6 +756,7 @@ ApplicationWindow {
             SidebarShell {
                 id: appSidebar
                 unifiedSurface: browserChromeHost.visible
+                discoverAlignY: root.homeClockY
                 Layout.preferredWidth: implicitWidth
                 Layout.minimumWidth: implicitWidth
                 Layout.maximumWidth: implicitWidth
@@ -1154,13 +1156,44 @@ ApplicationWindow {
         }
     }
 
+    // Disk images: udisks events already refresh StorageModel, so reuse them
+    // to keep the mounted-image list in sync with mounts done elsewhere.
+    Connections {
+        target: storageModel
+        function onTotalsChanged() { DiskImages.refresh() }
+    }
+
+    Connections {
+        target: DiskImages
+        function onOperationStarted(mounting, imageName) {
+            globalToastLabel.text = (mounting ? lang.t("image_mounting") : lang.t("image_unmounting"))
+                                    + " " + imageName
+            globalToastTimer.interval = 2800
+            globalToast.open()
+            globalToastTimer.restart()
+        }
+        function onOperationFinished(success, mountedNow, imageName, detail, mountPoint) {
+            var base = success
+                    ? (mountedNow ? lang.t("image_mounted") : lang.t("image_unmounted"))
+                    : (mountedNow ? lang.t("image_mount_failed") : lang.t("image_unmount_failed"))
+            var text = base + " · " + imageName
+            if (!success && detail && detail.length)
+                text += "\n" + (detail.length > 110 ? detail.substring(0, 107) + "…" : detail)
+            globalToastLabel.text = text
+            // Failures carry a reason; give it more time on screen.
+            globalToastTimer.interval = success ? 2800 : 6000
+            globalToast.open()
+            globalToastTimer.restart()
+        }
+    }
+
     Popup {
         id: globalToast
         objectName: "globalToast"
         x: root.width - width - 26
         y: root.height - height - 26
         width: Math.min(380, Math.max(190, globalToastLabel.implicitWidth + 42))
-        height: 54
+        height: globalToastLabel.text.length > 70 ? 84 : 54
         z: 11000
         closePolicy: Popup.NoAutoClose
         background: GPopupSurface { popup: globalToast; radius: 18; border.color: AppTheme.accentBorder }
@@ -1175,7 +1208,7 @@ ApplicationWindow {
         }
         onOpened: globalToastTimer.restart()
     }
-    Timer { id: globalToastTimer; interval: 2800; onTriggered: globalToast.close() }
+    Timer { id: globalToastTimer; interval: 2800; onTriggered: { globalToast.close(); interval = 2800 } }
 
     Timer {
         interval: 6000
@@ -1237,6 +1270,9 @@ ApplicationWindow {
         id: homeComponent
         HomePage {
             headerHost: browserChromeHost
+            // Remember where the Home clock sits; the icon-only rail keeps its
+            // Discover button on that line on every page.
+            onClockAnchorYChanged: if (clockAnchorY >= 0) root.homeClockY = clockAnchorY
             updateChecker: appUpdates
             storageModel: root.appStorage
             favoritesModel: root.appFavorites

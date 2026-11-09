@@ -12,6 +12,7 @@ import tempfile
 import errno
 import time
 from contextlib import contextmanager
+import session_cleanup  # stops services the private D-Bus session activated
 
 
 @contextmanager
@@ -70,5 +71,5 @@ with isolated_directory() as temporary:
             print(f"APPEARANCE_RUN: qpa={environment['QT_QPA_PLATFORM']} "
                   f"backend={environment['QT_QUICK_BACKEND']} scale={scale} "
                   f"startup={'custom' if arguments else 'native'}", flush=True)
-            subprocess.run(["dbus-run-session", "--", str(root / "appearance-tests"), *arguments],
+            session_cleanup.run(["dbus-run-session", "--", str(root / "appearance-tests"), *arguments],
                            env=environment, check=True, timeout=40)

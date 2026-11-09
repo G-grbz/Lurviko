@@ -35,6 +35,13 @@ Item {
             : AppTheme.mix(AppTheme.background, AppTheme.workspace, hovered ? 0.48 : 0.22)
     readonly property color fillColor: dropTarget ? AppTheme.accentSoft
         : AppTheme.mix(passiveColor, activeColor, selectionProgress)
+    // Raised ("puffy") look: lighter cap fading into the base colour. The
+    // bottom keeps fillColor so the selected tab still joins the page seamlessly.
+    readonly property color topColor: AppTheme.mix(fillColor, Qt.rgba(1, 1, 1, fillColor.a),
+        AppTheme.dark ? (selected ? 0.09 : (hovered ? 0.07 : 0.05))
+                      : (selected ? 0.32 : (hovered ? 0.4 : 0.28)))
+    readonly property color bottomColor: selected || dropTarget ? fillColor
+        : AppTheme.mix(fillColor, Qt.rgba(0, 0, 0, fillColor.a), AppTheme.dark ? 0.10 : 0.025)
     readonly property color outlineColor: dropTarget ? AppTheme.accent
         : administrator ? (AppTheme.useQtTheme ? AppTheme.tint(AppTheme.warning, AppTheme.qtActiveOutlineOpacity) : AppTheme.warning)
         : AppTheme.mix(AppTheme.border, AppTheme.activeTabOutline, selectionProgress)
@@ -43,13 +50,15 @@ Item {
         enabled: surface.animationReady && surface.visible
         NumberAnimation { id: selectionTween; duration: 110; easing.type: Easing.OutCubic }
     }
-    readonly property real wing: Math.min(18, width / 6)
+    // Vertical sides with a small concave flare where the tab meets the bar
+    // (Chrome / Windows 11), instead of a long slanted S-curve.
+    readonly property real wing: Math.min(8, width / 6)
     readonly property real corner: Math.min(8, (height - capTop) / 3)
     // Selection never changes geometry or the text's vertical origin.
     readonly property real capTop: 4
     readonly property real base: height
-    readonly property real lowerRadius: Math.min(6, (height - capTop) / 4)
-    readonly property real sideInset: Math.min(6, wing / 3)
+    readonly property real lowerRadius: Math.min(8, (height - capTop) / 4)
+    readonly property real sideInset: 0
     readonly property real sideHeight: base - lowerRadius - capTop - corner
     readonly property real tangentRise: Math.min(corner, lowerRadius, sideHeight / 2) * 0.55
     readonly property real tangentRun: sideHeight > 0 ? sideInset * tangentRise / sideHeight : 0
@@ -149,18 +158,49 @@ Item {
         preferredRendererType: Shape.CurveRenderer
         antialiasing: true
         Contour {
-            fillColor: surface.fillColor
+            fillGradient: LinearGradient {
+                x1: 0; y1: surface.capTop
+                x2: 0; y2: surface.base
+                GradientStop { position: 0; color: surface.topColor }
+                GradientStop { position: 0.55; color: AppTheme.mix(surface.topColor, surface.bottomColor, 0.75) }
+                GradientStop { position: 1; color: surface.bottomColor }
+            }
             strokeColor: "transparent"
             strokeWidth: 0
             closeBottom: true
         }
         Contour {
             fillColor: "transparent"
-            strokeColor: surface.pageOutlineJoined && surface.selected
-                    ? "transparent" : surface.outlineColor
+            // Like Chrome / Windows 11, only the selected tab (and a drop
+            // target) is outlined. Inactive tabs are separated by a single
+            // divider; their own side outlines would double up at each joint.
+            strokeColor: surface.pageOutlineJoined && surface.selected ? "transparent"
+                    : surface.selected || surface.dropTarget || !surface.pageOutlineJoined ? surface.outlineColor
+                    : "transparent"
             strokeWidth: surface.dropTarget ? 1.5 : surface.administrator ? 0.8 : 1
             // Keep the navigation join open, including during transitions.
             closeBottom: false
+        }
+    }
+
+    // Upper edge line for inactive tabs (they have no outline). A white
+    // gloss vanished on light themes; use a theme-aware edge colour instead.
+    readonly property color edgeColor: AppTheme.dark ? Qt.rgba(1, 1, 1, hovered ? 0.24 : 0.16)
+                                                     : (hovered ? AppTheme.mix(AppTheme.borderStrong, AppTheme.text, 0.15)
+                                                                : AppTheme.borderStrong)
+    Rectangle {
+        objectName: "fluidTabTopEdge"
+        visible: !surface.selected
+        x: surface.wing + surface.corner
+        y: surface.capTop
+        width: Math.max(0, surface.width - 2 * x)
+        height: 1
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: "transparent" }
+            GradientStop { position: 0.12; color: surface.edgeColor }
+            GradientStop { position: 0.88; color: surface.edgeColor }
+            GradientStop { position: 1; color: "transparent" }
         }
     }
 }

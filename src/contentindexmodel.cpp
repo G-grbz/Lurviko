@@ -3,6 +3,14 @@
 #include "directorysizestore_p.h"
 
 #include <QDateTime>
+#include <QFileSystemWatcher>
+#include <QXmlStreamReader>
+#include <QCryptographicHash>
+#if defined(Q_OS_LINUX)
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cerrno>
+#endif
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,6 +21,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QSettings>
+#include <QUuid>
 #include <QStandardPaths>
 #include <QStorageInfo>
 #include <QUrl>
@@ -24,7 +33,10 @@
 #include <utility>
 
 namespace {
-constexpr int kIndexVersion = 8;
+constexpr int kIndexVersion = 10;
+constexpr int kDefaultRecentDays = 30;
+constexpr qint64 kDayMs = 24LL * 60 * 60 * 1000;
+const QString kRecentCategory = QStringLiteral("recent");
 constexpr int kMaxWatchedDirectories = 4096;
 constexpr qint64 kMinimumImageBytes = 24 * 1024;
 constexpr qint64 kMinimumVideoBytes = 1024 * 1024;
@@ -33,7 +45,8 @@ const QStringList &allCategoryKeys()
 {
     static const QStringList keys = {
         QStringLiteral("documents"), QStringLiteral("appimage"), QStringLiteral("archives"),
-        QStringLiteral("images"), QStringLiteral("music"), QStringLiteral("videos")
+        QStringLiteral("images"), QStringLiteral("music"), QStringLiteral("videos"),
+        QStringLiteral("recent")
     };
     return keys;
 }
@@ -59,6 +72,17 @@ QStringList defaultIgnoreRulesForCategory(const QString &category)
             QStringLiteral("path:img"), QStringLiteral("path:docs"), QStringLiteral("path:music-artwork"),
             QStringLiteral("path:manual-artwork"), QStringLiteral("path:*thumbnail*"), QStringLiteral("path:*thumb*"),
             QStringLiteral("path:*cache*"), QStringLiteral("path:*preview*")
+        });
+    }
+    if (category == kRecentCategory) {
+        // A received download is not an arbitrary file created in the home tree.
+        // Skip build products, application state, thumbnail caches and source trees.
+        rules.append({
+            QStringLiteral("path:build"), QStringLiteral("path:dist"),
+            QStringLiteral("path:node_modules"), QStringLiteral("path:vendor"),
+            QStringLiteral("path:.cache"), QStringLiteral("path:cache"),
+            QStringLiteral("path:tmp"), QStringLiteral("path:temp"),
+            QStringLiteral("path:__pycache__"), QStringLiteral("path:generated")
         });
     }
     if (category == QStringLiteral("archives")) {
@@ -263,6 +287,7 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
         // ordering, but is deliberately excluded from allCategoryKeys() so the
         // normal filesystem indexer never scans or manages its contents.
         {QStringLiteral("private"), QStringLiteral("Sana Özel"), QStringLiteral("Private"), QStringLiteral("private.svg"), {}, {}, true, false},
+        {QStringLiteral("recent"), QStringLiteral("Son Dosyalar"), QStringLiteral("Recent Files"), QStringLiteral("recent.svg"), {}, {}, true, false},
         {QStringLiteral("documents"), QStringLiteral("Belgeler"), QStringLiteral("Documents"), QStringLiteral("documents.svg"), {}, {}, true, false},
         {QStringLiteral("appimage"), QStringLiteral("AppImage"), QStringLiteral("AppImage"), QStringLiteral("appimage.svg"), {}, {}, true, false},
         {QStringLiteral("archives"), QStringLiteral("Arşivler"), QStringLiteral("Archives"), QStringLiteral("archive.svg"), {}, {}, true, false},
@@ -282,6 +307,37 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
     loadCategorySettings();
     loadMediaRootSettings();
     loadIgnoreRuleSettings();
+    {
+        QSettings settings;
+        const int days = settings.value(QStringLiteral("contentIndex/recentWindowDays"), kDefaultRecentDays).toInt();
+        m_recentWindowDays = validRecentWindow(days) ? days : kDefaultRecentDays;
+    }
+    // Recent Files: one small XML file, re-read (off the GUI thread) only when
+    // an application updates it. No directory scan, inotify tree or xattrs.
+    m_recentReload.setSingleShot(true);
+    m_recentReload.setInterval(300);
+    connect(&m_recentReload, &QTimer::timeout, this, &ContentIndexModel::reloadRecentFiles);
+    connect(&m_recentReadWatcher, &QFutureWatcher<QHash<QString, IndexedFile>>::finished, this, [this] {
+        QHash<QString, IndexedFile> next = m_recentReadWatcher.result();
+        for (auto it = next.begin(); it != next.end();) {
+            const auto hidden = m_recentHidden.constFind(it.key());
+            if (hidden != m_recentHidden.cend() && it->receivedMs <= hidden.value())
+                it = next.erase(it);
+            else
+                ++it;
+        }
+        if (!sameRecentFiles(m_recentFiles, next)) {
+            m_recentFiles = next;
+            m_counts[kRecentCategory] = m_recentFiles.size();
+            notifyCountsChanged({kRecentCategory});
+        }
+        if (m_recentReloadPending) {
+            m_recentReloadPending = false;
+            reloadRecentFiles();
+        }
+    });
+    watchRecentlyUsed();
+    reloadRecentFiles();
 
     m_changeDebounce.setSingleShot(true);
     m_changeDebounce.setInterval(260);
@@ -307,7 +363,8 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
         // that actually intersect a configured category root. When a mount's
         // parent changes, scan the configured root, not the whole parent tree.
         bool relevant = false;
-        for (auto it = m_mediaRoots.cbegin(); it != m_mediaRoots.cend(); ++it) {
+        const QHash<QString, QStringList> roots = indexedCategoryRoots();
+        for (auto it = roots.cbegin(); it != roots.cend(); ++it) {
             for (const QString &root : it.value()) {
                 if (withinCleanRoot(clean, root)) {
                     m_pendingRoots.insert(clean);
@@ -324,11 +381,12 @@ ContentIndexModel::ContentIndexModel(QObject *parent)
 
     connect(&m_loadWatcher, &QFutureWatcher<ScanResult>::finished, this, [this] {
         const ScanResult cached = m_loadWatcher.result();
-        // A live scan always wins over an older disk cache.
+        // Cached file lists never overwrite a live scan's index.
         if (m_scanRunning || cached.files.isEmpty())
             return;
         m_files = cached.files;
         m_counts = cached.counts;
+        m_counts[kRecentCategory] = m_recentFiles.size();
         notifyCountsChanged();
     });
     startIndexLoad();
@@ -387,6 +445,8 @@ ContentIndexModel::~ContentIndexModel()
     m_loadWatcher.disconnect(this);
     m_scanWatcher.disconnect(this);
     m_saveWatcher.disconnect(this);
+    m_recentReadWatcher.disconnect(this);
+    m_recentReadWatcher.waitForFinished();
 }
 
 int ContentIndexModel::rowCount(const QModelIndex &parent) const
@@ -428,13 +488,16 @@ QVariantList ContentIndexModel::filesForCategory(const QString &key) const
 {
     QVector<IndexedFile> matches;
     matches.reserve(countForCategory(key));
-    for (auto it = m_files.constBegin(); it != m_files.constEnd(); ++it) {
-        if (it->category == key)
+    const auto &source = key == kRecentCategory ? m_recentFiles : m_files;
+    for (auto it = source.constBegin(); it != source.constEnd(); ++it) {
+        if (key == kRecentCategory || it->category == key)
             matches.push_back(*it);
     }
-    std::sort(matches.begin(), matches.end(), [](const IndexedFile &a, const IndexedFile &b) {
-        if (a.modifiedMs != b.modifiedMs)
-            return a.modifiedMs > b.modifiedMs;
+    std::sort(matches.begin(), matches.end(), [key](const IndexedFile &a, const IndexedFile &b) {
+        const qint64 aTime = key == kRecentCategory ? a.receivedMs : a.modifiedMs;
+        const qint64 bTime = key == kRecentCategory ? b.receivedMs : b.modifiedMs;
+        if (aTime != bTime)
+            return aTime > bTime;
         return QString::localeAwareCompare(a.path, b.path) < 0;
     });
 
@@ -450,6 +513,8 @@ QVariantList ContentIndexModel::filesForCategory(const QString &key) const
         item.insert(QStringLiteral("suffix"), info.suffix().toLower());
         item.insert(QStringLiteral("size"), entry.size);
         item.insert(QStringLiteral("modifiedMs"), entry.modifiedMs);
+        if (key == kRecentCategory)
+            item.insert(QStringLiteral("recentMs"), entry.receivedMs);
         result.push_back(item);
     }
     return result;
@@ -465,8 +530,9 @@ int ContentIndexModel::countForCategory(const QString &key) const
 qint64 ContentIndexModel::bytesForCategory(const QString &key) const
 {
     qint64 total = 0;
-    for (auto it = m_files.constBegin(); it != m_files.constEnd(); ++it) {
-        if (it->category == key)
+    const auto &source = key == kRecentCategory ? m_recentFiles : m_files;
+    for (auto it = source.constBegin(); it != source.constEnd(); ++it) {
+        if (key == kRecentCategory || it->category == key)
             total += qMax<qint64>(0, it->size);
     }
     return total;
@@ -615,6 +681,36 @@ QSet<QString> ContentIndexModel::hiddenCategories() const
     return enabled;
 }
 
+void ContentIndexModel::removeFromRecent(const QStringList &urlsOrPaths)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    bool changed = false;
+    for (const QString &value : urlsOrPaths) {
+        const QUrl url = QUrl::fromUserInput(value);
+        const QString path = QDir::cleanPath(url.isLocalFile() ? url.toLocalFile() : value);
+        if (path.isEmpty() || !QDir::isAbsolutePath(path))
+            continue;
+        // Hide the current record; anything used after this moment shows again.
+        m_recentHidden.insert(path, qMax(now, m_recentFiles.value(path).receivedMs));
+        changed = m_recentFiles.remove(path) > 0 || changed;
+    }
+    if (changed) {
+        m_counts[kRecentCategory] = m_recentFiles.size();
+        notifyCountsChanged({kRecentCategory});
+    }
+    reloadRecentFiles(); // persists the hide in recent-history.json
+}
+
+void ContentIndexModel::setRecentWindowDays(int days)
+{
+    if (!validRecentWindow(days) || m_recentWindowDays == days)
+        return;
+    m_recentWindowDays = days;
+    QSettings().setValue(QStringLiteral("contentIndex/recentWindowDays"), days);
+    emit recentWindowDaysChanged();
+    refreshCategory(kRecentCategory);
+}
+
 bool ContentIndexModel::isKnownCategory(const QString &category) const
 {
     return allCategoryKeys().contains(category.trimmed().toLower());
@@ -750,6 +846,10 @@ void ContentIndexModel::refreshCategory(const QString &category)
     const QString key = category.trimmed().toLower();
     if (!isKnownCategory(key))
         return;
+    if (key == kRecentCategory) {
+        reloadRecentFiles(); // never a directory scan
+        return;
+    }
     if (m_scanRunning) {
         m_pendingCategoryRefreshes.insert(key);
         return;
@@ -1033,12 +1133,23 @@ void ContentIndexModel::loadCategorySettings()
             }
         }
     }
+    // When upgrading an existing profile, insert the new Recent card next
+    // to Private without disturbing the order of existing category cards.
+    const bool introducingRecent = !order.contains(kRecentCategory);
+    if (introducingRecent && !order.contains(QStringLiteral("private"))) {
+        for (const Category &category : std::as_const(m_categories))
+            if (category.key == kRecentCategory) sorted.push_back(category);
+    }
     for (const QString &key : order) {
         for (const Category &category : std::as_const(m_categories)) {
             if (category.key == key) {
                 sorted.push_back(category);
                 break;
             }
+        }
+        if (introducingRecent && key == QStringLiteral("private")) {
+            for (const Category &category : std::as_const(m_categories))
+                if (category.key == kRecentCategory) sorted.push_back(category);
         }
     }
     for (const Category &category : std::as_const(m_categories)) {
@@ -1153,6 +1264,8 @@ QString ContentIndexModel::mediaRootsSignature() const
     QStringList parts;
     const QSet<QString> hidden = hiddenCategories();
     for (const QString &category : allCategoryKeys()) {
+        if (category == kRecentCategory)
+            continue; // read from recently-used.xbel, never part of the scan cache
         QStringList roots = m_mediaRoots.value(category);
         QStringList rules = m_ignoreRules.value(category);
         std::sort(roots.begin(), roots.end(), [](const QString &a, const QString &b) {
@@ -1190,8 +1303,9 @@ ContentIndexModel::ScanResult ContentIndexModel::loadIndexFile(const QString &pa
     file.seek(0);
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     if (!doc.isObject() || doc.object().value(QStringLiteral("version")).toInt() != kIndexVersion
-            || doc.object().value(QStringLiteral("home")).toString() != homePath
-            || doc.object().value(QStringLiteral("mediaRootsSignature")).toString() != mediaRootsSignature)
+            || doc.object().value(QStringLiteral("home")).toString() != homePath)
+        return result;
+    if (doc.object().value(QStringLiteral("mediaRootsSignature")).toString() != mediaRootsSignature)
         return result;
     const QJsonArray items = doc.object().value(QStringLiteral("items")).toArray();
     result.files.reserve(items.size());
@@ -1202,7 +1316,9 @@ ContentIndexModel::ScanResult ContentIndexModel::loadIndexFile(const QString &pa
         item.category = object.value(QStringLiteral("category")).toString();
         item.size = qint64(object.value(QStringLiteral("size")).toDouble());
         item.modifiedMs = qint64(object.value(QStringLiteral("modifiedMs")).toDouble());
-        if (!item.path.isEmpty() && !item.category.isEmpty()) {
+        // Recent entries from older caches are ignored: Recent is read from
+        // recently-used.xbel on every start and never cached here.
+        if (!item.path.isEmpty() && !item.category.isEmpty() && item.category != kRecentCategory) {
             result.files.insert(item.path, item);
             result.counts[item.category] = result.counts.value(item.category, 0) + 1;
         }
@@ -1225,6 +1341,7 @@ void ContentIndexModel::loadIndex()
     const ScanResult cached = loadIndexFile(indexFilePath(), QDir::homePath(), mediaRootsSignature());
     m_files = cached.files;
     m_counts = cached.counts;
+    m_counts[kRecentCategory] = m_recentFiles.size();
 }
 
 void ContentIndexModel::saveIndex() const
@@ -1242,14 +1359,16 @@ void ContentIndexModel::saveIndex() const
     const QString rootsSignature = mediaRootsSignature();
     self->m_saveWatcher.setFuture(QtConcurrent::run(self->m_ioPool, [snapshot, outputPath, rootsSignature] {
         QJsonArray items;
-        for (auto it = snapshot.constBegin(); it != snapshot.constEnd(); ++it) {
+        const auto serialize = [&items](const IndexedFile &entry) {
             QJsonObject object;
-            object.insert(QStringLiteral("path"), it->path);
-            object.insert(QStringLiteral("category"), it->category);
-            object.insert(QStringLiteral("size"), double(it->size));
-            object.insert(QStringLiteral("modifiedMs"), double(it->modifiedMs));
+            object.insert(QStringLiteral("path"), entry.path);
+            object.insert(QStringLiteral("category"), entry.category);
+            object.insert(QStringLiteral("size"), double(entry.size));
+            object.insert(QStringLiteral("modifiedMs"), double(entry.modifiedMs));
             items.push_back(object);
-        }
+        };
+        for (auto it = snapshot.constBegin(); it != snapshot.constEnd(); ++it)
+            serialize(*it);
         QJsonObject root;
         root.insert(QStringLiteral("version"), kIndexVersion);
         root.insert(QStringLiteral("home"), QDir::homePath());
@@ -1300,7 +1419,7 @@ void ContentIndexModel::startFullScan(bool showProgress)
     m_pendingRoots.clear();
     const quint64 generation = ++m_scanGeneration;
     const QSet<QString> enabledHidden = hiddenCategories();
-    const QHash<QString, QStringList> categoryRoots = m_mediaRoots;
+    const QHash<QString, QStringList> categoryRoots = indexedCategoryRoots();
     const QHash<QString, QStringList> ignoreRules = m_ignoreRules;
 
     QSet<QString> candidates;
@@ -1524,13 +1643,225 @@ void ContentIndexModel::startPendingScan()
     m_activeSubtree = root;
     m_activeCategory.clear();
     const QSet<QString> enabledHidden = hiddenCategories();
-    const QHash<QString, QStringList> categoryRoots = m_mediaRoots;
+    const QHash<QString, QStringList> categoryRoots = indexedCategoryRoots();
     const QHash<QString, QStringList> ignoreRules = m_ignoreRules;
     m_scanCancel = std::make_shared<std::atomic_bool>(false);
     const auto cancel = m_scanCancel;
     m_scanWatcher.setFuture(QtConcurrent::run(m_scanPool, [root, enabledHidden, categoryRoots, ignoreRules, cancel] {
         return ContentIndexModel::scanTree(root, enabledHidden, categoryRoots, ignoreRules, {}, {}, cancel, true);
     }));
+}
+
+QHash<QString, QStringList> ContentIndexModel::indexedCategoryRoots() const
+{
+    QHash<QString, QStringList> roots = m_mediaRoots;
+    roots.remove(kRecentCategory);
+    return roots;
+}
+
+QString ContentIndexModel::recentlyUsedPath()
+{
+    // Same file GTK's GtkRecentManager and KF6 KRecentDocument use.
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+        + QStringLiteral("/recently-used.xbel");
+}
+
+bool ContentIndexModel::validRecentWindow(int days)
+{
+    return days == 0 || days == 1 || days == 7 || days == 30 || days == 90;
+}
+
+QHash<QString, ContentIndexModel::IndexedFile> ContentIndexModel::readRecentlyUsed(
+        const QString &xbelPath, const QStringList &roots, const QStringList &ignoreRules,
+        bool includeHidden, int windowDays, const QString &historyPath,
+        const QHash<QString, qint64> &newlyHidden)
+{
+    QHash<QString, IndexedFile> result;
+    constexpr qint64 kHistoryDays = 365;
+    constexpr int kHistoryLimit = 5000;
+    // path -> last use time: Lurviko's history merged with the shared list.
+    QHash<QString, qint64> lastUsed;
+    QHash<QString, qint64> hiddenAt; // removed from Recent by the user
+    if (!historyPath.isEmpty()) {
+        QFile history(historyPath);
+        if (history.open(QIODevice::ReadOnly)) {
+            const QJsonObject root = QJsonDocument::fromJson(history.readAll()).object();
+            const QJsonObject entries = root.value(QStringLiteral("entries")).toObject();
+            for (auto it = entries.constBegin(); it != entries.constEnd(); ++it)
+                lastUsed.insert(it.key(), qint64(it.value().toDouble()));
+            const QJsonObject hidden = root.value(QStringLiteral("hidden")).toObject();
+            for (auto it = hidden.constBegin(); it != hidden.constEnd(); ++it)
+                hiddenAt.insert(it.key(), qint64(it.value().toDouble()));
+        }
+    }
+    const QHash<QString, qint64> storedHistory = lastUsed;
+    const QHash<QString, qint64> storedHidden = hiddenAt;
+    for (auto it = newlyHidden.constBegin(); it != newlyHidden.constEnd(); ++it)
+        hiddenAt.insert(it.key(), qMax(hiddenAt.value(it.key()), it.value()));
+    QFile file(xbelPath);
+    const bool haveList = file.open(QIODevice::ReadOnly);
+    const PreparedIgnoreRules ignored(kRecentCategory, ignoreRules);
+    QStringList cleanRoots;
+    for (const QString &root : roots) {
+        const QString clean = normalizedPath(root);
+        if (!clean.isEmpty())
+            cleanRoots.push_back(clean);
+    }
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const auto stamp = [](const QXmlStreamAttributes &attributes, const char *name) -> qint64 {
+        const QDateTime value = QDateTime::fromString(attributes.value(QLatin1String(name)).toString(), Qt::ISODateWithMs);
+        return value.isValid() ? value.toMSecsSinceEpoch() : 0;
+    };
+    QXmlStreamReader xml;
+    if (haveList)
+        xml.setDevice(&file);
+    while (haveList && !xml.atEnd()) {
+        // <bookmark> entries only; nested <bookmark:applications> etc. live in
+        // the desktop-bookmarks namespace and are skipped.
+        if (xml.readNext() != QXmlStreamReader::StartElement || xml.name() != QLatin1String("bookmark")
+                || !xml.namespaceUri().isEmpty())
+            continue;
+        const QXmlStreamAttributes attributes = xml.attributes();
+        const QUrl url(attributes.value(QLatin1String("href")).toString());
+        if (!url.isLocalFile())
+            continue;
+        // The newest of added/modified/visited is when the file was last
+        // saved or opened by any application (browser downloads included).
+        const qint64 usedMs = qMax(stamp(attributes, "added"), qMax(stamp(attributes, "modified"), stamp(attributes, "visited")));
+        if (usedMs <= 0 || usedMs > nowMs + 60000)
+            continue;
+        const QString path = QDir::cleanPath(url.toLocalFile());
+        if (categoryForPath(path).isEmpty())
+            continue; // remember only supported file types
+        lastUsed.insert(path, qMax(lastUsed.value(path), usedMs));
+    }
+    // Forget deleted/moved files and entries beyond the longest window.
+    for (auto it = lastUsed.begin(); it != lastUsed.end();) {
+        if (nowMs - it.value() > kHistoryDays * kDayMs || !QFileInfo(it.key()).isFile())
+            it = lastUsed.erase(it);
+        else
+            ++it;
+    }
+    if (lastUsed.size() > kHistoryLimit) {
+        QList<qint64> times = lastUsed.values();
+        std::nth_element(times.begin(), times.begin() + (times.size() - kHistoryLimit), times.end());
+        const qint64 cutoff = times.at(times.size() - kHistoryLimit);
+        for (auto it = lastUsed.begin(); it != lastUsed.end();)
+            it = it.value() < cutoff ? lastUsed.erase(it) : std::next(it);
+    }
+    // A hide lasts until the file is used again (or disappears).
+    for (auto it = hiddenAt.begin(); it != hiddenAt.end();) {
+        const auto used = lastUsed.constFind(it.key());
+        if (used == lastUsed.cend() || used.value() > it.value())
+            it = hiddenAt.erase(it);
+        else
+            ++it;
+    }
+    if (!historyPath.isEmpty() && (lastUsed != storedHistory || hiddenAt != storedHidden)) {
+        QJsonObject entries;
+        for (auto it = lastUsed.constBegin(); it != lastUsed.constEnd(); ++it)
+            entries.insert(it.key(), double(it.value()));
+        QJsonObject hidden;
+        for (auto it = hiddenAt.constBegin(); it != hiddenAt.constEnd(); ++it)
+            hidden.insert(it.key(), double(it.value()));
+        QJsonObject root;
+        root.insert(QStringLiteral("version"), 1);
+        root.insert(QStringLiteral("entries"), entries);
+        root.insert(QStringLiteral("hidden"), hidden);
+        QDir().mkpath(QFileInfo(historyPath).absolutePath());
+        QSaveFile history(historyPath);
+        if (history.open(QIODevice::WriteOnly)) {
+            history.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+            history.commit();
+        }
+    }
+    for (auto entry = lastUsed.constBegin(); entry != lastUsed.constEnd(); ++entry) {
+        const QString &path = entry.key();
+        const qint64 usedMs = entry.value();
+        if (windowDays > 0 && nowMs - usedMs > windowDays * kDayMs)
+            continue;
+        if (hiddenAt.contains(path))
+            continue;
+        const QString category = categoryForPath(path);
+        // Media, documents and archives only: no AppImages, code or folders.
+        if (category.isEmpty() || category == QStringLiteral("appimage"))
+            continue;
+        QString root;
+        for (const QString &candidate : std::as_const(cleanRoots)) {
+            if (withinCleanRoot(path, candidate)) { root = candidate; break; }
+        }
+        if (root.isEmpty())
+            continue;
+        if (!includeHidden) {
+            const QStringList parts = path.mid(root.size()).split(QLatin1Char('/'), Qt::SkipEmptyParts);
+            if (std::any_of(parts.cbegin(), parts.cend(), [](const QString &part) { return part.startsWith(QLatin1Char('.')); }))
+                continue;
+        }
+        const QFileInfo info(path);
+        if (!info.isFile() || ignored.matchesFile(info))
+            continue; // deleted or moved since it was recorded
+        IndexedFile item;
+        item.path = path;
+        item.category = kRecentCategory;
+        item.size = info.size();
+        item.modifiedMs = info.lastModified().toMSecsSinceEpoch();
+        item.receivedMs = usedMs;
+        result.insert(path, item);
+    }
+    return result;
+}
+
+void ContentIndexModel::watchRecentlyUsed()
+{
+    // Applications rewrite the list atomically (new inode), so watch the
+    // directory too and re-arm the file watch after each replacement.
+    const QString path = recentlyUsedPath();
+    if (!m_recentWatcher) {
+        m_recentWatcher = new QFileSystemWatcher(this);
+        connect(m_recentWatcher, &QFileSystemWatcher::fileChanged, this, [this] { watchRecentlyUsed(); m_recentReload.start(); });
+        connect(m_recentWatcher, &QFileSystemWatcher::directoryChanged, this, [this, path](const QString &) {
+            if (!m_recentWatcher->files().contains(path) && QFileInfo::exists(path)) {
+                watchRecentlyUsed();
+                m_recentReload.start();
+            }
+        });
+    }
+    const QString directory = QFileInfo(path).absolutePath();
+    if (!m_recentWatcher->directories().contains(directory) && QFileInfo(directory).isDir())
+        m_recentWatcher->addPath(directory);
+    if (!m_recentWatcher->files().contains(path) && QFileInfo::exists(path))
+        m_recentWatcher->addPath(path);
+}
+
+void ContentIndexModel::reloadRecentFiles()
+{
+    if (m_recentReadWatcher.isRunning()) {
+        m_recentReloadPending = true;
+        return;
+    }
+    const QString path = recentlyUsedPath();
+    const QStringList roots = m_mediaRoots.value(kRecentCategory);
+    const QStringList rules = m_ignoreRules.value(kRecentCategory);
+    const bool includeHidden = categoryIndexHidden(kRecentCategory);
+    const int days = m_recentWindowDays;
+    const QString historyPath = QFileInfo(indexFilePath()).dir().filePath(QStringLiteral("recent-history.json"));
+    const QHash<QString, qint64> hidden = m_recentHidden;
+    m_recentReadWatcher.setFuture(QtConcurrent::run(m_ioPool, [path, roots, rules, includeHidden, days, historyPath, hidden] {
+        return ContentIndexModel::readRecentlyUsed(path, roots, rules, includeHidden, days, historyPath, hidden);
+    }));
+}
+
+bool ContentIndexModel::sameRecentFiles(const QHash<QString, IndexedFile> &a,
+                                         const QHash<QString, IndexedFile> &b)
+{
+    if (a.size() != b.size()) return false;
+    for (auto it = a.constBegin(); it != a.constEnd(); ++it) {
+        const auto other = b.constFind(it.key());
+        if (other == b.constEnd() || other->size != it->size
+                || other->modifiedMs != it->modifiedMs || other->receivedMs != it->receivedMs)
+            return false;
+    }
+    return true;
 }
 
 void ContentIndexModel::notifyCountsChanged(const QSet<QString> &changedCategories)
@@ -1559,6 +1890,7 @@ void ContentIndexModel::applyFullScan(const ScanResult &result)
     if (changed) {
         m_files = result.files;
         m_counts = result.counts;
+        m_counts[kRecentCategory] = m_recentFiles.size();
     }
     m_scanProcessedDirectories = result.directories.size();
     m_scanPendingDirectories = 0;
@@ -1641,9 +1973,8 @@ void ContentIndexModel::applySubtreeScan(const QString &rootPath, const ScanResu
             changedCategories.insert(it->category);
     }
     changed = changed || oldCount != result.files.size();
-    if (!changed) {
-            return;
-    }
+    if (!changed)
+        return;
 
     for (auto it = m_files.begin(); it != m_files.end();) {
         if (it.key() == rootPath || it.key().startsWith(prefix)) {
@@ -1677,13 +2008,20 @@ void ContentIndexModel::reportSizeChanges(const ScanResult &result, const QStrin
         changes.push_back(path);
         if (changes.size() >= 256) { sizes->observePaths(changes); changes.clear(); }
     };
+    bool known = false;
     for (auto it = m_files.cbegin(); it != m_files.cend(); ++it) {
         if (!category.isEmpty() && it->category != category) continue;
         if (!root.isEmpty() && it.key() != root && !it.key().startsWith(root + '/')) continue;
+        known = true;
         const auto fresh = result.files.constFind(it.key());
         if (fresh == result.files.cend() || fresh->size != it->size || fresh->modifiedMs != it->modifiedMs)
             report(it.key());
     }
+    // With no previous records for this scope (first build, a new category or
+    // root, a discarded cache) every file would look "new". Those are not
+    // filesystem changes, and flooding the size index with them used to mark
+    // every cached root for a full verification walk.
+    if (!known) return;
     for (auto it = result.files.cbegin(); it != result.files.cend(); ++it)
         if (!m_files.contains(it.key())) report(it.key());
     // These are hints about filesystem paths, not index removals. The size

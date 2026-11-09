@@ -16,6 +16,90 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QTimer>
+#include <QDateTime>
+#include <QStringList>
+
+// Qt NetworkAuth 6.9 renamed several OAuth2 APIs and added automatic token
+// refresh plus a configurable loopback host. These helpers keep one code path
+// for Qt 6.8 (Debian 13, Ubuntu 25.04, AppImage baseline) and Qt 6.9+.
+namespace {
+#if QT_VERSION < QT_VERSION_CHECK(6, 9, 0)
+// Qt 6.8 always advertises http://127.0.0.1:<port>/ as redirect URI.
+// Microsoft Entra matches the registered host literally (http://localhost).
+class LoopbackReplyHandler : public QOAuthHttpServerReplyHandler
+{
+public:
+    using QOAuthHttpServerReplyHandler::QOAuthHttpServerReplyHandler;
+    void setCallbackHost(const QString &host) { m_host = host; }
+    QString callback() const override
+    {
+        QUrl url(QOAuthHttpServerReplyHandler::callback());
+        if (!m_host.isEmpty())
+            url.setHost(m_host);
+        return url.toString(QUrl::EncodeDelimiters);
+    }
+
+private:
+    QString m_host;
+};
+#else
+using LoopbackReplyHandler = QOAuthHttpServerReplyHandler;
+#endif
+
+void setTokenEndpoint(QOAuth2AuthorizationCodeFlow *flow, const QUrl &url)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    flow->setTokenUrl(url);
+#else
+    flow->setAccessTokenUrl(url);
+#endif
+}
+
+void setScopes(QOAuth2AuthorizationCodeFlow *flow, const QSet<QByteArray> &scopes)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    flow->setRequestedScopeTokens(scopes);
+#else
+    QStringList values;
+    for (const auto &scope : scopes)
+        values.append(QString::fromUtf8(scope));
+    values.sort();
+    flow->setScope(values.join(QLatin1Char(' ')));
+#endif
+}
+
+void refreshSession(QOAuth2AuthorizationCodeFlow *flow)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    flow->refreshTokens();
+#else
+    flow->refreshAccessToken();
+#endif
+}
+
+void enableAutoRefresh(QOAuth2AuthorizationCodeFlow *flow)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    flow->setAutoRefresh(true);
+#else
+    // Refresh one minute before the access token expires (Google/Microsoft
+    // issue roughly one-hour tokens). The timer belongs to the flow object.
+    auto *timer = new QTimer(flow);
+    timer->setSingleShot(true);
+    QObject::connect(timer, &QTimer::timeout, flow, [flow] {
+        if (!flow->refreshToken().isEmpty())
+            flow->refreshAccessToken();
+    });
+    QObject::connect(flow, &QAbstractOAuth2::expirationAtChanged, timer, [timer](const QDateTime &expiration) {
+        timer->stop();
+        if (!expiration.isValid())
+            return;
+        const qint64 delay = QDateTime::currentDateTimeUtc().msecsTo(expiration) - 60 * 1000;
+        timer->start(int(qBound<qint64>(5 * 1000, delay, 24LL * 60 * 60 * 1000)));
+    });
+#endif
+}
+}
 
 CloudAuthManager::CloudAuthManager(QObject *parent)
     : QObject(parent)
@@ -338,7 +422,7 @@ void CloudAuthManager::restoreGoogleSession()
     m_google->setClientIdentifier(m_googleClientId);
     m_google->setClientIdentifierSharedKey(m_googleClientSecret);
     m_google->setRefreshToken(m_googleRefreshToken);
-    m_google->refreshTokens();
+    refreshSession(m_google);
 }
 
 void CloudAuthManager::restoreOneDriveSession()
@@ -350,7 +434,7 @@ void CloudAuthManager::restoreOneDriveSession()
     setOneDriveAuthState(QStringLiteral("restoring"));
     m_oneDrive->setClientIdentifier(m_oneDriveClientId);
     m_oneDrive->setRefreshToken(m_oneDriveRefreshToken);
-    m_oneDrive->refreshTokens();
+    refreshSession(m_oneDrive);
 }
 
 void CloudAuthManager::setupGoogle()
@@ -361,22 +445,23 @@ void CloudAuthManager::setupGoogle()
         m_googleReply->deleteLater();
 
     m_google = new QOAuth2AuthorizationCodeFlow(this);
-    m_googleReply = new QOAuthHttpServerReplyHandler(this);
+    auto *googleReply = new LoopbackReplyHandler(this);
+    m_googleReply = googleReply;
     // Google recommends the loopback IP flow for Linux/Windows/macOS desktop apps.
     // Use the literal IPv4 loopback host and root callback path for maximum compatibility.
-    m_googleReply->setCallbackHost(QStringLiteral("127.0.0.1"));
+    googleReply->setCallbackHost(QStringLiteral("127.0.0.1"));
     m_googleReply->setCallbackPath(QStringLiteral("/"));
     m_googleReply->setCallbackText(QStringLiteral("Lurviko: Google Drive authorization completed. You can close this tab and return to Lurviko."));
 
     m_google->setAuthorizationUrl(QUrl(QStringLiteral("https://accounts.google.com/o/oauth2/v2/auth")));
-    m_google->setTokenUrl(QUrl(QStringLiteral("https://oauth2.googleapis.com/token")));
+    setTokenEndpoint(m_google, QUrl(QStringLiteral("https://oauth2.googleapis.com/token")));
     m_google->setClientIdentifier(m_googleClientId);
     m_google->setClientIdentifierSharedKey(m_googleClientSecret);
-    m_google->setRequestedScopeTokens(QSet<QByteArray>{
+    setScopes(m_google, QSet<QByteArray>{
         QByteArrayLiteral("https://www.googleapis.com/auth/drive")
     });
     m_google->setPkceMethod(QOAuth2AuthorizationCodeFlow::PkceMethod::S256);
-    m_google->setAutoRefresh(true);
+    enableAutoRefresh(m_google);
     m_google->setReplyHandler(m_googleReply);
     if (!m_googleRefreshToken.isEmpty())
         m_google->setRefreshToken(m_googleRefreshToken);
@@ -459,7 +544,11 @@ void CloudAuthManager::setupGoogle()
             emit authError(QStringLiteral("google"), message);
         }
     });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     connect(m_google, &QAbstractOAuth2::serverReportedErrorOccurred, this,
+#else
+    connect(m_google, &QAbstractOAuth2::error, this,
+#endif
             [this](const QString &error, const QString &description, const QUrl &) {
         if (handleGoogleRestoreFailure())
             return;
@@ -481,24 +570,25 @@ void CloudAuthManager::setupOneDrive()
         m_oneDriveReply->deleteLater();
 
     m_oneDrive = new QOAuth2AuthorizationCodeFlow(this);
-    m_oneDriveReply = new QOAuthHttpServerReplyHandler(this);
+    auto *oneDriveReply = new LoopbackReplyHandler(this);
+    m_oneDriveReply = oneDriveReply;
     // Microsoft desktop apps using the system browser should register http://localhost.
     // Entra ignores the ephemeral localhost port while matching the redirect URI.
-    m_oneDriveReply->setCallbackHost(QStringLiteral("localhost"));
+    oneDriveReply->setCallbackHost(QStringLiteral("localhost"));
     m_oneDriveReply->setCallbackPath(QStringLiteral("/"));
     m_oneDriveReply->setCallbackText(QStringLiteral("Lurviko: OneDrive authorization completed. You can close this tab and return to Lurviko."));
 
     const QString tenant = m_oneDriveTenant.trimmed().isEmpty() ? QStringLiteral("common") : m_oneDriveTenant.trimmed();
     const QString authorityBase = QStringLiteral("https://login.microsoftonline.com/%1/oauth2/v2.0").arg(tenant);
     m_oneDrive->setAuthorizationUrl(QUrl(authorityBase + QStringLiteral("/authorize")));
-    m_oneDrive->setTokenUrl(QUrl(authorityBase + QStringLiteral("/token")));
+    setTokenEndpoint(m_oneDrive, QUrl(authorityBase + QStringLiteral("/token")));
     m_oneDrive->setClientIdentifier(m_oneDriveClientId);
-    m_oneDrive->setRequestedScopeTokens(QSet<QByteArray>{
+    setScopes(m_oneDrive, QSet<QByteArray>{
         QByteArrayLiteral("Files.ReadWrite"), QByteArrayLiteral("offline_access"),
         QByteArrayLiteral("User.Read"), QByteArrayLiteral("openid")
     });
     m_oneDrive->setPkceMethod(QOAuth2AuthorizationCodeFlow::PkceMethod::S256);
-    m_oneDrive->setAutoRefresh(true);
+    enableAutoRefresh(m_oneDrive);
     m_oneDrive->setReplyHandler(m_oneDriveReply);
     if (!m_oneDriveRefreshToken.isEmpty())
         m_oneDrive->setRefreshToken(m_oneDriveRefreshToken);
@@ -570,7 +660,11 @@ void CloudAuthManager::setupOneDrive()
             emit authError(QStringLiteral("onedrive"), message);
         }
     });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     connect(m_oneDrive, &QAbstractOAuth2::serverReportedErrorOccurred, this,
+#else
+    connect(m_oneDrive, &QAbstractOAuth2::error, this,
+#endif
             [this](const QString &error, const QString &description, const QUrl &) {
         if (handleOneDriveRestoreFailure())
             return;

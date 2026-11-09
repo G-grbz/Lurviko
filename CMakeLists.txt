@@ -1,7 +1,23 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.5.2 LANGUAGES CXX)
+project(Lurviko VERSION 1.6.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
+
+# Distribution packages and AppImages must be self-contained and must not
+# install a global FileManager1 service that collides with other file managers.
+option(LURVIKO_PACKAGED_BUILD "Exclude developer source-tree runtime fallback" OFF)
+option(LURVIKO_INSTALL_SYSTEM_FILEMANAGER1 "Install system-wide FileManager1 D-Bus activation service" ON)
+option(LURVIKO_ENABLE_NATIVE_PACKAGES "Enable native DEB/RPM generation through CPack" OFF)
+# Prebuilt distribution packages must survive the distribution's Qt minor
+# updates. qmlcachegen's ahead-of-time C++ links Qt's private QML API, which is
+# only stable within one Qt minor release (Fedora even versions those symbols,
+# e.g. Qt_6.10_PRIVATE_API). Bytecode-only caches are re-validated at runtime.
+option(LURVIKO_QML_BYTECODE_ONLY "Compile QML to bytecode only (no private Qt API; for prebuilt packages)" OFF)
+if(LURVIKO_PACKAGED_BUILD)
+    set(LURVIKO_EMBED_SOURCE_DIR "")
+else()
+    set(LURVIKO_EMBED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
 
 # Desktop launcher profile ----------------------------------------------------
 # Select with e.g. -DLURVIKO_LAUNCH_PROFILE=nvidia
@@ -62,7 +78,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.9 REQUIRED COMPONENTS Quick QuickControls2 Network NetworkAuth Concurrent Widgets DBus Multimedia Sql)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Network NetworkAuth Concurrent Widgets DBus Multimedia Sql)
 find_package(OpenSSL 3.2 REQUIRED COMPONENTS Crypto)
 find_package(KF6KIO REQUIRED)
 find_package(KF6Service REQUIRED)
@@ -76,8 +92,15 @@ target_link_libraries(lurviko-access-helper PRIVATE Qt6::Core Qt6::Concurrent)
 file(RELATIVE_PATH LURVIKO_ACCESS_HELPER_RELATIVE_PATH
     "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBEXECDIR}/lurviko-access-helper")
 
-qt_standard_project_setup(REQUIRES 6.9)
-qt_policy(SET QTP0004 NEW)
+qt_standard_project_setup(REQUIRES 6.8)
+# QTP0004 generates "prefer" qmldirs for QML subdirectories. On Qt 6.8 they
+# make files that also `import Lurviko.App` fail with "module is ambiguous"
+# (the same qrc path is reported twice) and the window never loads.
+if(Qt6_VERSION VERSION_LESS 6.9)
+    qt_policy(SET QTP0004 OLD)
+else()
+    qt_policy(SET QTP0004 NEW)
+endif()
 
 set_source_files_properties(qml/AppTheme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/BrowserSession.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -96,6 +119,8 @@ qt_add_executable(lurviko
     src/popupdismissfilter.h
     src/storagemodel.cpp
     src/storagemodel.h
+    src/diskimagemanager.cpp
+    src/diskimagemanager.h
     src/millernavigationmodel.cpp
     src/millernavigationmodel.h
     src/directorymodel.cpp
@@ -116,6 +141,10 @@ qt_add_executable(lurviko
     src/iconreference.h
     src/contentindexmodel.cpp
     src/contentindexmodel.h
+    src/kdeconnectrecent.cpp
+    src/folderstats.cpp
+    src/kdeconnectrecent.h
+    src/folderstats.h
     src/languagemanager.cpp
     src/languagemanager.h
     src/keyboardshortcutmanager.cpp
@@ -190,7 +219,7 @@ qt_add_executable(lurviko
 
 target_compile_definitions(lurviko PRIVATE
     LURVIKO_ACCESS_HELPER_RELATIVE_PATH="${LURVIKO_ACCESS_HELPER_RELATIVE_PATH}"
-    LURVIKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    LURVIKO_SOURCE_DIR="${LURVIKO_EMBED_SOURCE_DIR}"
     LURVIKO_VERSION="${PROJECT_VERSION}"
 )
 
@@ -210,6 +239,13 @@ foreach(LURVIKO_ICON_FILE IN LISTS LURVIKO_ICON_FILES)
     # variant shares its physical filename but needs its own resource name.
     if(LURVIKO_ICON_FILE STREQUAL "assets/icons/color/favorite.svg")
         set(LURVIKO_ICON_NAME "favorite-color.svg")
+    endif()
+    # Single-colour twins of colour artwork (symbolic/drive.svg next to
+    # color/drive.svg) are published as drive-symbolic.svg. The sorted list
+    # puts color/ before symbolic/, so the colour icon keeps the plain name.
+    if(LURVIKO_ICON_NAME IN_LIST LURVIKO_ICON_NAMES AND LURVIKO_ICON_FILE MATCHES "^assets/icons/symbolic/")
+        get_filename_component(LURVIKO_ICON_STEM "${LURVIKO_ICON_FILE}" NAME_WE)
+        set(LURVIKO_ICON_NAME "${LURVIKO_ICON_STEM}-symbolic.svg")
     endif()
     if(LURVIKO_ICON_NAME IN_LIST LURVIKO_ICON_NAMES)
         message(FATAL_ERROR "Duplicate bundled icon filename: ${LURVIKO_ICON_NAME}")
@@ -245,6 +281,9 @@ foreach(LURVIKO_ICON_FILE IN LISTS LURVIKO_COLOR_ICON_FILES)
 endforeach()
 qt_add_resources(lurviko folder_rasters PREFIX "/qt/qml/Lurviko/App" FILES ${LURVIKO_FOLDER_RASTERS})
 
+if(LURVIKO_QML_BYTECODE_ONLY)
+    set_property(TARGET lurviko APPEND PROPERTY QT_QMLCACHEGEN_ARGUMENTS --only-bytecode)
+endif()
 qt_add_qml_module(lurviko
     URI Lurviko.App
     VERSION 1.0
@@ -301,6 +340,7 @@ qt_add_qml_module(lurviko
         qml/components/GMenuItem.qml
         qml/components/GMenuSeparator.qml
         qml/components/TextEditMenu.qml
+        qml/components/EditorContextMenu.qml
         qml/components/CloudCard.qml
         qml/components/DiskCard.qml
         qml/components/QuickAccessTile.qml
@@ -373,7 +413,14 @@ install(TARGETS lurviko
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/lurviko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES packaging/org.freedesktop.FileManager1.service DESTINATION ${CMAKE_INSTALL_DATADIR}/dbus-1/services)
+if(LURVIKO_INSTALL_SYSTEM_FILEMANAGER1)
+    install(FILES packaging/org.freedesktop.FileManager1.service DESTINATION ${CMAKE_INSTALL_DATADIR}/dbus-1/services)
+else()
+    # Opt-in template only. Native distribution packages must never own the
+    # generic org.freedesktop.FileManager1.service filename system-wide.
+    install(FILES packaging/org.freedesktop.FileManager1.service
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/dbus-1/services)
+endif()
 install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
 install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
 install(FILES assets/LICENSE-FontAwesome.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
@@ -387,3 +434,8 @@ install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurvik
         PATTERN "model-revisions.json"
         PATTERN "LICENSE"
 )
+
+# Off by default: the upstream source build and AUR recipe are unchanged.
+if(LURVIKO_ENABLE_NATIVE_PACKAGES)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/packaging/native/CPack.cmake)
+endif()

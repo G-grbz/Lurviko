@@ -102,9 +102,7 @@ PrivateVaultManager::PrivateVaultManager(QObject *parent, bool importWorker)
     // second KWallet session. It receives only detached encrypted state.
     if (m_importWorker)
         return;
-    connect(this, &PrivateVaultManager::operationFinished, this, [] {
-        if (auto* sizes = DirectorySizeIndex::existing()) sizes->invalidateAllCached();
-    });
+    connect(this, &PrivateVaultManager::operationFinished, this, [this] { flushSizeHints(); });
     ensureStorageLayout();
     VaultSecurity::cleanupStaleRuntimeDirectories(VaultSecurity::runtimeCleanupParents(
         QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation)));
@@ -265,6 +263,32 @@ void PrivateVaultManager::publishTransferProgress(bool force)
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers);
 }
 
+void PrivateVaultManager::addSizeHints(const QVariantList &urls)
+{
+    for (const auto &value : urls) {
+        const QUrl url = value.toUrl().isValid() ? value.toUrl() : QUrl::fromUserInput(value.toString());
+        if (url.isLocalFile() && m_sizeHintPaths.size() < 4096)
+            m_sizeHintPaths.append(QDir::cleanPath(url.toLocalFile()));
+    }
+}
+
+void PrivateVaultManager::flushSizeHints()
+{
+    // Vault work only changes the vault's own storage, import sources (removed
+    // originals) and an export target. Invalidating every cached size made each
+    // unlock or import trigger a verification walk of whole trees, e.g. Home.
+    auto* sizes = DirectorySizeIndex::existing();
+    if (!sizes) {
+        m_sizeHintPaths.clear();
+        return;
+    }
+    auto paths = m_sizeHintPaths;
+    m_sizeHintPaths.clear();
+    paths.append(vaultRoot());
+    paths.removeDuplicates();
+    QMetaObject::invokeMethod(sizes, [sizes, paths] { sizes->observePaths(paths); }, Qt::QueuedConnection);
+}
+
 void PrivateVaultManager::finishTransfer(bool success, const QString &message)
 {
     if (!m_transferActive)
@@ -276,8 +300,7 @@ void PrivateVaultManager::finishTransfer(bool success, const QString &message)
     // A running import suspends the automatic lock countdown so that the key
     // cannot disappear halfway through encryption or before saving the index.
     startAutoLockCountdown();
-    if (auto* sizes = DirectorySizeIndex::existing())
-        QMetaObject::invokeMethod(sizes, &DirectorySizeIndex::invalidateAllCached, Qt::QueuedConnection);
+    flushSizeHints();
     emit transferFinished(success, message);
 }
 
@@ -1669,11 +1692,16 @@ QString PrivateVaultManager::iconForItem(const QJsonObject &item) const
         return QStringLiteral("folder.svg");
     const QString mime = item.value(QStringLiteral("mime")).toString();
     if (mime.startsWith(QStringLiteral("image/"))) return QStringLiteral("image.svg");
-    if (mime.startsWith(QStringLiteral("video/"))) return QStringLiteral("video.svg");
-    if (mime.startsWith(QStringLiteral("audio/"))) return QStringLiteral("audio.svg");
+    if (mime.startsWith(QStringLiteral("video/"))) return QStringLiteral("file-video.svg");
+    if (mime.startsWith(QStringLiteral("audio/")) && !mime.contains(QStringLiteral("mpegurl"))
+            && !mime.contains(QStringLiteral("scpls")))
+        return QStringLiteral("file-audio.svg");
     if (mime == QStringLiteral("application/pdf")) return QStringLiteral("pdf.svg");
-    if (mime.contains(QStringLiteral("zip")) || mime.contains(QStringLiteral("tar")) || mime.contains(QStringLiteral("archive")))
-        return QStringLiteral("archive.svg");
+    if (mime.contains(QStringLiteral("zip")) || mime.contains(QStringLiteral("tar")) || mime.contains(QStringLiteral("archive"))
+            || mime.contains(QStringLiteral("rar")) || mime.contains(QStringLiteral("7z"))
+            || mime.contains(QStringLiteral("compressed")) || mime.contains(QStringLiteral("xz"))
+            || mime.contains(QStringLiteral("bzip")) || mime.contains(QStringLiteral("zstd")))
+        return QStringLiteral("file-archive.svg");
     return QStringLiteral("file.svg");
 }
 
@@ -2107,6 +2135,7 @@ bool PrivateVaultManager::importUrls(const QVariantList &urls)
 {
     if (!m_unlocked || m_busy || urls.isEmpty())
         return false;
+    addSizeHints(urls);
     clearStatus();
     setBusy(true);
     const QJsonObject originalManifest = m_manifest;
@@ -2148,6 +2177,8 @@ bool PrivateVaultManager::importUrls(const QVariantList &urls)
 
 bool PrivateVaultManager::importToReceived(const QVariantList &urls, bool removeOriginals)
 {
+    if (!m_importWorker && removeOriginals)
+        addSizeHints(urls);
     if (!m_importWorker) {
         if (!m_unlocked || m_busy || m_masterKey.size() != KeySize) {
             setError(securityMessage("Unlock the vault before sending files.",
@@ -2526,6 +2557,7 @@ bool PrivateVaultManager::exportItem(const QString &objectId, const QString &tar
 {
     if (!m_unlocked || m_busy)
         return false;
+    addSizeHints({targetFolder});
     const QJsonObject item = itemById(objectId);
     if (item.isEmpty())
         return false;

@@ -1018,8 +1018,11 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
                 entry.url = QUrl::fromLocalFile(path);
             entry.localPath = path;
             entry.size = item.value(QStringLiteral("size")).toLongLong();
-            entry.modified = QDateTime::fromMSecsSinceEpoch(
-                item.value(QStringLiteral("modifiedMs")).toLongLong());
+            // Recent is ordered/grouped by the original download receipt
+            // time. Editing or moving the file never makes it a new arrival.
+            const qint64 received = item.value(QStringLiteral("recentMs")).toLongLong();
+            entry.modified = QDateTime::fromMSecsSinceEpoch(received > 0
+                ? received : item.value(QStringLiteral("modifiedMs")).toLongLong());
             // All category:/ rows originate from the filesystem index, which
             // already verified the file type and cached its modification time,
             // size and suffix. Re-statting each document/archive/music file
@@ -1030,6 +1033,10 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
             // metadata, if needed for an individual item, belongs in an
             // on-demand detail operation rather than this all-items loop.
             entry.created = entry.modified;
+            if (received > 0)
+                entry.previewRevision = QString::number(
+                    item.value(QStringLiteral("modifiedMs")).toLongLong())
+                    + QLatin1Char('-') + QString::number(entry.size);
             // Creation-date sorting needs actual birth times; only pay for
             // these extra stats when the user requests that sort order.
             if (needCreationDates) {

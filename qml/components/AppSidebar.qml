@@ -21,7 +21,10 @@ Rectangle {
     property Item controlsHost: null
     readonly property real controlsHeight: footerControls.implicitHeight
     readonly property alias footer: footerControls
-    readonly property url favoritesSectionIcon: AppTheme.icon("favorite-color.svg")
+    readonly property url favoritesSectionIcon: AppTheme.sidebarGlyph("favorite-color.svg") || AppTheme.icon("favorite-color.svg")
+    // Compact sidebars (icons <= 24 px) use the home glyph for Places: there is
+    // no single-colour folder twin, and the Places rail badge opens home anyway.
+    readonly property string placesSectionIcon: AppTheme.sidebarCompact && !AppTheme.useSystemIcons ? "home-folder.svg" : "folder.svg"
     // Track native Button.onClicked so overlay recovery cannot double-toggle.
     property int miniMusicNativeClicks: 0
     property int miniMusicClicksAtPress: 0
@@ -33,6 +36,27 @@ Rectangle {
         + (controlsHost ? 28 : footerControls.implicitHeight + 57)
     function openWatermarkEditor() { watermarkDialog.open() }
     function showsSection(key) { return sectionFilter.length === 0 || sectionFilter === key }
+    // file:///home/user/x -> ~/x for display; the real location is kept for navigation.
+    function prettyLocation(location) {
+        let value = String(location || "")
+        if (value.indexOf("file://") === 0) {
+            value = value.replace(/^file:\/\//, "")
+            try { value = decodeURIComponent(value) } catch (error) { }
+        }
+        const home = String(sidebar.homePath || "").replace(/^file:\/\//, "").replace(/\/+$/, "")
+        if (home.length > 1 && (value === home || value.indexOf(home + "/") === 0))
+            value = "~" + value.substring(home.length)
+        return value
+    }
+    // Storage models without formatBytes (lightweight stand-ins) still get a readable size.
+    function formatCapacity(bytes) {
+        if (sidebar.storageModel && typeof sidebar.storageModel.formatBytes === "function")
+            return sidebar.storageModel.formatBytes(bytes)
+        const units = ["B", "KB", "MB", "GB", "TB"]
+        let value = Number(bytes || 0), unit = 0
+        while (value >= 1024 && unit < units.length - 1) { value /= 1024; ++unit }
+        return (unit === 0 ? value : value.toFixed(1)) + " " + units[unit]
+    }
     onSectionFilterChanged: {
         sidebarWheelScrollAnimation.stop()
         wheelBurstLastMs = 0
@@ -260,6 +284,15 @@ Rectangle {
     }
 
     function sidebarModeIcon(iconName, customSystemName) {
+        // Small sidebar icons (<= 24 px) always use the default icon, even
+        // when a custom one is saved: custom artwork is kept for larger sizes.
+        if (AppTheme.sidebarCompact) {
+            const glyph = AppTheme.sidebarGlyph(iconName)
+            if (glyph.length)
+                return glyph
+            return AppTheme.useSystemIcons ? AppTheme.systemIcon(AppTheme.systemIconName(iconName))
+                                           : AppTheme.icon(iconName)
+        }
         const local = AppTheme.localIconSource(customSystemName)
         if (local.length)
             return local
@@ -272,6 +305,12 @@ Rectangle {
     }
 
     function sidebarFavoriteIcon(iconName, fallbackName) {
+        // Small sidebar icons (<= 24 px): every favorite shows the default
+        // favorite glyph; chosen icons return above 24 px.
+        if (AppTheme.sidebarCompact)
+            return AppTheme.sidebarGlyph("favorite-color.svg")
+                || (AppTheme.useSystemIcons ? AppTheme.systemIcon(AppTheme.systemIconName("favorite.svg"))
+                                            : AppTheme.icon("favorite.svg"))
         const raw = String(iconName || "").trim()
         const fallback = String(fallbackName || "folder.svg").trim() || "folder.svg"
         const local = AppTheme.localIconSource(raw)
@@ -285,13 +324,15 @@ Rectangle {
     }
 
     function sidebarItemIcon(item) {
-        const local = AppTheme.localIconSource(savedSidebarIcon(item.key))
+        // Custom icons only above 24 px; see sidebarModeIcon().
+        const local = AppTheme.sidebarCompact ? "" : AppTheme.localIconSource(savedSidebarIcon(item.key))
         if (local.length)
             return local
         if (item.key === "trash") {
             if (!AppTheme.useSystemIcons)
-                return AppTheme.icon(sidebar.trashHasItems ? "trashfull.svg" : "trash.svg")
-            const trashCustom = savedSidebarIcon(item.key)
+                return AppTheme.sidebarGlyph(sidebar.trashHasItems ? "trashfull.svg" : "trash.svg")
+                    || AppTheme.icon(sidebar.trashHasItems ? "trashfull.svg" : "trash.svg")
+            const trashCustom = AppTheme.sidebarCompact ? "" : savedSidebarIcon(item.key)
             // Pass the observable property so the URL binding refreshes when
             // full/empty changes; reading it only inside C++ hides that dependency.
             return AppTheme.systemIcon(trashMonitor.iconName(trashCustom, sidebar.trashHasItems))
@@ -463,7 +504,7 @@ Rectangle {
             ColumnLayout {
                 width: Math.max(0, navScroll.availableWidth)
                 id: navigationSections
-                spacing: 11
+                spacing: AppTheme.sidebarCompact ? 7 : 11
 
                 ColumnLayout {
                     objectName: "sidebarSection_places"
@@ -477,7 +518,7 @@ Rectangle {
                         spacing: 8
                         CrispIcon {
                             objectName: "sidebarPlacesHeadingIcon"
-                            source: sidebar.sidebarModeIcon("folder.svg", "")
+                            source: sidebar.sidebarModeIcon(sidebar.placesSectionIcon, "")
                             Layout.preferredWidth: AppTheme.sidebarSectionIconPixels
                             Layout.preferredHeight: AppTheme.sidebarSectionIconPixels
                         }
@@ -616,7 +657,7 @@ Rectangle {
                                     required property string favoriteIcon
                                     Layout.fillWidth: true
                                     title: name
-                                    subtitle: location
+                                    subtitle: sidebar.prettyLocation(location)
                                     iconSource: sidebar.sidebarFavoriteIcon(favoriteIcon, "folder.svg")
                                     iconScale: 0.86
                                     removable: true
@@ -793,6 +834,77 @@ Rectangle {
                     }
                 }
 
+                // Mounted disk images. The whole section (heading included) is
+                // hidden while nothing is mounted.
+                ColumnLayout {
+                    objectName: "sidebarSection_images"
+                    Layout.fillWidth: true
+                    spacing: 2
+                    visible: sidebar.showsSection("images") && DiskImages.count > 0
+                    RowLayout {
+                        objectName: "sidebarImagesHeading"
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: 2
+                        spacing: 8
+                        CrispIcon {
+                            objectName: "sidebarImagesHeadingIcon"
+                            source: sidebar.sidebarModeIcon("drive-optical.svg", "")
+                            Layout.preferredWidth: AppTheme.sidebarSectionIconPixels
+                            Layout.preferredHeight: AppTheme.sidebarSectionIconPixels
+                        }
+                        GText {
+                            objectName: "sidebarImagesHeadingText"
+                            typographyRole: "sidebar"
+                            text: lang.t("mounted_images").toUpperCase()
+                            baseColor: AppTheme.textFaint
+                            basePixelSize: AppTheme.sidebarSectionFontPixels
+                            baseFontWeight: Font.Normal
+                            baseLetterSpacing: AppTheme.sidebarSectionLetterSpacing
+                        }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border; opacity: 0.58 }
+                    }
+
+                    Repeater {
+                        model: DiskImages
+                        delegate: SidebarItem {
+                            onInteractionChanged: function(active) {
+                                sidebar.activeItemInteractions = Math.max(0, sidebar.activeItemInteractions + (active ? 1 : -1))
+                            }
+                            required property int index
+                            required property string name
+                            required property string imagePath
+                            required property string rootPath
+                            required property real totalBytes
+                            required property real freeBytes
+                            required property real usedRatio
+                            required property bool busy
+                            Layout.fillWidth: true
+                            title: name
+                            subtitle: rootPath
+                            capacityText: busy ? lang.t("unmounting")
+                                          : totalBytes > 0
+                                            ? (lang.language === "tr" ? "Boş " : "Free ")
+                                              + sidebar.formatCapacity(freeBytes)
+                                              + " / " + sidebar.formatCapacity(totalBytes)
+                                            : (lang.language === "tr" ? "Kapasite bilinmiyor" : "Capacity unavailable")
+                            showUsageBar: !busy && totalBytes > 0
+                            usageRatio: usedRatio
+                            iconSource: sidebar.sidebarModeIcon("drive-optical.svg", "")
+                            dragUrl: rootPath
+                            dragIcon: "drive.svg"
+                            active: sidebar.locationEquals(sidebar.currentLocation, rootPath)
+                            removable: !busy
+                            removeText: lang.t("unmount")
+                            onClicked: {
+                                sidebar.selectedKey = "image:" + rootPath
+                                sidebar.locationRequested(rootPath)
+                            }
+                            onMiddleClicked: sidebar.locationNewTabRequested(rootPath)
+                            onRemoveRequested: DiskImages.unmountImage(imagePath)
+                        }
+                    }
+                }
+
             }
         }
 
@@ -811,42 +923,57 @@ Rectangle {
             objectName: "sidebarFooterControls"
             parent: sidebar.controlsHost || footerSlot
             anchors.fill: parent
-            columns: sidebar.controlsHost ? 1 : 6
+            columns: sidebar.controlsHost ? 1 : 5
             columnSpacing: 7
-            rowSpacing: 4
-            GButton {
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                id: trButton
-                objectName: "sidebarTurkishButton"
-                text: "TR"
-                implicitWidth: sidebar.controlsHost ? 36 : 40
-                implicitHeight: 32
-                Layout.fillWidth: !!sidebar.controlsHost
-                padding: 4
-                onClicked: lang.language = "tr"
-                background: Rectangle {
-                    radius: 9
-                    color: lang.language === "tr" ? AppTheme.accentSoft : "transparent"
-                    border.color: lang.language === "tr" ? AppTheme.accentBorder : AppTheme.border
+            rowSpacing: 8
+            // TR / EN switch styled like the theme switch: horizontal in the
+            // full sidebar, vertical in the compact rail. Each half selects
+            // its language; the knob shows the current one.
+            Rectangle {
+                id: languageSwitch
+                objectName: "sidebarLanguageSwitch"
+                readonly property bool stacked: !!sidebar.controlsHost
+                readonly property bool turkish: lang.language === "tr"
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+                Layout.preferredWidth: stacked ? 32 : 64
+                Layout.preferredHeight: stacked ? 58 : 32
+                radius: stacked ? width / 2 : height / 2
+                color: AppTheme.surfaceRaised
+                border.color: AppTheme.border
+
+                LanguageHalf {
+                    id: trButton
+                    objectName: "sidebarTurkishButton"
+                    code: "tr"; text: "TR"
+                    x: 0; y: 0
+                    width: languageSwitch.stacked ? languageSwitch.width : languageSwitch.width / 2
+                    height: languageSwitch.stacked ? languageSwitch.height / 2 : languageSwitch.height
                 }
-                contentItem: GText { text: trButton.text; baseColor: AppTheme.text; basePixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-            }
-            GButton {
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                id: enButton
-                objectName: "sidebarEnglishButton"
-                text: "EN"
-                implicitWidth: sidebar.controlsHost ? 36 : 40
-                implicitHeight: 32
-                Layout.fillWidth: !!sidebar.controlsHost
-                padding: 4
-                onClicked: lang.language = "en"
-                background: Rectangle {
-                    radius: 9
-                    color: lang.language === "en" ? AppTheme.accentSoft : "transparent"
-                    border.color: lang.language === "en" ? AppTheme.accentBorder : AppTheme.border
+                LanguageHalf {
+                    id: enButton
+                    objectName: "sidebarEnglishButton"
+                    code: "en"; text: "EN"
+                    x: languageSwitch.stacked ? 0 : languageSwitch.width / 2
+                    y: languageSwitch.stacked ? languageSwitch.height / 2 : 0
+                    width: trButton.width
+                    height: trButton.height
                 }
-                contentItem: GText { text: enButton.text; baseColor: AppTheme.text; basePixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                Rectangle {
+                    // The knob takes no input: clicks reach the half below it.
+                    width: 26; height: 26; radius: 13
+                    x: languageSwitch.stacked ? 3 : (languageSwitch.turkish ? 3 : languageSwitch.width - width - 3)
+                    y: !languageSwitch.stacked ? 3 : (languageSwitch.turkish ? 3 : languageSwitch.height - height - 3)
+                    color: AppTheme.accent
+                    Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    GText {
+                        anchors.centerIn: parent
+                        text: languageSwitch.turkish ? "TR" : "EN"
+                        baseColor: "white"
+                        basePixelSize: 10
+                        baseFontWeight: Font.DemiBold
+                    }
+                }
             }
             GButton {
                 id: miniMusicButton
@@ -854,7 +981,7 @@ Rectangle {
                 visible: sidebar.musicPlayer && sidebar.musicPlayer.opened
                 implicitWidth: visible ? 32 : 0
                 implicitHeight: 32
-                Layout.fillWidth: !!sidebar.controlsHost
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 onClicked: {
                     sidebar.miniMusicNativeClicks += 1
                     sidebar.toggleMiniMusicPopup()
@@ -888,9 +1015,9 @@ Rectangle {
                 enabled: !AppTheme.useQtTheme
                 opacity: enabled ? 1 : 0.45
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                Layout.preferredWidth: sidebar.controlsHost ? 36 : 68
+                Layout.preferredWidth: sidebar.controlsHost ? 32 : 64
                 Layout.preferredHeight: 32
-                Layout.fillWidth: !!sidebar.controlsHost
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 onClicked: AppTheme.toggle()
                 GToolTip {
                     text: AppTheme.useQtTheme
@@ -901,8 +1028,9 @@ Rectangle {
                 }
                 background: Rectangle {
                     radius: height / 2
-                    color: AppTheme.dark ? AppTheme.accentSoft : AppTheme.surfaceRaised
-                    border.color: AppTheme.dark ? AppTheme.accentBorder : AppTheme.borderStrong
+                    color: themeSwitch.hovered && sidebar.controlsHost ? AppTheme.surfaceHover
+                           : (AppTheme.dark ? AppTheme.accentSoft : AppTheme.surfaceRaised)
+                    border.color: AppTheme.dark ? AppTheme.accentBorder : AppTheme.border
                     Behavior on color { ColorAnimation { duration: 140 } }
 
                     CrispIcon {
@@ -946,16 +1074,22 @@ Rectangle {
                     CrispIcon {
                         visible: !!sidebar.controlsHost
                         anchors.centerIn: parent
-                        width: 18; height: 18
+                        width: 16; height: 16
                         source: AppTheme.icon(AppTheme.dark ? "moon.svg" : "sun.svg")
                     }
                 }
             }
             GToolButton {
+                id: restoreButton
                 objectName: "sidebarRestoreButton"
-                implicitWidth: sidebar.controlsHost ? 36 : 28
+                implicitWidth: 32
                 implicitHeight: 32
-                Layout.fillWidth: !!sidebar.controlsHost
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+                background: Rectangle {
+                    radius: height / 2
+                    color: restoreButton.hovered ? AppTheme.surfaceHover : "transparent"
+                    border.color: restoreButton.hovered ? AppTheme.border : "transparent"
+                }
                 // This button switches between full and compact navigation;
                 // it never hides the sidebar or the file browser.
                 Accessible.name: sidebar.drawerPresentation
@@ -974,6 +1108,24 @@ Rectangle {
                 GToolTip { text: parent.Accessible.name }
             }
         }
+
+    component LanguageHalf: GButton {
+        id: half
+        required property string code
+        padding: 0
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        onClicked: lang.language = half.code
+        background: Item { }
+        contentItem: Item {
+            GText {
+                anchors.centerIn: parent
+                text: half.text
+                baseColor: AppTheme.textMuted
+                basePixelSize: 10
+                opacity: half.hovered ? 1 : 0.75
+            }
+        }
+    }
 
     // The Discover card is shared across destinations, so the same editor is
     // available whether Home, a folder, a category or the vault is active.
@@ -1466,7 +1618,15 @@ Rectangle {
             }
             Item { Layout.fillHeight: true }
             RowLayout {
-                Layout.alignment: Qt.AlignRight
+                Layout.fillWidth: true
+                GModalButton {
+                    objectName: "favoriteIconRestoreDefault"
+                    // The icon a favorite gets when it is added (FavoritesModel default).
+                    enabled: sidebar.editingFavoriteIcon !== "favorite.svg"
+                    text: lang.language === "tr" ? "Varsayılana dön" : "Restore default"
+                    onClicked: sidebar.editingFavoriteIcon = "favorite.svg"
+                }
+                Item { Layout.fillWidth: true }
                 GModalButton { text: lang.t("cancel"); onClicked: favoriteEditPopup.close() }
                 GModalButton {
                     primary: true
@@ -1631,8 +1791,10 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 GModalButton {
-                    visible: AppTheme.useSystemIcons
-                    text: lang.language === "tr" ? "Otomatik ikona dön" : "Use automatic icon"
+                    objectName: "sidebarIconRestoreDefault"
+                    // Bundled and system icon modes alike; only useful once customised.
+                    enabled: sidebar.savedSidebarIcon(sidebar.sidebarPropertiesKey).length > 0
+                    text: lang.language === "tr" ? "Varsayılana dön" : "Restore default"
                     onClicked: {
                         sidebar.setSavedSidebarIcon(sidebar.sidebarPropertiesKey, "")
                         if (sidebar.sidebarPropertiesHasFileInfo && sidebarFileProperties.directory) {

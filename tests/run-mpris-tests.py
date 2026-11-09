@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import session_cleanup  # stops services the private D-Bus session activated
 
 repo = Path(__file__).resolve().parents[1]
 build = repo / "build"
@@ -37,5 +38,5 @@ with tempfile.TemporaryDirectory(prefix="gfile-mpris-tests-") as temporary:
     if environment["QT_QPA_PLATFORM"] == "offscreen":
         environment["QT_QUICK_BACKEND"] = "software"
     # A private bus keeps the test away from the user's currently playing media.
-    subprocess.run(["dbus-run-session", "--", str(root / "mpris-tests")],
+    session_cleanup.run(["dbus-run-session", "--", str(root / "mpris-tests")],
                    env=environment, check=True, timeout=90)

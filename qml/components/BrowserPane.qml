@@ -372,6 +372,9 @@ Rectangle {
     readonly property real mediaGalleryStorageShare: mediaGalleryHomeBytes > 0
                                                     ? Math.min(1.0, mediaGalleryBytes / mediaGalleryHomeBytes) : 0
     readonly property bool currentLocationIsLocal: directory.location.startsWith("/") || directory.location.startsWith("file://")
+    // admin:/// is the same local filesystem: the footer size uses the shared
+    // size index for it too. Local-only actions keep using currentLocationIsLocal.
+    readonly property bool currentLocationHasLocalSize: currentLocationIsLocal || directory.location.startsWith("admin:")
     readonly property bool selectedCanCreateLink: selectedCount === 1
                                                  && selectedUrl.startsWith("file://")
                                                  && selectedLocalPath.startsWith("/")
@@ -380,6 +383,15 @@ Rectangle {
     readonly property bool currentLocationIsHome: root.normalizedLocalPath(directory.location) === root.normalizedLocalPath(root.homeLocation)
     readonly property bool selectedIsArchive: selectedCount === 1 && !selectedIsDir && selectedLocalPath.length > 0
                                               && isArchive(selectedName, selectedMimeType)
+    // Disk images (ISO, IMG, SquashFS, qcow2, ...): "Mount" when detached,
+    // "Unmount" when attached. Only local files can be attached.
+    readonly property bool selectedCanMountImage: selectedCount === 1 && !selectedIsDir
+                                                  && selectedLocalPath.length > 0
+                                                  && DiskImages.canMount(selectedLocalPath)
+    readonly property bool selectedImageMounted: (DiskImages.mountedPaths,
+                                                  selectedCanMountImage && DiskImages.isMounted(selectedLocalPath))
+    readonly property bool selectedImageBusy: (DiskImages.busyPaths,
+                                               selectedCanMountImage && DiskImages.isBusy(selectedLocalPath))
     readonly property bool renameShortcutAllowed: !locationEditMode && !locationField.activeFocus
                                                   && !searchInput.activeFocus
                                                   && !renameInput.activeFocus
@@ -1204,13 +1216,42 @@ Rectangle {
                                        ? AppTheme.folderSystemIcon(itemName, systemIconName)
                                        : (systemIconName || "text-x-generic"))
         if (isDir) return AppTheme.bundledFolderIcon(itemName, identity)
-        const s = suffix.toLowerCase()
+        const s = String(suffix || "").toLowerCase()
+        const mime = String(mimeType || "").toLowerCase()
         if (["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "svgz"].indexOf(s) >= 0) return AppTheme.icon("image.svg")
-        if (["mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"].indexOf(s) >= 0) return AppTheme.icon("video.svg")
-        if (["mp3", "flac", "wav", "m4a", "ogg"].indexOf(s) >= 0) return AppTheme.icon("audio.svg")
-        if (root.isArchive(itemName || ("item." + s), mimeType)) return AppTheme.icon("archive.svg")
+        if (root.isVideoFile(s, mime)) return AppTheme.icon("file-video.svg")
+        if (root.isAudioFile(s, mime)) return AppTheme.icon("file-audio.svg")
+        if (root.isArchive(itemName || ("item." + s), mimeType)) return AppTheme.icon("file-archive.svg")
         if (s === "pdf") return AppTheme.icon("pdf.svg")
         return AppTheme.icon("file.svg")
+    }
+
+    readonly property var videoFileSuffixes: [
+        "mp4", "m4v", "mkv", "webm", "avi", "mov", "qt", "wmv", "asf", "flv", "f4v", "mpeg", "mpg", "mpe",
+        "m2v", "m1v", "mpv", "mts", "m2ts", "vob", "ogv", "3gp", "3g2", "divx", "xvid", "rm", "rmvb",
+        "mxf", "dv", "y4m", "ivf", "h264", "h265", "hevc", "264", "265", "av1", "nut", "dvr-ms", "wtv", "amv"
+    ]
+    readonly property var audioFileSuffixes: [
+        "mp3", "mp2", "flac", "wav", "wave", "m4a", "m4b", "m4r", "aac", "ogg", "oga", "opus", "spx",
+        "wma", "alac", "aiff", "aif", "aifc", "ape", "wv", "mka", "mpc", "ac3", "eac3", "dts", "thd",
+        "amr", "awb", "au", "snd", "mid", "midi", "kar", "caf", "dsf", "dff", "tta", "ra", "weba", "tak",
+        "gsm", "voc", "8svx", "w64", "rf64"
+    ]
+
+    function isVideoFile(suffix, mime) {
+        if (mime.indexOf("video/") === 0) return true
+        // ".ts" is also TypeScript and Qt Linguist; trust it as video only
+        // when no text/application type says otherwise.
+        if (suffix === "ts")
+            return mime.length === 0 || mime.indexOf("video/") === 0
+        return root.videoFileSuffixes.indexOf(suffix) >= 0
+    }
+
+    function isAudioFile(suffix, mime) {
+        // Playlists carry audio/* types but are text files, not audio.
+        if (mime.indexOf("audio/") === 0 && mime.indexOf("mpegurl") < 0 && mime.indexOf("scpls") < 0)
+            return true
+        return root.audioFileSuffixes.indexOf(suffix) >= 0
     }
 
     function linkBadgeText(type) {
@@ -1973,8 +2014,12 @@ Rectangle {
         return false
     }
 
+    // Number of files (not folders) behind the current Open With context.
+    property int openWithFileCount: 0
+
     function prepareOpenWithSelection() {
         const urls = openWithSelectionUrls()
+        root.openWithFileCount = urls.length
         // A previous context menu may still be exiting after a right click on
         // another file. Derive the application from the *new* primary file and
         // its known MIME type before showing any menu, not from last menu state.
@@ -3001,6 +3046,14 @@ Rectangle {
         return normalized
     }
 
+    function sizeLocation(location) {
+        const value = String(location || "")
+        if (!value.startsWith("admin:"))
+            return value
+        const path = value.replace(/^admin:(\/\/)?/, "")
+        return path.length ? path : "/"
+    }
+
     function locationsEquivalent(first, second) {
         return comparableLocation(first) === comparableLocation(second)
     }
@@ -3806,7 +3859,7 @@ Rectangle {
     property bool directorySizeNeedsRefresh: true
     function scheduleDirectorySize(changed) {
         if (changed) directorySizeNeedsRefresh = true
-        if (!root.visible || !root.currentLocationIsLocal || directory.searchActive) {
+        if (!root.visible || !root.currentLocationHasLocalSize || directory.searchActive) {
             directorySizeTimer.stop()
             if (directoryProperties.calculating || directoryProperties.statsReady) directoryProperties.cancelInspection()
             return
@@ -3815,14 +3868,14 @@ Rectangle {
         // only while another visible consumer still requests its directory.
         if (directoryProperties.calculating) return
         if ((!directoryProperties.statsReady
-                || !root.locationsEquivalent(directoryProperties.path, directory.location))
+                || !root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location)))
                 && directoryProperties.restoreCachedStats(directory.location)) {
             directorySizeNeedsRefresh = directoryProperties.calculating
             directorySizeTimer.stop()
             return
         }
         if (!directorySizeNeedsRefresh && directoryProperties.statsReady
-                && root.locationsEquivalent(directoryProperties.path, directory.location)) return
+                && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))) return
         directorySizeTimer.restart()
     }
     Timer {
@@ -3830,7 +3883,7 @@ Rectangle {
         interval: 350
         onTriggered: {
             if (fileOps.ioBusy) { directorySizeTimer.restart(); return }
-            if (root.visible && root.currentLocationIsLocal && !directory.searchActive && !directory.loading) {
+            if (root.visible && root.currentLocationHasLocalSize && !directory.searchActive && !directory.loading) {
                 root.directorySizeNeedsRefresh = false
                 directoryProperties.inspectCached(directory.location)
             }
@@ -6146,9 +6199,11 @@ Rectangle {
                                 id: mediaSourceHeader
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 56
-                                radius: 12
-                                color: AppTheme.surface
-                                border.color: AppTheme.border
+                                // Match Music: the category title belongs to the workspace,
+                                // not to a second rounded panel inside it.
+                                radius: 0
+                                color: "transparent"
+                                border.width: 0
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -6453,23 +6508,22 @@ Rectangle {
                     anchors.top: parent.top
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    height: visible ? (root.categoryKey === "music" ? 44 + musicTabs.implicitHeight + 58 : 42) : 0
-                    // Music already sits inside the workspace surface. A second
-                    // rounded panel here created the nested-card appearance.
-                    radius: root.categoryKey === "music" ? 0 : 12
-                    color: root.categoryKey === "music" ? "transparent" : AppTheme.surface
-                    border.width: root.categoryKey === "music" ? 0 : 1
-                    border.color: AppTheme.border
+                    height: visible ? (root.categoryKey === "music" ? 44 + musicTabs.implicitHeight + 58 : 44) : 0
+                    // All Discover categories use the same integrated,
+                    // borderless header treatment as the Music library.
+                    radius: 0
+                    color: "transparent"
+                    border.width: 0
 
                     RowLayout {
                         id: categoryHeaderTopRow
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.topMargin: root.categoryKey === "music" ? 6 : 0
+                        anchors.topMargin: 6
                         anchors.leftMargin: 14
                         anchors.rightMargin: 14
-                        height: root.categoryKey === "music" ? 38 : 40
+                        height: 38
                         spacing: 10
                         Rectangle {
                             Layout.preferredWidth: 34
@@ -6506,9 +6560,13 @@ Rectangle {
                                 text: root.categoryKey === "music"
                                       ? ((root.musicLibraryTracks || []).length
                                          + (lang.language === "tr" ? " parça" : " tracks"))
-                                      : (lang.language === "tr"
-                                         ? "Bu kategori yalnızca seçtiğin dizinleri ve kuralları indeksler"
-                                         : "This category indexes only its selected folders and rules")
+                                      : (root.categoryKey === "recent"
+                                         ? (lang.language === "tr"
+                                            ? "Kaynağı doğrulanan indirmeler · Yerel kopyalar hariç"
+                                            : "Verified downloads · Local copies excluded")
+                                         : (lang.language === "tr"
+                                            ? "Bu kategori yalnızca seçtiğin dizinleri ve kuralları indeksler"
+                                            : "This category indexes only its selected folders and rules"))
                                 baseColor: AppTheme.textMuted
                                 basePixelSize: 8
                                 elide: Text.ElideRight
@@ -6891,17 +6949,17 @@ Rectangle {
                     }
                     GText {
                         objectName: "directorySizeLabel"
-                        visible: root.currentLocationIsLocal && !directory.searchActive
+                        visible: root.currentLocationHasLocalSize && !directory.searchActive
                         readonly property bool ready: directoryProperties.statsReady
                                 && directoryProperties.statsState !== "cached"
-                                && root.locationsEquivalent(directoryProperties.path, directory.location)
+                                && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))
                         readonly property bool cached: directoryProperties.statsAvailable && !ready
-                                && root.locationsEquivalent(directoryProperties.path, directory.location)
+                                && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))
                         readonly property bool failed: !directoryProperties.statsAvailable
                                 && (directoryProperties.statsState === "unavailable" || directoryProperties.statsState === "error"
                                     || directoryProperties.statsState === "excluded")
                         readonly property bool partial: !ready && directoryProperties.calculating
-                                && root.locationsEquivalent(directoryProperties.path, directory.location)
+                                && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))
                                 && (directoryProperties.fileCount > 0 || directoryProperties.folderCount > 0)
                         text: "· " + (ready ? root.formatTransferBytes(directoryProperties.totalSize)
                                           : cached ? "≈ " + root.formatTransferBytes(directoryProperties.totalSize)
@@ -7575,12 +7633,21 @@ Rectangle {
         GMenuItem {
             objectName: "contextOpenDefaultAction"
             readonly property bool singleFile: root.selectedCount === 1 && !root.selectedIsDir
-            preserveIconColors: singleFile
-            icon.source: singleFile
+            // Several files and no folders: each still opens with its own
+            // type's default application (openSelected -> openDefaults).
+            readonly property bool filesOnly: root.selectedCount > 1 && root.openWithFileCount === root.selectedCount
+            readonly property bool sharedApplication: (singleFile || filesOnly)
+                && openWithModel.defaultApplicationName.length > 0
+            readonly property var applicationNames: openWithModel.defaultApplicationNames || []
+            preserveIconColors: singleFile || sharedApplication
+            icon.source: singleFile || sharedApplication
                 ? AppTheme.systemIcon(openWithModel.defaultApplicationIconName || root.selectedSystemIconName || "application-x-executable")
                 : AppTheme.icon("menu-open.svg")
-            text: singleFile && openWithModel.defaultApplicationName.length > 0
+            text: sharedApplication
                 ? (lang.language === "tr" ? openWithModel.defaultApplicationName + " ile aç" : "Open with " + openWithModel.defaultApplicationName)
+                : filesOnly && applicationNames.length > 1
+                ? (lang.language === "tr" ? "Varsayılan uygulamalarla aç" : "Open with default applications")
+                  + " (" + applicationNames.slice(0, 2).join(", ") + (applicationNames.length > 2 ? ", …" : "") + ")"
                 : lang.t("open")
             shortcutAction: "open"
             visible: !root.isCategoryLocation || root.selectedCount <= 1
@@ -7601,6 +7668,20 @@ Rectangle {
             icon.source: AppTheme.icon("viewer-folder.svg")
             text: lang.language === "tr" ? "Yolu yeni sekmede aç" : "Open Containing Folder in New Tab"
             onTriggered: root.openSelectedContainingFolder(true)
+        }
+        GMenuItem {
+            // Hides the entries from Recent Files only; the files stay on disk.
+            objectName: "contextRemoveFromRecent"
+            visible: root.categoryKey === "recent" && root.selectedCount > 0 && root.contentIndexModel !== null
+            icon.source: AppTheme.icon("close-ui.svg")
+            text: lang.language === "tr"
+                  ? (root.selectedCount > 1 ? root.selectedCount + " öğeyi Son Dosyalardan kaldır" : "Son Dosyalardan kaldır")
+                  : (root.selectedCount > 1 ? "Remove " + root.selectedCount + " items from Recent Files" : "Remove from Recent Files")
+            onTriggered: {
+                const urls = root.selectedUrls.slice()
+                root.clearSelection()
+                root.contentIndexModel.removeFromRecent(urls)
+            }
         }
 
         GMenuItem {
@@ -7956,7 +8037,10 @@ Rectangle {
             icon.name: "system-run"
             title: lang.t("application_actions")
             enabled: serviceMenuModel.count > 0 && root.submenuActivationReady
-            visible: serviceMenuModel.count > 0
+            // Hide only the parent menu's entry. Binding Popup.visible would OPEN
+            // this submenu by itself whenever the next selection's actions load
+            // (e.g. right-clicking another file while a menu is still open).
+            menuEntryVisible: serviceMenuModel.count > 0
 
             Instantiator {
                 model: serviceMenuModel
@@ -8037,6 +8121,25 @@ Rectangle {
                 root.pendingArchiveUrl = root.selectedUrl
                 archiveDestinationDialog.open()
             }
+        }
+
+        GMenuSeparator { visible: root.selectedCanMountImage }
+
+        GMenuItem {
+            objectName: "mountDiskImageAction"
+            visible: root.selectedCanMountImage && !root.selectedImageMounted
+            enabled: !root.selectedImageBusy
+            icon.source: AppTheme.icon("drive.svg")
+            text: root.selectedImageBusy ? lang.t("image_mounting") : lang.t("mount_image")
+            onTriggered: DiskImages.mountImage(root.selectedLocalPath)
+        }
+        GMenuItem {
+            objectName: "unmountDiskImageAction"
+            visible: root.selectedCanMountImage && root.selectedImageMounted
+            enabled: !root.selectedImageBusy
+            icon.source: AppTheme.icon("drive.svg")
+            text: root.selectedImageBusy ? lang.t("image_unmounting") : lang.t("unmount_image")
+            onTriggered: DiskImages.unmountImage(root.selectedLocalPath)
         }
 
         GMenuItem {
@@ -8706,7 +8809,7 @@ Rectangle {
                                     GTextField {
                                         id: permissionModeInput
                                         persistentSelection: true
-                                        ContextMenu.menu: propertiesTextEditMenu
+                                        EditorContextMenu { menu: propertiesTextEditMenu }
                                         objectName: "permissionModeInput"
                                         Layout.preferredWidth: 76
                                         implicitHeight: 34
@@ -9048,7 +9151,7 @@ Rectangle {
                                 id: linkTargetInput
                                 objectName: "propertyLinkTargetInput"
                                 persistentSelection: true
-                                ContextMenu.menu: propertiesTextEditMenu
+                                EditorContextMenu { menu: propertiesTextEditMenu }
                                 Layout.fillWidth: true
                                 placeholderText: fileProperties.linkType === "hardlink"
                                                  ? (lang.language === "tr" ? "Yeni bağlanacak dosyanın yolu" : "Path of the file to link to")

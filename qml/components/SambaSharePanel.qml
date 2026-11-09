@@ -97,7 +97,7 @@ Rectangle {
                 readOnly: true
                 text: 'sudo smbpasswd -a "$USER"'
                 persistentSelection: true
-                ContextMenu.menu: panel.textEditMenu
+                EditorContextMenu { menu: panel.textEditMenu }
                 Accessible.name: panel.tr ? "Samba hesabı oluşturma komutu" : "Samba account setup command"
             }
             GComboBox {
@@ -127,7 +127,7 @@ Rectangle {
                     placeholderText: panel.tr ? "Örneğin Belgeler" : "For example Documents"
                     selectByMouse: true
                     persistentSelection: true
-                    ContextMenu.menu: panel.textEditMenu
+                    EditorContextMenu { menu: panel.textEditMenu }
                 }
                 GText { text: panel.tr ? "Açıklama" : "Comment"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
                 GTextField {
@@ -138,7 +138,7 @@ Rectangle {
                     maximumLength: 256
                     selectByMouse: true
                     persistentSelection: true
-                    ContextMenu.menu: panel.textEditMenu
+                    EditorContextMenu { menu: panel.textEditMenu }
                 }
             }
             GCheckBox {
@@ -164,7 +164,7 @@ Rectangle {
                 readOnly: true
                 selectByMouse: true
                 persistentSelection: true
-                ContextMenu.menu: panel.textEditMenu
+                EditorContextMenu { menu: panel.textEditMenu }
             }
             RowLayout {
                 Layout.fillWidth: true

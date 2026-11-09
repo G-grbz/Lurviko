@@ -18,6 +18,9 @@ class StorageModel : public QAbstractListModel
     Q_PROPERTY(qint64 totalBytes READ totalBytes NOTIFY totalsChanged)
     Q_PROPERTY(qint64 usedBytes READ usedBytes NOTIFY totalsChanged)
     Q_PROPERTY(qint64 freeBytes READ freeBytes NOTIFY totalsChanged)
+    // Used space per disk for the overview bar: the largest five disks, then
+    // one merged "other" entry ({name, usedBytes, totalBytes, other}).
+    Q_PROPERTY(QVariantList usageSegments READ usageSegments NOTIFY totalsChanged)
     Q_PROPERTY(QVariantList favoriteItems READ favoriteItems NOTIFY favoritesChanged)
 
 public:
@@ -52,6 +55,7 @@ public:
     qint64 totalBytes() const { return m_totalBytes; }
     qint64 usedBytes() const { return m_usedBytes; }
     qint64 freeBytes() const { return m_freeBytes; }
+    QVariantList usageSegments() const;
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void toggleMount(const QString &device);

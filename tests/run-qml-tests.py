@@ -4,6 +4,7 @@
 Requires a Ninja build in build/. LURVIKO_TEST_BUILD_DIR selects another tree.
 """
 import os
+import shutil
 import json
 from pathlib import Path
 import shlex
@@ -15,6 +16,7 @@ import wave
 import errno
 import time
 from contextlib import contextmanager
+import session_cleanup  # stops services the private D-Bus session activated
 
 
 @contextmanager
@@ -106,6 +108,23 @@ print('usershare_acl=Everyone:R,')
 print('guest_ok=n')
 ''')
     fake_net.chmod(0o755)
+    # Disk images the developer happens to have mounted (loop/nbd devices)
+    # must not leak into the sidebar and change its layout. Hide them from
+    # lsblk; real disks stay visible for the storage views.
+    real_lsblk = shutil.which("lsblk")
+    if real_lsblk:
+        fake_lsblk = helpers / "lsblk"
+        fake_lsblk.write_text(f'''#!/usr/bin/python3
+import json, subprocess, sys
+result = subprocess.run([{real_lsblk!r}] + sys.argv[1:], capture_output=True, text=True)
+if "--json" not in sys.argv[1:] or result.returncode != 0:
+    sys.stdout.write(result.stdout); sys.stderr.write(result.stderr); raise SystemExit(result.returncode)
+data = json.loads(result.stdout or "{{}}")
+data["blockdevices"] = [d for d in data.get("blockdevices", [])
+                        if d.get("type") != "loop" and not str(d.get("name", "")).startswith("nbd")]
+print(json.dumps(data))
+''')
+        fake_lsblk.chmod(0o755)
     main = (repo / "src/main.cpp").read_text()
     includes = "\n".join(line for line in main.splitlines() if line.startswith('#include "'))
     registration = main[main.index("    qmlRegisterType<StorageModel>"):
@@ -332,8 +351,18 @@ int main(int argc, char **argv) {
         XDG_CONFIG_HOME=str(root / "config"), XDG_DATA_HOME=str(root / "data"),
         XDG_CACHE_HOME=str(root / "cache"),
         PULSE_SERVER="unix:" + str(root / "no-pulse-server"))
+    # Same public resource names as CMakeLists.txt: color/favorite.svg is
+    # favorite-color.svg, and a symbolic twin of colour artwork gets -symbolic.
+    color_names = {path.name for path in (repo / "assets/icons").glob("color/**/*.svg")
+                   if path != repo / "assets/icons/color/favorite.svg"}
+    def public_icon_name(path):
+        if path == repo / "assets/icons/color/favorite.svg":
+            return "favorite-color.svg"
+        if path.parent.name == "symbolic" and path.name in color_names:
+            return path.stem + "-symbolic.svg"
+        return path.name
     environment["LURVIKO_QML_BUNDLED_ICONS"] = ";".join(sorted(
-        "favorite-color.svg" if path == repo / "assets/icons/color/favorite.svg" else path.name
+        public_icon_name(path)
         for pattern in ("png/*.png", "symbolic/*.svg", "color/**/*.svg")
         for path in (repo / "assets/icons").glob(pattern)))
     if os.environ.get("LURVIKO_QML_AUDIO_DEVICE") == "1":
@@ -344,7 +373,7 @@ int main(int argc, char **argv) {
     test_input = repo / "tests/qml" / os.environ.get("LURVIKO_QML_TEST_FILE", "")
     # KIO menu/rename jobs require a session bus even without a desktop. Keep
     # it private to the isolated test settings rather than using the host bus.
-    result = subprocess.run(["dbus-run-session", "--", str(root / "qml-tests"), "-input", str(test_input),
+    result = session_cleanup.run(["dbus-run-session", "--", str(root / "qml-tests"), "-input", str(test_input),
                             "-o", f"{report},txt"], env=environment, timeout=240)
     output = report.read_text() if report.exists() else "No test report was produced."
     if os.environ.get("LURVIKO_QML_TEST_REPORT"):

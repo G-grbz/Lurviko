@@ -9,8 +9,17 @@ GMenu {
     property var langManager: null
 
     function label(key, fallback) {
-        return langManager ? langManager.t(key) : fallback
+        if (!langManager)
+            return fallback
+        // t() is a C++ call without change notification; reading `language`
+        // makes every label binding re-evaluate when the language switches.
+        const language = langManager.language
+        return language !== undefined ? langManager.t(key) : fallback
     }
+
+    // Password fields never offer their contents to the clipboard.
+    readonly property bool concealed: !!editor && editor.echoMode !== undefined
+                                      && editor.echoMode !== TextInput.Normal
 
     function hasSelection() {
         return editor && editor.selectedText !== undefined && editor.selectedText.length > 0
@@ -32,14 +41,14 @@ GMenu {
 
     GMenuItem {
         text: control.label("cut", "Cut") + "    Ctrl+X"
-        enabled: control.editor && !control.editor.readOnly && control.hasSelection()
-        onTriggered: if (control.editor) control.editor.cut()
+        enabled: control.editor && !control.editor.readOnly && !control.concealed && control.hasSelection()
+        onTriggered: if (control.editor && !control.concealed) control.editor.cut()
     }
 
     GMenuItem {
         text: control.label("copy", "Copy") + "    Ctrl+C"
-        enabled: control.hasSelection()
-        onTriggered: if (control.editor) control.editor.copy()
+        enabled: !control.concealed && control.hasSelection()
+        onTriggered: if (control.editor && !control.concealed) control.editor.copy()
     }
 
     GMenuItem {

@@ -12,18 +12,25 @@ Item {
     required property var storageModel
     property var musicPlayer: null
     property string currentLocation: ""
+    // Window y the icon-only rail centres its Discover button on (the Home
+    // clock); -1 keeps it at the top of the rail.
+    property real discoverAlignY: -1
     property bool unifiedSurface: false
     readonly property bool collapsed: AppTheme.sidebarAutoHide
     readonly property bool iconOnly: AppTheme.sidebarRailMode === "icon"
     readonly property bool titleOnly: AppTheme.sidebarRailMode === "title"
     readonly property var sections: {
         const tr = lang.language === "tr"
-        return [
-            {key: "places", title: tr ? "Konumlar" : "Places", icon: "folder.svg"},
+        const list = [
+            {key: "places", title: tr ? "Konumlar" : "Places", icon: sidebarPanel.placesSectionIcon},
             {key: "favorites", title: tr ? "Favoriler" : "Favorites", icon: "favorite.svg"},
             {key: "network", title: tr ? "Ağ" : "Network", icon: "network.svg"},
             {key: "disks", title: tr ? "Diskler" : "Devices", icon: "drive.svg"}
         ]
+        // Mounted disk images get their own entry only while one is mounted.
+        if (DiskImages.count > 0)
+            list.push({key: "images", title: tr ? "İmajlar" : "Images", icon: "drive-optical.svg"})
+        return list
     }
     readonly property real railWidth: iconOnly ? 54 : Math.max(54, Math.ceil(railFont.height) + 20)
     readonly property real badgeLength: iconOnly ? 44 : Math.max(76,
@@ -83,7 +90,7 @@ Item {
             CrispIcon {
                 objectName: "sidebarBadgeIcon_" + railBadge.badgeKey
                 visible: !shell.titleOnly
-                source: railBadge.artwork
+                source: railBadge.selected ? AppTheme.recolorGlyph(railBadge.artwork, AppTheme.accent) : railBadge.artwork
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: (parent.height - badgeContent.groupHeight) / 2
                 width: shell.iconOnly ? 28 : 18
@@ -155,6 +162,14 @@ Item {
         }
     }
     Connections {
+        target: DiskImages
+        function onCountChanged() {
+            // The last image was unmounted while its flyout was open.
+            if (DiskImages.count === 0 && shell.activeSection === "images")
+                shell.closeSection()
+        }
+    }
+    Connections {
         target: sidebarPanel
         function onInteractionActiveChanged() {
             if (!sidebarPanel.interactionActive && shell.hoveredSection.length
@@ -188,10 +203,24 @@ Item {
         width: Math.max(0, shell.width - 16)
         height: Math.max(0, railControls.y - y - 8)
         readonly property real dockGap: 6
+        // Discover stays pinned at the top in every rail mode, like in the
+        // full sidebar; in icon mode only the section badges form the dock,
+        // centred in the space left below it.
+        readonly property real discoverHeight: shell.iconOnly
+            ? Math.max(0, Math.min(44, height / (shell.sections.length + 1)))
+            : shell.badgeLength
+        readonly property real discoverY: {
+            if (!shell.iconOnly || shell.discoverAlignY < 0)
+                return 0
+            void (shell.y + shell.height)
+            const centre = shell.mapFromItem(null, 0, shell.discoverAlignY).y - y
+            return Math.max(0, Math.min(height / 3, centre - discoverHeight / 2))
+        }
+        readonly property real dockTop: discoverY + discoverHeight + (shell.iconOnly ? 13 : 8)
         readonly property real dockItemHeight: Math.max(0, Math.min(44,
-            (height - shell.sections.length * dockGap) / (shell.sections.length + 1)))
-        readonly property real dockHeight: dockItemHeight * (shell.sections.length + 1)
-            + dockGap * shell.sections.length
+            (height - dockTop - (shell.sections.length - 1) * dockGap) / shell.sections.length))
+        readonly property real dockHeight: dockItemHeight * shell.sections.length
+            + dockGap * (shell.sections.length - 1)
 
     RailBadge {
         id: discoverButton
@@ -200,16 +229,28 @@ Item {
         title: shell.lang.t("dashboard")
         artwork: sidebarPanel.sidebarItemIcon(sidebarPanel.systemItems[0])
         selected: shell.currentLocation.length === 0
-        y: shell.iconOnly ? (navigationArea.height - navigationArea.dockHeight) / 2 : 0
+        y: navigationArea.discoverY
         width: navigationArea.width
-        height: shell.iconOnly ? navigationArea.dockItemHeight : shell.badgeLength
+        height: navigationArea.discoverHeight
         onClicked: { shell.closeSection(); shell.homeRequested() }
+    }
+    Rectangle {
+        // Separates the pinned Discover button from the centred icon dock.
+        objectName: "sidebarRailDiscoverSeparator"
+        visible: shell.collapsed && shell.iconOnly
+        x: 8
+        y: navigationArea.discoverY + navigationArea.discoverHeight + 6
+        width: Math.max(0, navigationArea.width - 16)
+        height: 1
+        color: AppTheme.border
     }
     Item {
         id: badges
         objectName: "sidebarBadges"
         visible: shell.collapsed
-        y: discoverButton.y + discoverButton.height + (shell.iconOnly ? navigationArea.dockGap : 8)
+        y: shell.iconOnly
+            ? navigationArea.dockTop + Math.max(0, (navigationArea.height - navigationArea.dockTop - navigationArea.dockHeight) / 2)
+            : discoverButton.y + discoverButton.height + 8
         width: navigationArea.width
         height: shell.iconOnly
             ? navigationArea.dockItemHeight * shell.sections.length + navigationArea.dockGap * (shell.sections.length - 1)

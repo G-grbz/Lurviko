@@ -296,6 +296,45 @@ QtObject {
     readonly property int sidebarSectionFontPixels: 10
     readonly property real sidebarSectionLetterSpacing: 0.8
     readonly property int effectiveSidebarIconSize: systemSidebarIconSize
+    // Small sidebar icons (24 px and below) switch the bundled artwork to
+    // single-colour glyphs and a tighter row layout; larger sizes keep the
+    // colour artwork and the roomy default layout.
+    readonly property bool sidebarCompact: effectiveSidebarIconSize <= 24
+    // Colour artwork name -> its single-colour twin in assets/icons/symbolic.
+    readonly property var sidebarGlyphNames: ({
+        "audio.svg": "audio-symbolic.svg",
+        "desktop.svg": "desktop-symbolic.svg",
+        "documents.svg": "documentation.svg",
+        "downloads.svg": "downloads-symbolic.svg",
+        "drive.svg": "drive-symbolic.svg",
+        "drive-optical.svg": "drive-optical-symbolic.svg",
+        "favorite-color.svg": "favorite-symbolic.svg",
+        "home-folder.svg": "home-folder-symbolic.svg",
+        "image.svg": "image-symbolic.svg",
+        "network.svg": "network-symbolic.svg",
+        "root.svg": "root-symbolic.svg",
+        "trash.svg": "trash-symbolic.svg",
+        "trashfull.svg": "trashfull-symbolic.svg",
+        "video.svg": "video-symbolic.svg"
+    })
+    // The glyph for a sidebar icon in compact mode, or "" to keep the artwork.
+    function sidebarGlyph(name, foreground) {
+        if (!sidebarCompact || useSystemIcons)
+            return ""
+        const glyph = sidebarGlyphNames[String(name || "")]
+        if (!glyph)
+            return ""
+        return "image://bundledicon/" + glyph + "|"
+            + encodeURIComponent(String(foreground === undefined ? textMuted : foreground))
+    }
+    // Recolour a glyph URL (e.g. accent for the selected row); artwork is unchanged.
+    function recolorGlyph(source, foreground) {
+        const value = String(source || "")
+        if (value.indexOf("image://bundledicon/") !== 0
+                || (value.indexOf("-symbolic.svg|") < 0 && value.indexOf("/documentation.svg|") < 0))
+            return value
+        return value.substring(0, value.indexOf("|") + 1) + encodeURIComponent(String(foreground))
+    }
     readonly property int effectiveHomeIconSize: systemHomeIconSize
     readonly property int wheelScrollStep: Math.max(10, Math.min(1000, settings.wheelScrollStep))
     readonly property int fileTitleLines: Math.max(1, Math.min(4, settings.fileTitleLines))
@@ -354,7 +393,9 @@ QtObject {
     // Existing built-in theme tab outlines remain unchanged; Qt follows the
     // desktop highlight brush at half the previous outline opacity.
     readonly property real qtActiveOutlineOpacity: 0.175
-    readonly property color activeTabOutline: useQtTheme ? tint(accent, qtActiveOutlineOpacity) : border
+    // Outside the Qt theme, border is too close to the window colour for the
+    // selected tab and its page outline to stay visible.
+    readonly property color activeTabOutline: useQtTheme ? tint(accent, qtActiveOutlineOpacity) : borderStrong
     readonly property color success: dark ? "#54D6A0" : "#18885B"
     readonly property color warning: dark ? "#F2BD66" : "#B56C09"
     readonly property color danger: dark ? "#FF8089" : "#D84B57"
@@ -447,6 +488,7 @@ QtObject {
             "archive.svg": "package-x-generic",
             "pdf.svg": "application-pdf",
             "drive.svg": "drive-harddisk",
+            "drive-optical.svg": "drive-optical",
             "trash.svg": "user-trash",
             "trashfull.svg": "user-trash-full",
             "network.svg": "network-workgroup",
@@ -457,6 +499,7 @@ QtObject {
             "home-folder.svg": "user-home",
             "desktop.svg": "user-desktop",
             "downloads.svg": "folder-download",
+            "recent.svg": "document-open-recent",
             "documents.svg": "folder-documents",
             "settings.svg": "settings-configure",
             "cloud.svg": "folder-cloud",
@@ -638,6 +681,7 @@ QtObject {
     }
 
     function categoryDefaultIcon(key) {
+        if (key === "recent") return "recent.svg"
         if (key === "private") return "private.svg"
         if (key === "documents") return "documents.svg"
         if (key === "appimage") return "appimage.svg"

@@ -14,6 +14,19 @@ Rectangle {
     required property var musicPlayer
     property Item headerHost: null
     readonly property real headerHeight: vaultHeader.headerHeight
+
+    // One application-styled edit menu for every vault text field, including
+    // the password fields (it never copies or cuts concealed text). Opening it
+    // reparents the menu to the requesting field, which becomes its editor.
+    TextEditMenu {
+        id: vaultTextMenu
+        objectName: "vaultTextEditMenu"
+        parent: page
+        maximumPopupHeight: Math.min(620, page.height - 24)
+        editor: parent && parent.selectedText !== undefined ? parent : null
+        langManager: page.lang
+        positioningBounds: Overlay.overlay
+    }
     readonly property real tabStripHeight: vaultHeader.tabStripHeight
     readonly property Item activeTabSurface: vaultHeader.activeTabSurface
     readonly property real activeTabScrollPosition: 0
@@ -352,6 +365,7 @@ Rectangle {
             GText { text: lang.language === "tr" ? "Yeni şifreli klasör" : "New encrypted folder"; baseColor: AppTheme.text; basePixelSize: 18; baseBold: true }
             GTextField {
                 id: newFolderName
+                EditorContextMenu { menu: vaultTextMenu }
                 Layout.fillWidth: true
                 placeholderText: lang.language === "tr" ? "Klasör adı" : "Folder name"
                 color: AppTheme.text
@@ -392,7 +406,7 @@ Rectangle {
             anchors.margins: 22
             spacing: 12
             GText { text: lang.language === "tr" ? "Yeniden adlandır" : "Rename"; baseColor: AppTheme.text; basePixelSize: 18; baseBold: true }
-            GTextField { id: renameInput; Layout.fillWidth: true; color: AppTheme.text; onAccepted: renameConfirm.clicked() }
+            GTextField { id: renameInput; Layout.fillWidth: true; color: AppTheme.text; onAccepted: renameConfirm.clicked(); EditorContextMenu { menu: vaultTextMenu } }
             Item { Layout.fillHeight: true }
             RowLayout {
                 Layout.fillWidth: true
@@ -599,13 +613,14 @@ Rectangle {
                 color: AppTheme.text
                 padding: 14
                 background: Rectangle { color: AppTheme.workspace; radius: 12; border.color: AppTheme.border }
-                ContextMenu.menu: TextEditMenu {
+                TextEditMenu {
                     id: recoveryTextMenu
                     maximumPopupHeight: Math.min(620, page.height - 24)
                     objectName: "vaultRecoveryTextMenu"
                     editor: recoveryDisplay
                     langManager: page.lang
                 }
+                EditorContextMenu { menu: recoveryTextMenu }
             }
             GText { Layout.fillWidth: true; wrapMode: Text.Wrap; baseColor: AppTheme.textMuted; basePixelSize: 11; text: lang.language === "tr" ? "Tamam diyene kadar bu anahtar etkinleşmez. İptal edersen mevcut kurtarma ayarların korunur." : "This key is not active until you choose Done. Cancel keeps your existing recovery settings." }
             GText { Layout.fillWidth: true; visible: text.length > 0; wrapMode: Text.Wrap; baseColor: AppTheme.danger; basePixelSize: 10; text: vault.lastError }
@@ -673,9 +688,9 @@ Rectangle {
             spacing: 12
             GText { Layout.fillWidth: true; text: lang.language === "tr" ? "Kurtarma anahtarıyla parolayı sıfırla" : "Reset your password with a recovery key"; baseColor: AppTheme.text; basePixelSize: 18; baseBold: true; wrapMode: Text.Wrap }
             GText { Layout.fillWidth: true; wrapMode: Text.Wrap; baseColor: AppTheme.textMuted; basePixelSize: 10; text: lang.language === "tr" ? "Kayıtlı anahtarını ve yeni parolanı gir. Parola sıfırlama için anahtar tek kullanımlıktır: başarılı işlemden sonra devre dışı kalır. Yeniden kurtarma için Güvenlik ayarlarından yeni bir anahtar oluştur." : "Enter your saved key and a new password. The key is single-use for password resets: a successful reset disables it. Generate a new key in Security to restore recovery access." }
-            GTextField { id: recoveryInput; objectName: "vaultRecoveryInput"; Layout.fillWidth: true; maximumLength: 256; echoMode: TextInput.Password; placeholderText: "LRK1-…"; onAccepted: recoveryPassword.forceActiveFocus() }
-            GTextField { id: recoveryPassword; objectName: "vaultRecoveryNewPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; onAccepted: recoveryPasswordAgain.forceActiveFocus() }
-            GTextField { id: recoveryPasswordAgain; objectName: "vaultRecoveryNewPasswordAgain"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; onAccepted: recoverButton.clicked() }
+            GTextField { id: recoveryInput; objectName: "vaultRecoveryInput"; Layout.fillWidth: true; maximumLength: 256; echoMode: TextInput.Password; placeholderText: "LRK1-…"; onAccepted: recoveryPassword.forceActiveFocus(); EditorContextMenu { menu: vaultTextMenu } }
+            GTextField { id: recoveryPassword; objectName: "vaultRecoveryNewPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; onAccepted: recoveryPasswordAgain.forceActiveFocus(); EditorContextMenu { menu: vaultTextMenu } }
+            GTextField { id: recoveryPasswordAgain; objectName: "vaultRecoveryNewPasswordAgain"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; onAccepted: recoverButton.clicked(); EditorContextMenu { menu: vaultTextMenu } }
             GText { id: recoveryMismatch; visible: false; baseColor: AppTheme.danger; text: lang.language === "tr" ? "Yeni parolalar eşleşmiyor." : "New passwords do not match."; basePixelSize: 10 }
             VaultAttemptStatus { Layout.fillWidth: true; vault: page.vault; lang: page.lang }
             GText { Layout.fillWidth: true; wrapMode: Text.Wrap; baseColor: AppTheme.danger; text: vault.lastError; basePixelSize: 10 }
@@ -796,9 +811,9 @@ Rectangle {
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
                     GText { text: lang.language === "tr" ? "Parolayı değiştir" : "Change password"; baseColor: AppTheme.text; basePixelSize: 14; baseFontWeight: Font.DemiBold }
-                    GTextField { id: currentPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Mevcut parola" : "Current password"; color: AppTheme.text }
-                    GTextField { id: newPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; color: AppTheme.text }
-                    GTextField { id: newPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; color: AppTheme.text }
+                    GTextField { id: currentPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Mevcut parola" : "Current password"; color: AppTheme.text; EditorContextMenu { menu: vaultTextMenu } }
+                    GTextField { id: newPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parola · en az 8 karakter" : "New password · at least 8 characters"; color: AppTheme.text; EditorContextMenu { menu: vaultTextMenu } }
+                    GTextField { id: newPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Yeni parolayı tekrar yaz" : "Repeat new password"; color: AppTheme.text; EditorContextMenu { menu: vaultTextMenu } }
                     GText { id: passwordMismatch; visible: false; baseColor: AppTheme.danger; basePixelSize: 10; text: lang.language === "tr" ? "Yeni parolalar eşleşmiyor." : "New passwords do not match." }
                     GModalButton {
                         text: lang.language === "tr" ? "Parolayı Değiştir" : "Change Password"
@@ -1003,8 +1018,8 @@ Rectangle {
                           ? "Dosya adları, klasör yapısı, metadata ve içerikler şifreli tutulur. Diskte yalnız rastgele isimli bloblar vardır; Lurviko kasayı mount etmez."
                           : "Names, folder structure, metadata and contents stay encrypted. Only randomly named blobs exist on disk; Lurviko never mounts a plaintext filesystem."
                 }
-                GTextField { id: createPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "En az 8 karakter parola" : "Password, at least 8 characters"; color: AppTheme.text }
-                GTextField { id: createPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Parolayı tekrar yaz" : "Repeat password"; color: AppTheme.text }
+                GTextField { id: createPassword; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "En az 8 karakter parola" : "Password, at least 8 characters"; color: AppTheme.text; EditorContextMenu { menu: vaultTextMenu } }
+                GTextField { id: createPasswordAgain; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Parolayı tekrar yaz" : "Repeat password"; color: AppTheme.text; EditorContextMenu { menu: vaultTextMenu } }
                 RowLayout {
                     Layout.fillWidth: true
                     GText { Layout.fillWidth: true; text: lang.language === "tr" ? "Kurtarma anahtarı oluştur · isteğe bağlı" : "Generate a recovery key · optional"; baseColor: AppTheme.text; basePixelSize: 11; wrapMode: Text.Wrap }
@@ -1051,7 +1066,7 @@ Rectangle {
                 CrispIcon { Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 76; Layout.preferredHeight: 76; width: 76; height: 76; source: AppTheme.icon("lock.svg") }
                 GText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: lang.language === "tr" ? "Kasa kilitli" : "Vault locked"; baseColor: AppTheme.text; basePixelSize: 22; baseBold: true }
                 GText { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap; text: lang.language === "tr" ? "Parola diske kaydedilmez. Kasa anahtarı yalnız bu oturumda bellekte tutulur." : "The password is never stored. The vault key stays in memory only for this session."; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                GTextField { id: unlockPassword; objectName: "vaultUnlockPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Kasa parolası" : "Vault password"; color: AppTheme.text; onAccepted: unlockButton.clicked() }
+                GTextField { id: unlockPassword; objectName: "vaultUnlockPassword"; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: lang.language === "tr" ? "Kasa parolası" : "Vault password"; color: AppTheme.text; onAccepted: unlockButton.clicked(); EditorContextMenu { menu: vaultTextMenu } }
                 VaultAttemptStatus { Layout.fillWidth: true; vault: page.vault; lang: page.lang }
                 GText { visible: vault.lastError.length > 0; Layout.fillWidth: true; wrapMode: Text.Wrap; baseColor: AppTheme.danger; text: vault.lastError; basePixelSize: 10 }
                 RowLayout {

@@ -18,5 +18,5 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$install_prefix/share/applications"
 fi
 
-printf 'Lurviko ikonları yenilendi ve %s dizinine kuruldu.\n' "$install_prefix"
-printf 'Açık Lurviko pencerelerini kapatıp uygulamayı yeniden başlatın.\n'
+printf 'Lurviko icons have been refreshed and installed to %s.\n' "$install_prefix"
+printf 'Close all running Lurviko windows and restart the application.\n'

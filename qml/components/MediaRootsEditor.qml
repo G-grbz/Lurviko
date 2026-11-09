@@ -14,6 +14,7 @@ ColumnLayout {
     property bool draftIndexHidden: false
     property bool draftSingleClickOpen: false
     property bool globalSingleClickOpen: false
+    property int draftRecentDays: 30
     spacing: 10
 
     function reload() {
@@ -28,6 +29,7 @@ ColumnLayout {
         root.draftIgnoreRules = Array.from(root.contentIndexModel.ignoreRules(root.categoryKey) || [])
         root.draftIndexHidden = !!root.contentIndexModel.categoryIndexHidden(root.categoryKey)
         root.draftSingleClickOpen = !!root.contentIndexModel.categorySingleClickOpen(root.categoryKey)
+        root.draftRecentDays = root.contentIndexModel.recentWindowDays
         ignoreRuleInput.text = ""
     }
 
@@ -39,6 +41,8 @@ ColumnLayout {
                                                                      root.draftIndexHidden,
                                                                      root.draftIgnoreRules)
         root.contentIndexModel.setCategorySingleClickOpen(root.categoryKey, root.draftSingleClickOpen)
+        if (saved && root.categoryKey === "recent")
+            root.contentIndexModel.setRecentWindowDays(root.draftRecentDays)
         return saved
     }
 
@@ -125,6 +129,48 @@ ColumnLayout {
                       : (root.lang.language === "tr"
                          ? "Bu kategoride öğeleri çift tık yerine tek tıkla açar."
                          : "Open items in this category with one click instead of double-click.")
+    }
+
+    GText {
+        visible: root.categoryKey === "recent"
+        Layout.fillWidth: true
+        text: root.lang.language === "tr" ? "İndirilen dosyalar" : "Downloaded files"
+        baseColor: AppTheme.text
+        basePixelSize: 12
+        baseFontWeight: Font.DemiBold
+    }
+
+    GText {
+        visible: root.categoryKey === "recent"
+        Layout.fillWidth: true
+        wrapMode: Text.Wrap
+        text: root.lang.language === "tr"
+              ? "Masaüstünün ortak son kullanılanlar listesinden gelir: tarayıcıların indirdiği, KDE Connect ile alınan ve uygulamalarda açılıp kaydedilen arşiv, ses, video, görsel ve belgeler. Klasör taranmaz; silinen dosyalar listeden kalkar."
+              : "Comes from the desktop's shared recently used list: archives, audio, video, images and documents downloaded by browsers, received via KDE Connect, or opened and saved in applications. No folders are scanned; deleted files drop out."
+        baseColor: AppTheme.textMuted
+        basePixelSize: 9
+    }
+
+    RowLayout {
+        visible: root.categoryKey === "recent"
+        Layout.fillWidth: true
+        spacing: 8
+        GText {
+            Layout.fillWidth: true
+            text: root.lang.language === "tr" ? "Zaman aralığı" : "Time range"
+            baseColor: AppTheme.textMuted
+            basePixelSize: 11
+        }
+        GComboBox {
+            Layout.preferredWidth: 160
+            model: [root.lang.language === "tr" ? "Bugün" : "Today",
+                    root.lang.language === "tr" ? "Son 7 gün" : "Last 7 days",
+                    root.lang.language === "tr" ? "Son 30 gün" : "Last 30 days",
+                    root.lang.language === "tr" ? "Son 90 gün" : "Last 90 days",
+                    root.lang.language === "tr" ? "Tümü" : "All"]
+            currentIndex: [1, 7, 30, 90, 0].indexOf(root.draftRecentDays)
+            onActivated: function(index) { root.draftRecentDays = [1, 7, 30, 90, 0][index] }
+        }
     }
 
     GText {

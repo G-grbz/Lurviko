@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -17,6 +18,20 @@ Rectangle {
     property var recentLocations: []
     property bool dragging: reorderDrag.active
     property bool suppressClick: false
+    // Second line under the path (e.g. "1.204 öğe · 3,2 GB"); empty hides it.
+    property string infoText: ""
+    readonly property bool hovered: mouse.containsMouse || actionsHover.hovered
+    // Opaque even with a translucent Qt window (same rule as the disk cards).
+    readonly property bool glassSurface: AppTheme.useQtTheme && AppTheme.translucentWindow
+
+    // file:///home/user/x -> ~/x ; other locations stay as they are.
+    function prettyLocation(location) {
+        let value = tile.displayLocation(location)
+        const home = tile.displayLocation(String(StandardPaths.writableLocation(StandardPaths.HomeLocation))).replace(/\/+$/, "")
+        if (home.length > 1 && (value === home || value.indexOf(home + "/") === 0))
+            value = "~" + value.substring(home.length)
+        return value
+    }
 
     function displayLocation(location) {
         const value = String(location || "")
@@ -40,8 +55,12 @@ Rectangle {
     implicitHeight: Math.max(74, tile.effectiveIconPixels + 28)
 
     radius: AppTheme.cardRadius
-    color: dropTarget.containsDrag ? AppTheme.accentSoft : (mouse.containsMouse || dragging ? AppTheme.cardHover : AppTheme.cardSurface)
-    border.color: dropTarget.containsDrag ? AppTheme.accent : (mouse.containsMouse ? AppTheme.accentBorder : AppTheme.border)
+    color: dropTarget.containsDrag
+           ? (tile.glassSurface ? AppTheme.mix(AppTheme.surface, AppTheme.accent, 0.14) : AppTheme.accentSoft)
+           : (tile.hovered || dragging
+              ? (tile.glassSurface ? AppTheme.mix(AppTheme.surface, AppTheme.accent, 0.05) : AppTheme.cardHover)
+              : (tile.glassSurface ? AppTheme.surface : AppTheme.cardSurface))
+    border.color: dropTarget.containsDrag ? AppTheme.accent : (tile.hovered ? AppTheme.accentBorder : AppTheme.border)
     border.width: dropTarget.containsDrag ? 2 : 1
     scale: dragging ? 0.97 : (mouse.pressed ? 0.98 : 1)
     opacity: dragging ? 0.72 : 1
@@ -107,6 +126,7 @@ Rectangle {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
+            Layout.rightMargin: hoverActionsOverlay.visible ? hoverActionsOverlay.width - 8 : 0
             spacing: 3
             GText {
                 objectName: "quickAccessTitle"
@@ -119,29 +139,59 @@ Rectangle {
                 elide: Text.ElideRight
             }
             GText {
+                objectName: "quickAccessPath"
                 Layout.fillWidth: true
-                text: tile.path
-                baseColor: AppTheme.textFaint
+                text: tile.prettyLocation(tile.path)
+                baseColor: AppTheme.textMuted
                 basePixelSize: 10
                 elide: Text.ElideMiddle
+            }
+            GText {
+                objectName: "quickAccessInfo"
+                visible: tile.infoText.length > 0
+                Layout.fillWidth: true
+                text: tile.infoText
+                baseColor: AppTheme.textFaint
+                basePixelSize: 9
+                elide: Text.ElideRight
             }
         }
 
         Rectangle {
             id: recentBadge
             visible: tile.fixedShortcut
-            Layout.preferredWidth: 54
-            Layout.preferredHeight: 22
-            radius: 8
-            color: recentBadgeMouse.containsMouse ? AppTheme.accent : AppTheme.accentSoft
+            Layout.preferredWidth: recentBadgeRow.implicitWidth + 18
+            Layout.preferredHeight: 24
+            radius: 12
+            color: recentBadgeMouse.containsMouse ? AppTheme.accent
+                                                  : AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.22 : 0.12)
+            border.width: 1
+            border.color: recentBadgeMouse.containsMouse ? AppTheme.accent
+                                                         : AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.55 : 0.40)
             Behavior on color { ColorAnimation { duration: 90 } }
 
-            GText {
+            Row {
+                id: recentBadgeRow
                 anchors.centerIn: parent
-                text: tile.language === "tr" ? "son" : "recent"
-                baseColor: recentBadgeMouse.containsMouse ? "white" : AppTheme.accent
-                basePixelSize: 9
-                baseBold: true
+                spacing: 5
+                CrispIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 12; height: 12
+                    source: AppTheme.icon("history.svg")
+                }
+                GText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: tile.language === "tr" ? "Son 10" : "Last 10"
+                    baseColor: recentBadgeMouse.containsMouse ? "white" : AppTheme.accent
+                    basePixelSize: 10
+                    baseFontWeight: Font.DemiBold
+                }
+                GText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "▾"
+                    baseColor: recentBadgeMouse.containsMouse ? "white" : AppTheme.accent
+                    basePixelSize: 9
+                }
             }
 
             MouseArea {
@@ -168,6 +218,45 @@ Rectangle {
             }
         }
 
+    }
+
+    // Quick actions float over the right edge while hovering; the text column
+    // reserves their width meanwhile, so nothing moves, it just elides sooner.
+    // (The Last Location card has its own "Last 10" menu instead.)
+    Item {
+        id: hoverActionsOverlay
+        z: 5
+        visible: tile.hovered && !tile.dragging && !tile.fixedShortcut
+        anchors.right: parent.right
+        anchors.rightMargin: 1
+        anchors.verticalCenter: parent.verticalCenter
+        width: hoverActions.width + 14
+        height: parent.height - 2
+        HoverHandler { id: actionsHover }
+        Row {
+            id: hoverActions
+            objectName: "quickAccessActions"
+            anchors.right: parent.right
+            anchors.rightMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+            TileAction {
+                iconName: "menu-open.svg"
+                tip: tile.language === "tr" ? "Yeni sekmede aç" : "Open in new tab"
+                onClicked: tile.openNewTabRequested(tile.path)
+            }
+            TileAction {
+                iconName: "edit.svg"
+                tip: tile.language === "tr" ? "Düzenle" : "Edit"
+                onClicked: tile.editRequested(tile.shortcutIndex, tile.title, tile.path)
+            }
+            TileAction {
+                iconName: "close-ui.svg"
+                tip: tile.language === "tr" ? "Kaldır" : "Remove"
+                danger: true
+                onClicked: tile.removeRequested(tile.shortcutIndex)
+            }
+        }
     }
 
     MouseArea {
@@ -252,5 +341,33 @@ Rectangle {
             text: tile.language === "tr" ? "Kaldır" : "Remove"
             onTriggered: tile.removeRequested(tile.shortcutIndex)
         }
+    }
+
+    component TileAction: Rectangle {
+        id: action
+        property string iconName: ""
+        property string tip: ""
+        property bool danger: false
+        signal clicked()
+        width: 26; height: 26
+        radius: 8
+        z: 6
+        color: actionMouse.containsMouse
+               ? AppTheme.tint(action.danger ? AppTheme.danger : AppTheme.accent, AppTheme.dark ? 0.22 : 0.12)
+               : "transparent"
+        CrispIcon {
+            anchors.centerIn: parent
+            width: 15; height: 15
+            source: AppTheme.icon(action.iconName, actionMouse.containsMouse
+                                  ? (action.danger ? AppTheme.danger : AppTheme.accent) : AppTheme.textMuted)
+        }
+        MouseArea {
+            id: actionMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: action.clicked()
+        }
+        GToolTip { visible: actionMouse.containsMouse; text: action.tip }
     }
 }

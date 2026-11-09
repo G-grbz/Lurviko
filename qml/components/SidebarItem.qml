@@ -25,6 +25,11 @@ Rectangle {
     property bool showUsageBar: false
     property real usageRatio: 0
     readonly property int iconSize: AppTheme.effectiveSidebarIconSize
+    // Icons of 24 px and below: single-colour glyphs and tighter rows.
+    readonly property bool compact: AppTheme.sidebarCompact
+    readonly property string displayIcon: active
+        ? AppTheme.recolorGlyph(iconSource, danger ? AppTheme.danger : AppTheme.accent)
+        : iconSource
 
     signal interactionChanged(bool active)
     property bool interactionTracked: false
@@ -51,11 +56,16 @@ Rectangle {
     signal editRequested()
     signal propertiesRequested()
 
-    implicitHeight: Math.max(AppTheme.typographySize("sidebar", 12) + (subtitle.length ? AppTheme.typographySize("sidebar", 10) + 2 : 0) + 16,
-                    capacityText.length > 0
-                    ? Math.max(66, iconSize + 32)
-                    : Math.max(subtitle.length > 0 ? 44 : 38, iconSize + 12))
-    radius: 14
+    implicitHeight: compact
+                    ? Math.max(AppTheme.typographySize("sidebar", 12) + (subtitle.length ? AppTheme.typographySize("sidebar", 10) + 2 : 0) + 10,
+                               capacityText.length > 0
+                               ? Math.max(54, iconSize + 26)
+                               : Math.max(subtitle.length > 0 ? 38 : 30, iconSize + 8))
+                    : Math.max(AppTheme.typographySize("sidebar", 12) + (subtitle.length ? AppTheme.typographySize("sidebar", 10) + 2 : 0) + 16,
+                               capacityText.length > 0
+                               ? Math.max(66, iconSize + 32)
+                               : Math.max(subtitle.length > 0 ? 44 : 38, iconSize + 12))
+    radius: compact ? 10 : 14
     color: active ? AppTheme.accentSoft
                   : (itemMouse.containsMouse || dragging ? AppTheme.surfaceHover : "transparent")
     border.color: active ? AppTheme.accentBorder : "transparent"
@@ -75,27 +85,27 @@ Rectangle {
     Rectangle {
         visible: control.active
         anchors.left: parent.left
-        anchors.leftMargin: 8
+        anchors.leftMargin: control.compact ? 6 : 8
         anchors.verticalCenter: parent.verticalCenter
         width: 2
-        height: Math.max(0, Math.min(24, parent.height - 20))
+        height: Math.max(0, Math.min(24, parent.height - (control.compact ? 14 : 20)))
         radius: 1
         color: control.danger ? AppTheme.danger : AppTheme.accent
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 15
+        anchors.leftMargin: control.compact ? 13 : 15
         anchors.rightMargin: 8
-        spacing: 10
+        spacing: control.compact ? 8 : 10
 
         Item {
-            Layout.preferredWidth: Math.max(30, control.iconSize + 8)
-            Layout.preferredHeight: Math.max(34, control.iconSize + 12)
+            Layout.preferredWidth: control.compact ? Math.max(20, control.iconSize + 2) : Math.max(30, control.iconSize + 8)
+            Layout.preferredHeight: control.compact ? Math.max(20, control.iconSize + 4) : Math.max(34, control.iconSize + 12)
 
             CrispIcon {
                 anchors.centerIn: parent
-                source: AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(control.iconSource, control.iconSize) : control.iconSource
+                source: AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(control.iconSource, control.iconSize) : control.displayIcon
                 width: Math.max(10, Math.round(control.iconSize * control.iconScale))
                 height: width
             }

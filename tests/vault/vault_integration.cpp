@@ -297,7 +297,10 @@ int main(int argc, char **argv) {
         QStringLiteral(LURVIKO_SOURCE_DIR) + "/tools/recover-vault.py", privateRoot, output});
     require(offline.waitForStarted(), "independent Python recovery tool starts");
     offline.write(exportKey.toUtf8() + '\n'); offline.closeWriteChannel();
-    require(offline.waitForFinished(15000) && offline.exitCode() == 0, "independent Python code decrypts actual C++ vault");
+    const bool offlineOk = offline.waitForFinished(15000) && offline.exitCode() == 0;
+    if (!offlineOk)
+        std::fprintf(stderr, "recover-vault.py stderr:\n%s\n", offline.readAllStandardError().constData());
+    require(offlineOk, "independent Python code decrypts actual C++ vault");
     QFile exported(output + "/payload.txt");
     require(exported.open(QIODevice::ReadOnly) && exported.readAll() == payload, "offline recovered file matches original bytes");
     require(readRecoveryHeader() == beforeExport, "offline export leaves vault header untouched");
@@ -683,6 +686,29 @@ ApplicationWindow {
     auto unlockButton = child(window, "vaultUnlockButton");
     input->setProperty("text", changedPassword);
     require(unlockButton->property("enabled").toBool(), "unlock control starts enabled with a password");
+    {
+        auto passwordItem = qobject_cast<QQuickItem *>(input);
+        require(passwordItem, "unlock password is a real quick item");
+        QMetaObject::invokeMethod(input, "selectAll");
+        // The Security modal closed just before; let its exit transition and
+        // dimmer finish so the right click reaches the field.
+        require(until([&] { return !popup->property("visible").toBool(); }), "security modal finished closing");
+        pause(200);
+        const QPointF point = passwordItem->mapToScene(QPointF(passwordItem->width() / 2, passwordItem->height() / 2));
+        const QPoint global = window->mapToGlobal(point.toPoint());
+        QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+        QApplication::sendEvent(window, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(window, &release);
+        QContextMenuEvent contextEvent(QContextMenuEvent::Mouse, point.toPoint(), global);
+        QApplication::sendEvent(window, &contextEvent);
+        auto passwordMenu = child(window, "vaultTextEditMenu");
+        require(until([&] { return passwordMenu->property("visible").toBool(); }), "password field opens the application text menu");
+        QQmlExpression concealed(qmlContext(passwordMenu), passwordMenu,
+            "editor && editor.objectName === 'vaultUnlockPassword' && !itemAt(3).enabled && !itemAt(4).enabled && itemAt(6).enabled");
+        require(concealed.evaluate().toBool(), "password menu never offers Cut or Copy but keeps Delete");
+        require(QMetaObject::invokeMethod(passwordMenu, "close"), "close password text menu");
+    }
     require(!vault.unlock("wrong"), "start UI lockout");
     require(!unlockButton->property("enabled").toBool(), "unlock control disables during lockout");
     pause(180);
@@ -704,11 +730,14 @@ ApplicationWindow {
     require(keyTextItem, "key display is a real quick item");
     pause(200); // Let the popup transition and ColumnLayout establish the hit area.
     const QPointF menuPoint = keyTextItem->mapToScene(QPointF(keyTextItem->width() / 2, keyTextItem->height() / 2));
+    // Construct each event right before delivery (Qt 6.8 shares event-point
+    // state between QMouseEvent instances of the same device).
     QMouseEvent press(QEvent::MouseButtonPress, menuPoint, window->mapToGlobal(menuPoint.toPoint()),
                       Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    QApplication::sendEvent(window, &press);
     QMouseEvent release(QEvent::MouseButtonRelease, menuPoint, window->mapToGlobal(menuPoint.toPoint()),
                         Qt::RightButton, Qt::NoButton, Qt::NoModifier);
-    QApplication::sendEvent(window, &press); QApplication::sendEvent(window, &release);
+    QApplication::sendEvent(window, &release);
     // Native platform right-click dispatch also delivers QContextMenuEvent;
     // sending QMouseEvent directly does not synthesize that platform event.
     QContextMenuEvent contextEvent(QContextMenuEvent::Mouse, menuPoint.toPoint(), window->mapToGlobal(menuPoint.toPoint()));
@@ -717,7 +746,13 @@ ApplicationWindow {
     require(keyMenu, "recovery TextArea owns its custom context menu");
     require(until([&] { return keyMenu->property("visible").toBool(); }), "right click opens the application text menu");
     QQmlExpression copyLabel(qmlContext(keyMenu), keyMenu, "itemAt(4).text");
-    require(copyLabel.evaluate().toString().contains(QString::fromUtf8("Kopyala")), "key context menu uses the selected Turkish language");
+    const QString copyText = copyLabel.evaluate().toString();
+    if (!copyText.contains(QString::fromUtf8("Kopyala"))) {
+        QQmlExpression labels(qmlContext(keyMenu), keyMenu,
+            "(function() { let r = []; for (let i = 0; i < count; ++i) { const it = itemAt(i); r.push(i + ':' + (it ? (it.text === undefined ? '<sep>' : it.text) : 'null')) } return r.join(' | ') })()");
+        std::fprintf(stderr, "recovery menu items (%d): %s\n", keyMenu->property("count").toInt(), qPrintable(labels.evaluate().toString()));
+    }
+    require(copyText.contains(QString::fromUtf8("Kopyala")), "key context menu uses the selected Turkish language");
     QQmlExpression readOnlyActions(qmlContext(keyMenu), keyMenu, "!itemAt(0).enabled && !itemAt(1).enabled && !itemAt(3).enabled && !itemAt(5).enabled && !itemAt(6).enabled");
     require(readOnlyActions.evaluate().toBool(), "read-only recovery field disables editing actions");
     require(QMetaObject::invokeMethod(keyMenu, "close"), "close text menu");

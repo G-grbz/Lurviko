@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 #include <time.h>
 #include <unistd.h>
 #include <cerrno>
@@ -80,10 +81,10 @@ struct Node {
     }
 };
 qint64 stamp(const timespec& v) { return qint64(v.tv_sec) * 1000000000 + v.tv_nsec; }
-qint64 cpuTime()
+qint64 wallTime()
 {
     timespec v { };
-    ::clock_gettime(CLOCK_THREAD_CPUTIME_ID, &v);
+    ::clock_gettime(CLOCK_MONOTONIC, &v);
     return stamp(v);
 }
 QString device(const struct stat& v) { return QString::number(qulonglong(v.st_dev)); }
@@ -164,8 +165,25 @@ public:
             "COALESCE(SUM(CASE WHEN scope=0 THEN unknowns ELSE 0 END),0) FROM entries WHERE parent=?");
         saveTotals = prepared("UPDATE entries SET bytes=?,files=?,folders=?,unknowns=?,known=?,verified=? WHERE id=?");
         anyChild = prepared("SELECT 1 FROM entries WHERE parent=? LIMIT 1");
-        if (work.invalidateAll)
+        {
+            auto stored = sql("SELECT value FROM cache_info WHERE key='verification-epoch'");
+            if (stored.next())
+                verificationEpoch = stored.value(0).toString();
+            stored.finish();
+        }
+        if (verificationEpoch.isEmpty()) {
+            // Caches from versions before resumable verification carry
+            // full-verification flags set by over-broad invalidations (every
+            // inotify overflow, vault operation...). On big trees such a walk
+            // restarted on every launch and never finished. Keep them as
+            // approximate data; real changes still arrive through dirty paths.
+            sql("UPDATE roots SET needs_verify=1 WHERE needs_verify>=2");
+            beginVerificationEpoch();
+        }
+        if (work.invalidateAll) {
             sql("UPDATE roots SET needs_verify=2");
+            beginVerificationEpoch();
+        }
         for (const auto& path : work.invalidatedPaths) {
             sql("INSERT OR IGNORE INTO dirty_paths(path) VALUES(?)", { path });
             sql("UPDATE roots SET needs_verify=MAX(needs_verify,1) WHERE path='/' OR path=? "
@@ -176,14 +194,28 @@ public:
         const bool overflow = pending.next();
         pending.finish();
         if (overflow) {
-            sql("UPDATE roots SET needs_verify=2");
+            // Hints for never-revisited locations accumulate across sessions.
+            // Collapsing them into their directories keeps the next reader's
+            // work proportional to those directories; marking every root for
+            // verification turned a long-lived queue into a full-tree stat walk.
+            QSet<QString> parents;
+            auto rows = sql("SELECT path FROM dirty_paths");
+            while (rows.next())
+                parents.insert(QFileInfo(rows.value(0).toString()).absolutePath());
+            rows.finish();
             sql("DELETE FROM dirty_paths");
+            if (parents.size() > 8192) {
+                sql("UPDATE roots SET needs_verify=2");
+                beginVerificationEpoch();
+            } else
+                for (const auto& parent : parents)
+                    sql("INSERT OR IGNORE INTO dirty_paths(path) VALUES(?)", { parent });
         }
         reconcileScopes();
         sql("INSERT INTO cache_info(key,value) VALUES('scope-accounting','2') "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE value<>excluded.value");
         epoch = QUuid::createUuid().toString(QUuid::Id128);
-        budget = cpuTime();
+        budget = wallTime();
     }
     ~Store()
     {
@@ -430,13 +462,47 @@ public:
         if (++batch < 128)
             return;
         batch = 0;
-        const auto now = cpuTime();
-        if (now - budget >= 4000000) {
-            if (work.ioBusy && work.ioBusy->load(std::memory_order_relaxed)
-                && !work.demand->load(std::memory_order_relaxed))
-                QThread::msleep(20);
-            budget = cpuTime();
+        // Wall time, not thread CPU time: on FUSE (ntfs-3g, sshfs) and network
+        // filesystems the cost is in the filesystem daemon while this thread
+        // waits. Periodic pauses leave that daemon free for directory listings
+        // and keep unattended scans from pinning a core. An open Properties
+        // dialog (foreground demand) runs at full speed.
+        const auto now = wallTime();
+        const auto elapsed = now - budget;
+        if (elapsed < 16000000)
+            return;
+        const bool foreground = work.demand && work.demand->load(std::memory_order_relaxed) > 0;
+        if (!foreground) {
+            if (work.ioBusy && work.ioBusy->load(std::memory_order_relaxed))
+                QThread::msleep(40);
+            else
+                QThread::msleep(maintenance ? 48 : 16);
         }
+        budget = wallTime();
+    }
+    // verifyTree marks a directory whose whole subtree it finished checking
+    // with a distinct value, so an interrupted verification resumes instead of
+    // restarting. A plain session value only says the directory was listed.
+    // A finished verifyTree subtree is marked with the current verification
+    // epoch, which survives restarts: an interrupted full verification resumes
+    // where it stopped instead of re-statting millions of files every launch.
+    // A new global invalidation starts a new epoch. The session suffix keeps
+    // "verified in this session" (ready state) distinct from "resumable".
+    QString epochTreePrefix() const { return QStringLiteral("tree:") + verificationEpoch + QLatin1Char(':'); }
+    QString treeMarker() const
+    {
+        return verificationEpoch.isEmpty() ? work.session + QStringLiteral("/tree") : epochTreePrefix() + work.session;
+    }
+    bool verifiedNow(const Node& n) const { return n.verified == work.session || n.verified == treeMarker(); }
+    bool verifiedThisEpoch(const Node& n) const
+    {
+        return n.verified == treeMarker() || (!verificationEpoch.isEmpty() && n.verified.startsWith(epochTreePrefix()));
+    }
+    void beginVerificationEpoch()
+    {
+        verificationEpoch = QUuid::createUuid().toString(QUuid::Id128);
+        sql("INSERT INTO cache_info(key,value) VALUES('verification-epoch',?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", { verificationEpoch });
     }
     void watch(const QString&, const struct stat&) {} // watches belong only to visible subscriptions
     void scan(const QString& path, bool recursive)
@@ -530,10 +596,14 @@ public:
                     continue;
                 const QString name = QFile::decodeName(entry->d_name);
                 const QString childPath = QDir(frame.path).filePath(name);
-                if (work.backgroundWarmup && (mountBoundaries.contains(childPath) || scopeFor(childPath) == 2)) {
-                    // A mountpoint stat can wake its disk. Startup work needs
-                    // neither that metadata nor a new record for the volume.
-                    // Keep any previously cached independent volume untouched.
+                if (mountBoundaries.contains(childPath) || scopeFor(childPath) == 2) {
+                    // Independent volumes never contribute to an enclosing
+                    // directory, so their metadata is useless here. A stat can
+                    // wake a disk, and an automount placeholder (autofs) or a
+                    // remounted FUSE/network volume reports a different device,
+                    // which used to erase the whole cached volume tree and force
+                    // a full rescan on the next visit. Volume records are only
+                    // created and verified when the volume itself is requested.
                     if (!frame.fresh)
                         sql("UPDATE entries SET seen=? WHERE parent=? AND name=?", {epoch, frame.id, name});
                     continue;
@@ -576,7 +646,7 @@ public:
                 } else if (current.kind == 1) {
                     work.progress->folders.fetch_add(1, std::memory_order_relaxed);
                     const bool sameIdentity = old.device == device(info) && old.inode == inode(info);
-                    if (old.known && sameIdentity && (old.verified == work.session || work.backgroundWarmup)
+                    if (old.known && sameIdentity && (verifiedNow(old) || reuseCached)
                         && old.modified == stamp(info.st_mtim) && old.changed == stamp(info.st_ctim))
                         continue;
                     if (frame.recursive || !old.known || old.device != device(info)
@@ -588,10 +658,11 @@ public:
                 }
             }
         } catch (const std::runtime_error& error) {
-            if (work.backgroundWarmup && work.cancelled->load(std::memory_order_relaxed)
-                && std::strcmp(error.what(), "Cancelled") == 0) {
+            if (work.cancelled->load(std::memory_order_relaxed) && std::strcmp(error.what(), "Cancelled") == 0) {
                 try {
-                    // Keep completed subtrees when yielding to navigation.
+                    // Keep completed subtrees when yielding to navigation, for
+                    // visible requests as well as startup work: rolling back
+                    // made every quick folder change restart the same tree.
                     // Open frames retain their rows but never a completed total.
                     flushLeaves();
                     for (auto frame = stack.rbegin(); frame != stack.rend(); ++frame)
@@ -672,6 +743,10 @@ public:
             }
             watch(currentPath, info);
             const bool changed = root.modified != stamp(info.st_mtim) || root.changed != stamp(info.st_ctim);
+            if (!changed && verifiedThisEpoch(root)) {
+                ::close(fd); // already verified in this verification epoch
+                return;
+            }
             if (changed) {
                 scan(currentPath, false);
                 root = lookup(currentPath);
@@ -694,7 +769,7 @@ public:
                         if (::fstat(frame.fd, &info) == 0
                             && (frame.root.modified != stamp(info.st_mtim) || frame.root.changed != stamp(info.st_ctim)))
                             result.changedDirectories.push_back(frame.path);
-                        sql("UPDATE entries SET verified=? WHERE id=?", { work.session, frame.root.id });
+                        sql("UPDATE entries SET verified=? WHERE id=?", { treeMarker(), frame.root.id });
                         ::close(frame.fd);
                         stack.pop_back();
                         continue;
@@ -720,6 +795,11 @@ public:
             }
         } catch (...) {
             for (const auto& frame : stack) ::close(frame.fd);
+            // Keep finished subtrees when navigation interrupts verification;
+            // the next attempt skips them. (A nested scan may already have
+            // committed; a second commit is then a harmless no-op.)
+            if (work.cancelled->load(std::memory_order_relaxed) && db.isOpen())
+                db.commit();
             throw;
         }
     }
@@ -736,6 +816,10 @@ public:
     void updatePath(const QString& path)
     {
         if (scopeFor(path) == 2)
+            return;
+        // A hint naming a mountpoint (autofs expiry, remount) must not replace
+        // the volume's record with the placeholder's device and erase its tree.
+        if (mountBoundaries.contains(path) && !work.requested.contains(path))
             return;
         if (path == "/") {
             const auto root = lookup(path);
@@ -873,7 +957,7 @@ public:
         s.totals.folders = int(n.totals.folders);
         s.canonicalPath = canonical.value(requested, requested);
         s.complete = n.known && n.totals.unknowns == 0;
-        s.state = n.verified == work.session && s.complete ? "ready" : "cached";
+        s.state = verifiedNow(n) && s.complete ? "ready" : "cached";
         if (work.cachedRoots.contains(requested) && !work.verify.contains(requested)) s.state = "cached";
         const auto filesystem = QStorageInfo(s.canonicalPath).fileSystemType();
         if (filesystem.startsWith("nfs") || filesystem == "cifs" || filesystem == "smbfs"
@@ -914,9 +998,65 @@ public:
         }
         return s;
     }
+    // Device numbers of FUSE (ntfs-3g, sshfs), CIFS/NFS and re-enumerated USB
+    // disks change on every (auto)mount, although the volume and its records
+    // are the same. Every cached directory below such a volume then failed the
+    // identity check and the next visit erased and rescanned the whole volume.
+    // Rebinding is a database update only; the volume root's own inode must
+    // still match, and a changed root timestamp still triggers the ordinary
+    // incremental reconciliation (only changed directories are listed).
+    void rebindVolume(const QString& path)
+    {
+        QString volume;
+        for (const auto& boundary : mountBoundaries)
+            if (boundary.size() > volume.size() && within(path, boundary))
+                volume = boundary;
+        if (volume.isEmpty() || scopeFor(volume) == 2)
+            return;
+        const Node n = lookup(volume);
+        if (!n.id || n.kind != 1 || n.device.isEmpty())
+            return;
+        const auto native = QFile::encodeName(volume);
+        struct stat st { };
+        if (::stat(native.constData(), &st) != 0 || !S_ISDIR(st.st_mode) || n.device == device(st))
+            return;
+        struct statfs fs { };
+        constexpr long autofsMagic = 0x0187; // an unmounted automount placeholder
+        if (::statfs(native.constData(), &fs) != 0 || long(fs.f_type) == autofsMagic || n.inode != inode(st))
+            return;
+        sql("WITH RECURSIVE volume(id) AS (SELECT ? UNION ALL SELECT e.id FROM entries e "
+            "JOIN volume v ON e.parent=v.id WHERE e.scope=0) "
+            "UPDATE entries SET device=? WHERE device=? AND id IN (SELECT id FROM volume)",
+            { n.id, device(st), n.device });
+        if (n.known && (n.modified != stamp(st.st_mtim) || n.changed != stamp(st.st_ctim)))
+            scan(volume, false);
+    }
+    // A dirty directory (collapsed hints, lost events) may hide in-place file
+    // size changes that never touch the directory's own timestamps. A single
+    // non-recursive listing reconciles its direct entries and descends only
+    // into children whose identity or timestamps changed.
+    void reconcileDirty(const QString& path)
+    {
+        if (scopeFor(path) == 2 || mountBoundaries.contains(path)) {
+            updatePath(path);
+            return;
+        }
+        const Node n = lookup(path);
+        struct stat st { };
+        if (n.id && n.kind == 1 && n.known && !n.scope
+            && ::lstat(QFile::encodeName(path).constData(), &st) == 0 && S_ISDIR(st.st_mode)
+            && n.device == device(st) && n.inode == inode(st))
+            scan(path, false);
+        else
+            updatePath(path);
+    }
     DirectorySizeWorkResult run()
     {
         initialize();
+        for (const auto& path : work.requested) {
+            const auto actual = QFileInfo(path).canonicalFilePath();
+            rebindVolume(actual.isEmpty() ? path : actual);
+        }
         QStringList dirty;
         auto rows = sql("SELECT path FROM dirty_paths WHERE ?=0 ORDER BY length(path),path",
             {work.backgroundWarmup ? 1 : 0});
@@ -936,7 +1076,7 @@ public:
             for (const auto& requested : work.requested)
                 insideDemand = insideDemand || within(path, requested);
             if (insideDemand) {
-                updatePath(path);
+                reconcileDirty(path);
                 sql("DELETE FROM dirty_paths WHERE path=?", {path});
             } else {
                 // An ancestor hint must not enumerate siblings of the visible
@@ -983,8 +1123,15 @@ public:
             else if (needsScan && std::none_of(scanned.cbegin(), scanned.cend(), [&](const auto& parent) {
                          return within(actual, parent);
                      })) {
+                // An incomplete root (e.g. a scan interrupted by navigation)
+                // only needs its missing parts: unchanged complete subtrees from
+                // earlier sessions are reused. Forced verification stats all.
+                reuseCached = !force;
+                maintenance = work.backgroundWarmup || (force && !work.verify.contains(path));
                 if (root.known) verifyTree(actual);
                 else scan(actual, true);
+                reuseCached = true;
+                maintenance = false;
                 scanned.push_back(actual);
                 if (work.backgroundWarmup) {
                     // Reusing a cached subtree is not a full validation of it.
@@ -1072,9 +1219,13 @@ public:
                         selected.state = "excluded";
                         continue;
                     }
-                    if (!n.known || needsVerification(path))
+                    const bool forced = needsVerification(path);
+                    if (!n.known || forced) {
+                        reuseCached = !forced;
                         verifyTree(path);
-                    else if (n.verified != work.session)
+                        reuseCached = true;
+                    }
+                    else if (!verifiedNow(n))
                         selected.state = "cached";
                     n = lookup(path);
                     selectedDirectories.insert(path);
@@ -1200,6 +1351,15 @@ public:
     QSet<QString> virtualRoots;
     QHash<quint64, QSet<QString>> selectionDirectories;
     QHash<quint64, QStringList> selectedOwnFiles;
+    // Trust unchanged, completely indexed child directories from earlier
+    // sessions (identity, mtime and ctime match). Explicit verification
+    // (Refresh, lost events) leaves this off and stats every file instead.
+    bool reuseCached = true;
+    QString verificationEpoch;
+    // Work nobody is looking at right now (startup fill, re-verification after
+    // lost events) runs at roughly a quarter of one core; a newly opened folder
+    // at about half; an open Properties dialog at full speed.
+    bool maintenance = false;
     qint64 budget = 0;
     int batch = 0;
 };

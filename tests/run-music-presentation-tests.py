@@ -13,6 +13,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import session_cleanup  # stops services the private D-Bus session activated
 
 
 class SessionDirectory(tempfile.TemporaryDirectory):
@@ -62,8 +63,11 @@ with SessionDirectory(prefix="lurviko-music-presentation-") as temporary:
         try:
             result = process.wait(timeout=90)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            session_cleanup.terminate_session(process.pid, grace=0.5)
             process.wait()
             raise
+        finally:
+            # Services the private bus activated outlive it; stop them too.
+            session_cleanup.terminate_session(process.pid)
         if result:
             raise subprocess.CalledProcessError(result, command)

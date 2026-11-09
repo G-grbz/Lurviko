@@ -8,6 +8,7 @@ import tempfile
 import errno
 import time
 from contextlib import contextmanager
+import session_cleanup  # stops services the private D-Bus session activated
 
 
 @contextmanager
@@ -61,4 +62,4 @@ with isolated_directory() as temporary:
         XDG_CACHE_HOME=str(root / "cache"), LURVIKO_ARCHIVE_DROP_TEST_ROOT=str(root))
     if environment["QT_QPA_PLATFORM"] == "offscreen":
         environment["QT_QUICK_BACKEND"] = "software"
-    subprocess.run(["dbus-run-session", "--", str(root / "archive-drop-tests")], env=environment, check=True, timeout=90)
+    session_cleanup.run(["dbus-run-session", "--", str(root / "archive-drop-tests")], env=environment, check=True, timeout=90)

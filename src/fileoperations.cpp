@@ -47,6 +47,7 @@
 #include <openssl/crypto.h>
 
 #include <KIO/CopyJob>
+#include <KIO/FileCopyJob>
 #include <KIO/BatchRenameJob>
 #include <KIO/DeleteJob>
 #include <KIO/EmptyTrashJob>
@@ -672,6 +673,32 @@ QVariantList FileOperations::operations() const
         item.insert(QStringLiteral("finished"), operation.finished);
         item.insert(QStringLiteral("success"), operation.success);
         item.insert(QStringLiteral("cancelled"), operation.cancelled);
+        items.push_back(item);
+    }
+    return items;
+}
+
+QVariantList FileOperations::transferTargets() const
+{
+    QVariantList items;
+    for (const Operation &operation : m_operations) {
+        if (operation.finished || !operation.job)
+            continue;
+        QUrl destination;
+        if (auto *copy = qobject_cast<KIO::CopyJob *>(operation.job.data()))
+            destination = copy->destUrl();
+        else if (auto *file = qobject_cast<KIO::FileCopyJob *>(operation.job.data()))
+            destination = file->destUrl();
+        if (!destination.isLocalFile())
+            continue; // trash:/, remote targets
+        QString path = QDir::cleanPath(destination.toLocalFile());
+        // copyAs/moveAs/file copies name the target file, not its folder.
+        if (!QFileInfo(path).isDir())
+            path = QFileInfo(path).absolutePath();
+        QVariantMap item;
+        item.insert(QStringLiteral("path"), path);
+        item.insert(QStringLiteral("percent"), operation.percent);
+        item.insert(QStringLiteral("paused"), operation.paused);
         items.push_back(item);
     }
     return items;

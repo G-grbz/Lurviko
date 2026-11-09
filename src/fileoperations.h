@@ -28,6 +28,9 @@ class FileOperations : public QObject
     Q_PROPERTY(bool kioProgressEnabled READ kioProgressEnabled WRITE setKioProgressEnabled NOTIFY kioProgressEnabledChanged)
     Q_PROPERTY(bool ioBusy READ ioBusy NOTIFY ioBusyChanged)
     Q_PROPERTY(QVariantList operations READ operations NOTIFY operationsChanged)
+    // Running copy/move jobs by local destination folder ({path, percent}),
+    // independent of whether Plasma or Lurviko shows the progress cards.
+    Q_PROPERTY(QVariantList transferTargets READ transferTargets NOTIFY operationsChanged)
     Q_PROPERTY(QVariantList kdeConnectDevices READ kdeConnectDevices NOTIFY shareTargetsChanged)
     Q_PROPERTY(bool kdeConnectAvailable READ kdeConnectAvailable NOTIFY shareTargetsChanged)
     Q_PROPERTY(bool bluetoothAvailable READ bluetoothAvailable NOTIFY shareTargetsChanged)
@@ -46,6 +49,7 @@ public:
     bool ioBusy() const;
     void setKioProgressEnabled(bool enabled);
     QVariantList operations() const;
+    QVariantList transferTargets() const;
     QVariantList kdeConnectDevices() const { return m_kdeConnectDevices; }
     bool kdeConnectAvailable() const { return m_kdeConnectAvailable; }
     bool bluetoothAvailable() const { return m_bluetoothAvailable; }

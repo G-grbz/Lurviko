@@ -104,6 +104,7 @@ void OpenWithModel::refresh()
     m_defaultDesktopEntry.clear();
     m_defaultApplicationName.clear();
     m_defaultApplicationIconName.clear();
+    m_defaultApplicationNames.clear();
 
     QStringList mimeTypes;
     QMimeDatabase db;
@@ -120,13 +121,28 @@ void OpenWithModel::refresh()
     }
 
     if (!mimeTypes.isEmpty()) {
-        if (mimeTypes.size() == 1) {
-            const KService::Ptr preferred = KApplicationTrader::preferredService(mimeTypes.constFirst());
-            if (preferred) {
-                m_defaultDesktopEntry = preferred->desktopEntryName();
-                m_defaultApplicationName = preferred->name();
-                m_defaultApplicationIconName = preferred->icon();
+        // Each file opens with its own type's default (openDefaults groups
+        // by application). Different MIME types often share one application
+        // (.txt and .md in Kate); then the selection has a single default too.
+        KService::Ptr shared;
+        bool uniform = true;
+        for (const QString &mime : std::as_const(mimeTypes)) {
+            const KService::Ptr preferred = KApplicationTrader::preferredService(mime);
+            if (!preferred || !preferred->isApplication()) {
+                uniform = false;
+                continue;
             }
+            if (!m_defaultApplicationNames.contains(preferred->name()))
+                m_defaultApplicationNames.push_back(preferred->name());
+            if (!shared)
+                shared = preferred;
+            else if (shared->desktopEntryName() != preferred->desktopEntryName())
+                uniform = false;
+        }
+        if (uniform && shared) {
+            m_defaultDesktopEntry = shared->desktopEntryName();
+            m_defaultApplicationName = shared->name();
+            m_defaultApplicationIconName = shared->icon();
         }
 
         QSet<QString> availableEntries;

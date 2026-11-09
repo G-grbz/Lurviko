@@ -64,6 +64,7 @@ private:
     std::unique_ptr<Private> d;
     void startPending();
     void startPeek();
+    void recoverLostEvents();
     void updateWatches();
     void readEvents();
 };

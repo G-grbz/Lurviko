@@ -74,6 +74,21 @@ int main(int argc, char **argv) {
     require(sharedProperties.fileCount() == 3 && sharedProperties.folderCount() == 2, "shared snapshot preserves file/folder counts");
     sharedProperties.inspect(sizeRoot + "/nested");
     require(!sharedProperties.calculating() && sharedProperties.totalSize() == 5 && sharedProperties.folderCount() == 1, "single subfolder reuses snapshot excluding its root count");
+    {
+        // kio-admin locations are the same local filesystem: Properties show
+        // local contents/sizes from the shared index instead of KIO's 4 KiB.
+        FilePropertiesManager adminProperties;
+        adminProperties.setStatsSource(&directoryStats);
+        adminProperties.inspect(QStringLiteral("admin://") + sizeRoot + "/nested");
+        require(until([&] { return adminProperties.statsReady() || adminProperties.statsAvailable(); }),
+                "admin:/// folder Properties obtain index statistics");
+        require(adminProperties.allLocal() && adminProperties.totalSize() == 5 && adminProperties.fileCount() == 1
+                && adminProperties.folderCount() == 1, "admin:/// folder shows the same contents as the local path");
+        adminProperties.inspectSelection({QStringLiteral("admin://") + sizeRoot + "/visible.txt",
+                                          QStringLiteral("admin://") + sizeRoot + "/nested"});
+        require(until([&] { return adminProperties.statsReady(); }) && adminProperties.allLocal()
+                && adminProperties.totalSize() == 8, "admin:/// multi-selection is counted like the local selection");
+    }
     directoryStats.inspect(sizeRoot);
     sharedProperties.inspectSelection({sizeRoot + "/visible.txt", sizeRoot + "/nested"});
     sharedProperties.cancelInspection();
@@ -596,9 +611,13 @@ ApplicationWindow {
     const auto click = [&](QQuickItem *item) {
         const QPointF pos = item->mapToScene(QPointF(9, item->height() / 2));
         const QPointF global = window->mapToGlobal(pos.toPoint());
+        // Construct each event right before delivery: creating the release
+        // first updates the device's shared event point, and Qt 6.8 then
+        // delivers the pending press with an already released point.
         QMouseEvent press(QEvent::MouseButtonPress, pos, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(window, &press);
         QMouseEvent release(QEvent::MouseButtonRelease, pos, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-        QApplication::sendEvent(window, &press); QApplication::sendEvent(window, &release); pause(100);
+        QApplication::sendEvent(window, &release); pause(100);
     };
     auto flick = scroll->property("contentItem").value<QObject *>();
     require(flick, "properties scrollbar has a flickable");

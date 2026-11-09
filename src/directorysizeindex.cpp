@@ -94,6 +94,21 @@ struct DirectorySizeIndex::Private {
             return true;
         return false;
     }
+    // Persistent hint for a path no visible reader covers. Floods (a content
+    // index rebuild, a large copy) collapse into their directories instead of
+    // invalidating every cached root, which forced a full verification walk.
+    void invalidate(const QString& path)
+    {
+        if (invalidatedPaths.size() < 2048) {
+            invalidatedPaths.insert(path);
+            return;
+        }
+        const auto directory = QFileInfo(path).absolutePath();
+        if (invalidatedPaths.size() < 4096 || invalidatedPaths.contains(directory))
+            invalidatedPaths.insert(directory);
+        else
+            invalidateAll = true;
+    }
     bool touches(const QString& path, const DirectorySizeSnapshot& s) const
     {
         const auto root = s.canonicalPath.isEmpty() ? s.path : s.canonicalPath;
@@ -406,8 +421,7 @@ void DirectorySizeIndex::observePaths(const QStringList& values)
         if (within(path, QFileInfo(d->databasePath).absolutePath()))
             continue; // observing the index itself must never feed another write
         if (!d->relevant(path)) {
-            if (d->invalidatedPaths.size() < 4096) d->invalidatedPaths.insert(path);
-            else d->invalidateAll = true;
+            d->invalidate(path);
             d->pending = true; continue;
         }
         bool needed = false;
@@ -419,8 +433,7 @@ void DirectorySizeIndex::observePaths(const QStringList& values)
             }
         }
         if (!needed) {
-            if (d->invalidatedPaths.size() < 4096) d->invalidatedPaths.insert(path);
-            else d->invalidateAll = true;
+            d->invalidate(path);
             d->pending = true;
             continue;
         }
@@ -518,6 +531,27 @@ void DirectorySizeIndex::verifyAll()
     if (d->pending && !d->watcher)
         d->debounce.start(200);
 }
+void DirectorySizeIndex::recoverLostEvents()
+{
+    // Native watches cover only the visible directories (non-recursively), so
+    // a kernel queue overflow can only have lost changes inside them. Reconcile
+    // exactly those directories; verifyAll() would re-stat every cached tree.
+    QSet<QString> watched;
+    {
+        QMutexLocker lock(&d->watches->mutex);
+        watched = d->watches->allowed;
+    }
+    for (const auto& path : watched) {
+        if (d->relevant(path)) {
+            observeDirectory(path, true);
+        } else {
+            d->invalidate(path);
+            d->pending = true;
+        }
+    }
+    if (d->pending && !d->watcher && !d->debounce.isActive())
+        d->debounce.start(200);
+}
 int DirectorySizeIndex::activeWatchCount() const
 {
     QMutexLocker lock(&d->watches->mutex);
@@ -574,7 +608,7 @@ void DirectorySizeIndex::readEvents()
         for (ssize_t offset = 0; offset + ssize_t(sizeof(inotify_event)) <= count;) {
             const auto* event = reinterpret_cast<const inotify_event*>(buffer.data() + offset);
             if (offset + ssize_t(sizeof(inotify_event)) + event->len > count) {
-                verifyAll();
+                recoverLostEvents();
                 break;
             }
             offset += sizeof(inotify_event) + event->len;
@@ -582,7 +616,7 @@ void DirectorySizeIndex::readEvents()
                 // Size-index verification alone cannot repaint the file list.
                 // An overflow may drop the only CREATE/MOVED_TO notification
                 // for an externally produced file (e.g. an MKV muxer output).
-                verifyAll();
+                recoverLostEvents();
                 QMutexLocker lock(&d->watches->mutex);
                 changedDirectories.unite(d->watches->allowed);
                 continue;
@@ -742,10 +776,8 @@ void DirectorySizeIndex::startPending()
             auto invalidations = work.invalidatedPaths + work.paths + work.directories + work.verify;
             for (const auto& move : work.moves) invalidations << move.first << move.second;
             d->invalidateAll = d->invalidateAll || work.invalidateAll;
-            for (const auto& path : invalidations) {
-                if (d->invalidatedPaths.size() < 4096) d->invalidatedPaths.insert(path);
-                else d->invalidateAll = true;
-            }
+            for (const auto& path : invalidations)
+                d->invalidate(path);
             for (auto it = work.selections.cbegin(); it != work.selections.cend(); ++it)
                 if (d->selectionScopes.contains(it.key())) d->selections.insert(it.key(), it.value());
             // A cancelled transaction has no completed snapshot result to

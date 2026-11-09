@@ -15,6 +15,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  debian-qt68:
+    name: Debian 13 / Qt 6.8 (minimum supported Qt)
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap the container
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install build and test dependencies
+        run: |
+          bash packaging/scripts/deps/debian.sh
+          apt-get install -y --no-install-recommends xvfb xauth dbus dbus-x11 ffmpeg 7zip \
+            libarchive-tools zstd unzip desktop-file-utils python3 python3-pytest python3-cryptography \
+            breeze-icon-theme fonts-dejavu-core qml6-module-qttest
+      - name: Build and test as an unprivileged user
+        run: |
+          useradd -m tester
+          chown -R tester "$GITHUB_WORKSPACE"
+          su tester -c "cd '$GITHUB_WORKSPACE' && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            && cmake --build build --parallel 4 \
+            && LURVIKO_TEST_BUILD_DIR=\"\$PWD/build\" bash .github/scripts/run-qt68-tests.sh"
+
   linux:
     name: Arch Linux / Qt 6 / KDE Frameworks 6
     runs-on: ubuntu-latest

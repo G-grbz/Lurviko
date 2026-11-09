@@ -71,7 +71,7 @@ FocusScope {
         basePixelSize: 12
         focus: true
         persistentSelection: true
-        ContextMenu.menu: control.textEditMenu
+        EditorContextMenu { menu: control.textEditMenu }
         text: control.value
         placeholderText: control.keepText
         Accessible.name: control.Accessible.name
