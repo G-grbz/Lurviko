@@ -47,7 +47,7 @@ Item {
         function collapse() {
             AppTheme.setSidebarAutoHide(true)
             tryCompare(shell, "collapsed", true)
-            verify(shell.width < 248)
+            verify(shell.width < shell.expandedWidth)
             wait(50) // Allow the reparented controls and their layouts to polish.
         }
         function test_discover_is_its_own_navigation_card_on_every_location() {
@@ -131,8 +131,25 @@ Item {
                 AppTheme.setQtTheme(previous)
             }
         }
+        function test_expanded_width_follows_icon_size() {
+            const saved = AppTheme.settings.systemSidebarIconSize
+            try {
+                AppTheme.setSystemSidebarIconSize(16)
+                const small = shell.expandedWidth
+                AppTheme.setSystemSidebarIconSize(96)
+                const medium = shell.expandedWidth
+                AppTheme.setSystemSidebarIconSize(128)
+                const large = shell.expandedWidth
+                verify(small >= shell.minimumExpandedWidth)
+                verify(small < medium && medium < large, small + " < " + medium + " < " + large)
+                verify(large <= shell.maximumExpandedWidth)
+                verify(small < 248, "Small icons give a slimmer sidebar than the old fixed width")
+            } finally {
+                AppTheme.setSystemSidebarIconSize(saved)
+            }
+        }
         function test_disabled_keeps_the_existing_complete_sidebar() {
-            compare(shell.width, 248)
+            compare(shell.width, shell.expandedWidth)
             compare(shell.panel.sectionFilter, "")
             verify(shell.panel.footer.visible)
             compare(shell.panel.footer.columns, 5)
@@ -180,7 +197,9 @@ Item {
             verify(!icon.visible && title.visible)
             AppTheme.setSidebarRailMode("icon")
             verify(icon.visible && !title.visible)
-            tryCompare(icon, "width", 28)
+            // Symbolic glyphs are drawn at 22 px, colour artwork keeps 28 px.
+            const symbolic = String(badge("places").artwork).indexOf("image://bundledicon/") === 0
+            tryCompare(icon, "width", symbolic ? 22 : 28)
             compare(shell.width, 54)
             AppTheme.setSidebarRailMode("invalid")
             compare(AppTheme.sidebarRailMode, "icon")
@@ -361,7 +380,7 @@ Item {
             tryCompare(shell.sectionPopup, "visible", false)
             mouseClick(findChild(shell, "sidebarRestoreButton"), 20, 20)
             tryCompare(shell, "collapsed", false)
-            compare(shell.width, 248)
+            compare(shell.width, shell.expandedWidth)
             compare(shell.panel.sectionFilter, "")
         }
         function test_navigation_uses_the_same_sidebar_action_and_closes_the_panel() {

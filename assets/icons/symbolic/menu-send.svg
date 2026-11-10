@@ -1,42 +1,14 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   viewBox="0 0 24 24"
-   width="24"
-   height="24"
-   version="1.1"
-   id="svg1"
-   sodipodi:docname="menu-send.svg"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs1" />
-  <sodipodi:namedview
-     id="namedview1"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="19"
-     inkscape:cx="12"
-     inkscape:cy="12"
-     inkscape:window-width="1536"
-     inkscape:window-height="799"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="svg1" />
-  <g
-     transform="translate(4,4)"
-     id="g1">
-    <path
-       style="fill:#ffffff;fill-opacity:1"
-       d="M 1,1 V 7 L 10,8 1,9 V 15 L 15,8 Z"
-       id="path1" />
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" width="24" height="24" version="1.1" viewBox="0.19 0.69 22.619 22.619" color="#ffffff">
+  <defs>
+    <style id="current-color-scheme" type="text/css">.ColorScheme-Text {
+        color:#ffffff;
+      }</style>
+  </defs>
+  <g class="ColorScheme-Text" transform="translate(.99997 1)" fill="currentColor">
+    <path d="m8 4v1h9c1.0692 0 1.9288 0.83294 1.9883 1.8867l-6.1289 4.6602c-1.0302 0.78348-2.6886 0.78347-3.7188 0l-1.1406-0.86719v1.2324l0.33008 0.25195c1.4653 1.1144 3.8764 1.1144 5.3418 0l0.71875-0.54687 4.5977 3.4961c-0.05951 1.0538-0.9191 1.8867-1.9883 1.8867h-9v1h9c1.662 0 3-1.338 3-3v-8c0-1.662-1.338-3-3-3h-9zm11 4.1113v5.7773l-3.7969-2.8887 3.7969-2.8887z" />
+    <rect x="1" y="7" width="6" height="1" ry=".5" />
+    <rect x="2" y="11" width="5" height="1" ry=".5" />
+    <rect x="3" y="15" width="4" height="1" ry=".5" />
   </g>
 </svg>

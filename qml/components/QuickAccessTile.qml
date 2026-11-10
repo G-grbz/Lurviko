@@ -21,6 +21,21 @@ Rectangle {
     // Second line under the path (e.g. "1.204 öğe · 3,2 GB"); empty hides it.
     property string infoText: ""
     readonly property bool hovered: mouse.containsMouse || actionsHover.hovered
+    // Compact dock layout: icon over the title. Drag to reorder, the context
+    // menu and the Last Location menu keep working as in the full card.
+    property bool compact: false
+    function openRecentMenu(anchor) {
+        tile.pruneRecentRequested()
+        // Let the model notification update the Instantiator before
+        // opening so removed entries never flash in the popup.
+        Qt.callLater(function() {
+            const point = anchor.mapToItem(tile, 0, anchor.height + 6)
+            recentMenu.x = tile.compact ? point.x
+                         : Math.max(6, Math.min(tile.width - recentMenu.implicitWidth - 6, point.x + anchor.width - recentMenu.implicitWidth))
+            recentMenu.y = point.y
+            recentMenu.open()
+        })
+    }
     // Opaque even with a translucent Qt window (same rule as the disk cards).
     readonly property bool glassSurface: AppTheme.useQtTheme && AppTheme.translucentWindow
 
@@ -52,7 +67,8 @@ Rectangle {
     signal externalDropRequested(string url, string title, string icon)
     signal pruneRecentRequested()
 
-    implicitHeight: Math.max(74, tile.effectiveIconPixels + 28)
+    implicitHeight: compact ? 104 : Math.max(74, tile.effectiveIconPixels + 28)
+    implicitWidth: compact ? 108 : 280
 
     radius: AppTheme.cardRadius
     color: dropTarget.containsDrag
@@ -95,6 +111,7 @@ Rectangle {
 
     RowLayout {
         z: 2
+        visible: !tile.compact
         anchors.fill: parent
         anchors.margins: 13
         spacing: 11
@@ -205,15 +222,7 @@ Rectangle {
                 onReleased: function(mouse) { mouse.accepted = true }
                 onClicked: function(mouse) {
                     mouse.accepted = true
-                    tile.pruneRecentRequested()
-                    // Let the model notification update the Instantiator before
-                    // opening so removed entries never flash in the popup.
-                    Qt.callLater(function() {
-                        const point = recentBadge.mapToItem(tile, 0, recentBadge.height + 6)
-                        recentMenu.x = Math.max(6, Math.min(tile.width - recentMenu.implicitWidth - 6, point.x + recentBadge.width - recentMenu.implicitWidth))
-                        recentMenu.y = point.y
-                        recentMenu.open()
-                    })
+                    tile.openRecentMenu(recentBadge)
                 }
             }
         }
@@ -223,10 +232,74 @@ Rectangle {
     // Quick actions float over the right edge while hovering; the text column
     // reserves their width meanwhile, so nothing moves, it just elides sooner.
     // (The Last Location card has its own "Last 10" menu instead.)
+    // ---- Compact layout -----------------------------------------------------
+    Column {
+        z: 2
+        visible: tile.compact
+        anchors.centerIn: parent
+        spacing: 8
+        CrispIcon {
+            objectName: "quickAccessCompactIcon"
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 44; height: 44
+            source: tile.fixedShortcut && !tile.path.length ? AppTheme.icon("last-location.svg")
+                    : AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(tile.iconSource, 44) : tile.iconSource
+            scale: tile.hovered ? 1.06 : 1.0
+            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        }
+        GText {
+            width: tile.width - 14
+            horizontalAlignment: Text.AlignHCenter
+            text: tile.title
+            baseColor: AppTheme.text
+            basePixelSize: 11
+            elide: Text.ElideRight
+        }
+    }
+    // Last Location keeps its "last 10" menu as a corner button.
+    Rectangle {
+        id: compactRecentButton
+        objectName: "quickAccessCompactRecent"
+        z: 8
+        visible: tile.compact && tile.fixedShortcut
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 6
+        width: 24; height: 24
+        radius: 12
+        color: compactRecentMouse.containsMouse ? AppTheme.accent
+                                                : AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.22 : 0.12)
+        border.width: 1
+        border.color: AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.55 : 0.40)
+        CrispIcon {
+            anchors.centerIn: parent
+            width: 13; height: 13
+            source: AppTheme.icon("history.svg", compactRecentMouse.containsMouse ? "#ffffff" : AppTheme.accent)
+        }
+        MouseArea {
+            id: compactRecentMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: function(mouse) {
+                mouse.accepted = true
+                tile.openRecentMenu(compactRecentButton)
+            }
+        }
+        GToolTip {
+            visible: compactRecentMouse.containsMouse
+            text: tile.language === "tr" ? "Son 10 konum" : "Last 10 locations"
+        }
+    }
+    GToolTip {
+        visible: tile.compact && mouse.containsMouse && !compactRecentMouse.containsMouse && tile.path.length > 0
+        text: tile.prettyLocation(tile.path)
+    }
+
     Item {
         id: hoverActionsOverlay
         z: 5
-        visible: tile.hovered && !tile.dragging && !tile.fixedShortcut
+        visible: tile.hovered && !tile.dragging && !tile.fixedShortcut && !tile.compact
         anchors.right: parent.right
         anchors.rightMargin: 1
         anchors.verticalCenter: parent.verticalCenter

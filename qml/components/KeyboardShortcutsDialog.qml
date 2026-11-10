@@ -85,31 +85,13 @@ GModalPopup {
     ColumnLayout {
         anchors.fill: parent
         spacing: 18
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 14
-            Rectangle {
-                Layout.preferredWidth: 48; Layout.preferredHeight: 48
-                radius: 15; color: AppTheme.accentSoft
-                CrispIcon { anchors.centerIn: parent; width: 28; height: 28; source: AppTheme.icon("keyboard.svg", AppTheme.accent) }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 5
-                GText { text: dialog.turkish ? "Klavye kısayolları" : "Keyboard shortcuts"; baseColor: AppTheme.text; basePixelSize: 22; baseFontWeight: Font.DemiBold }
-                GText {
-                    Layout.fillWidth: true
-                    text: dialog.turkish ? "Eylemleri bul, tuşlarını kaydet ve kendine göre düzenle." : "Find actions, record key combinations and make them your own."
-                    baseColor: AppTheme.textMuted; basePixelSize: 12; wrapMode: Text.WordWrap
-                }
-            }
-            GButton {
-                objectName: "closeShortcutsButton"
-                Layout.preferredWidth: 36; Layout.preferredHeight: 36
-                icon.source: AppTheme.icon("close-ui.svg")
-                onClicked: dialog.close()
-                GToolTip { text: dialog.turkish ? "Kapat" : "Close" }
-            }
+        GModalHeader {
+            iconSource: AppTheme.icon("keyboard.svg", AppTheme.accent)
+            title: dialog.turkish ? "Klavye kısayolları" : "Keyboard shortcuts"
+            subtitle: dialog.turkish ? "Eylemleri bul, tuşlarını kaydet ve kendine göre düzenle." : "Find actions, record key combinations and make them your own."
+            closeButtonName: "closeShortcutsButton"
+            closeToolTip: dialog.turkish ? "Kapat" : "Close"
+            onCloseRequested: dialog.close()
         }
         RowLayout {
             Layout.fillWidth: true

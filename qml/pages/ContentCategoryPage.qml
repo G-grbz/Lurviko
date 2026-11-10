@@ -61,6 +61,8 @@ Item {
         id: fileOps
         kioProgressEnabled: AppTheme.kioProgressEnabled
     }
+    // Preferred application for the file type, as in the file browser.
+    OpenWithModel { id: categoryOpenWith }
 
     Rectangle {
         anchors.fill: parent
@@ -312,7 +314,7 @@ Item {
                                 if (page.categoryKey === "appimage")
                                     fileOps.runExecutable(delegateRoot.modelData.url)
                                 else
-                                    Qt.openUrlExternally(delegateRoot.modelData.url)
+                                    categoryOpenWith.openDefault(delegateRoot.modelData.url, "")
                             }
                             onClicked: function(mouse) {
                                 if (mouse.button === Qt.RightButton)
@@ -332,7 +334,7 @@ Item {
                                     if (page.categoryKey === "appimage")
                                         fileOps.runExecutable(delegateRoot.modelData.url)
                                     else
-                                        Qt.openUrlExternally(delegateRoot.modelData.url)
+                                        categoryOpenWith.openDefault(delegateRoot.modelData.url, "")
                                 }
                             }
                             GMenuItem {

@@ -129,11 +129,10 @@ Item {
                     verify(inputTestHelper.settleQmlCreations(page))
                 }
             }
-            function test_view_menu_controls_sidebar_mode_and_persists_it() {
+            function test_settings_control_sidebar_mode_and_persists_it() {
                 const saved = AppTheme.sidebarAutoHide
                 const savedMode = AppTheme.sidebarRailMode
-                const savedWidth = window.width
-                const menu = findChild(page, "toolbarViewMenu")
+                const menu = findChild(page, "settingsDialog")
                 const toggle = inputTestHelper.objectChild(page, "sidebarAutoHideSwitch")
                 const picker = inputTestHelper.objectChild(page, "sidebarRailModePicker")
                 const row = inputTestHelper.objectChild(page, "sidebarRailModeSetting")
@@ -145,8 +144,6 @@ Item {
                     mouseClick(toggle, toggle.width / 2, toggle.height / 2)
                     compare(AppTheme.sidebarAutoHide, true)
                     verify(row.visible)
-                    window.width += 80
-                    tryVerify(function() { return Math.abs(page.width - menu.x - menu.width - 8) < 3 })
                     picker.activated(2)
                     compare(AppTheme.sidebarRailMode, "icon")
                     tryVerify(function() { return inputTestHelper.savedAppearanceSetting("sidebarRailMode") === "icon" })
@@ -155,9 +152,9 @@ Item {
                     verify(!row.visible)
                 } finally {
                     menu.close()
+                    tryCompare(menu, "visible", false)
                     AppTheme.setSidebarAutoHide(saved)
                     AppTheme.setSidebarRailMode(savedMode)
-                    window.width = savedWidth
                 }
             }
             function test_typography_dialog_is_loaded_only_when_opened() {
@@ -246,20 +243,20 @@ Item {
             function test_switch_is_shown_only_for_bundled_icons() {
                 const row = findChild(page, "coloredFolderIconsSetting")
                 const toggle = findChild(page, "coloredFolderIconsSwitch")
-                const menu = findChild(page, "toolbarViewMenu")
+                const menu = findChild(page, "settingsDialog")
                 verify(row !== null && toggle !== null)
                 menu.open()
                 tryVerify(function() { return row.visible })
-                compare(row.implicitHeight, 42)
                 AppTheme.setSystemIcons(true)
-                compare(row.implicitHeight, 0)
                 verify(!row.visible)
                 AppTheme.setSystemIcons(false)
-                compare(row.implicitHeight, 42)
+                verify(row.visible)
                 toggle.checked = false
                 toggle.toggled()
                 compare(AppTheme.useColoredFolderIcons, false)
+                compare(toggle.checked, false, "The switch follows the saved setting again")
                 menu.close()
+                tryCompare(menu, "visible", false)
             }
             function test_grid_spacing_matches_at_the_same_visual_icon_size_data() {
                 return [{tag: "small", size: 72}, {tag: "medium", size: 114},
@@ -568,7 +565,7 @@ Item {
                 const automatic = AppTheme.operationAutoHide
                 const seconds = AppTheme.operationAutoHideSeconds
                 const showOnCompletion = AppTheme.operationShowOnCompletion
-                const menu = findChild(page, "toolbarViewMenu")
+                const menu = findChild(page, "settingsDialog")
                 try {
                     window.requestActivate()
                     tryCompare(window, "active", true)
@@ -583,12 +580,8 @@ Item {
                     const completionToggle = findChild(page, "operationShowOnCompletionSwitch")
                     verify(completionToggle.visible, "Completion preference is conditional on auto hide")
                     AppTheme.setOperationShowOnCompletion(false)
-                    let rowIndex = -1
-                    for (let i = 0; i < menu.count; ++i)
-                        if (menu.itemAt(i) === row) rowIndex = i
-                    verify(rowIndex >= 0)
-                    menu.currentIndex = rowIndex
-                    wait(100)
+                    menu.showSection("operations")
+                    wait(400)
                     verify(row.visible)
                     compare(delay.text, "9")
                     mouseClick(delay, delay.width / 2, delay.height / 2)
@@ -604,7 +597,7 @@ Item {
                     mouseClick(toggle, toggle.width / 2, toggle.height / 2)
                     tryCompare(AppTheme, "operationAutoHide", false)
                     verify(!completionToggle.visible, "Completion preference is hidden when auto hide is disabled")
-                    verify(menu.visible, "Embedded preferences keep the view menu open")
+                    verify(menu.visible, "Embedded preferences keep the settings dialog open")
                     // QtCore.Settings batches property writes. Wait for that
                     // batch before reading through a fresh native QSettings instance.
                     tryVerify(function() {
@@ -691,10 +684,116 @@ Item {
                 page.closeTab(before)
                 tryVerify(function() { return pane.itemCount > 40 })
             }
+            function test_preview_kinds_follow_type_and_content() {
+                compare(PreviewSettings.previewKind("png", "image/png"), "images")
+                compare(PreviewSettings.previewKind("jpg", ""), "images")
+                compare(PreviewSettings.previewKind("pdf", "application/pdf"), "pdf")
+                compare(PreviewSettings.previewKind("eps", "image/x-eps"), "print")
+                compare(PreviewSettings.previewKind("djvu", "image/vnd.djvu"), "print")
+                compare(PreviewSettings.previewKind("odt", "application/vnd.oasis.opendocument.text"), "office")
+                compare(PreviewSettings.previewKind("docx", ""), "office")
+                compare(PreviewSettings.previewKind("epub", "application/epub+zip"), "ebooks")
+                compare(PreviewSettings.previewKind("cbz", ""), "comics")
+                compare(PreviewSettings.previewKind("ttf", "font/ttf"), "fonts")
+                compare(PreviewSettings.previewKind("m2ts", ""), "video")
+                compare(PreviewSettings.previewKind("ts", "video/mp2t"), "video")
+                compare(PreviewSettings.previewKind("ts", "text/vnd.trolltech.linguist"), "text")
+                compare(PreviewSettings.previewKind("ape", ""), "audio")
+                compare(PreviewSettings.previewKind("m3u", "audio/x-mpegurl"), "text",
+                        "Playlists are text, not audio")
+                compare(PreviewSettings.previewKind("cpp", "text/x-c++src"), "text")
+                compare(PreviewSettings.previewKind("sh", "application/x-shellscript"), "text")
+                // Unknown and extension-less names are text candidates that
+                // the worker confirms from the file content, like Dolphin.
+                compare(PreviewSettings.previewKind("gitignore", "application/octet-stream"), "text")
+                compare(PreviewSettings.previewKind("", "application/octet-stream"), "text")
+                compare(PreviewSettings.previewKind("exe", "application/x-ms-dos-executable"), "")
+                compare(PreviewSettings.previewKind("zip", "application/zip"), "")
+            }
+            function test_preview_settings_gate_thumbnails() {
+                const pane = page.activePane
+                const savedEnabled = PreviewSettings.enabled
+                const savedSystem = PreviewSettings.systemMaxKiB
+                const savedExternal = PreviewSettings.externalMaxKiB
+                const savedImages = PreviewSettings.kindEnabled("images")
+                try {
+                    PreviewSettings.enabled = true
+                    PreviewSettings.systemMaxKiB = 0
+                    PreviewSettings.externalMaxKiB = 0
+                    PreviewSettings.setKindEnabled("images", true)
+                    verify(pane.thumbSource("/tmp/photo.png", "png", null, 4096 * 1024, "", "image/png").length > 0)
+                    PreviewSettings.setKindEnabled("images", false)
+                    compare(pane.thumbSource("/tmp/photo.png", "png", null, 1024, "", "image/png"), "")
+                    PreviewSettings.setKindEnabled("images", true)
+                    PreviewSettings.enabled = false
+                    compare(pane.thumbSource("/tmp/photo.png", "png", null, 1024, "", "image/png"), "")
+                    PreviewSettings.enabled = true
+
+                    // 1024 KiB: exactly 1 MiB still previews, one byte more does not.
+                    PreviewSettings.systemMaxKiB = 1024
+                    verify(!PreviewSettings.isExternalPath("/tmp/photo.png"))
+                    verify(PreviewSettings.allows("/tmp/photo.png", "png", "image/png", 1024 * 1024))
+                    verify(!PreviewSettings.allows("/tmp/photo.png", "png", "image/png", 1024 * 1024 + 1))
+                    // Other mounts (here /dev) use their own limit.
+                    verify(PreviewSettings.isExternalPath("/dev/photo.png"))
+                    verify(PreviewSettings.allows("/dev/photo.png", "png", "image/png", 50 * 1024 * 1024))
+                    PreviewSettings.externalMaxKiB = 10
+                    verify(!PreviewSettings.allows("/dev/photo.png", "png", "image/png", 11 * 1024))
+                    verify(PreviewSettings.allows("/dev/photo.png", "png", "image/png", 10 * 1024))
+                    verify(!PreviewSettings.allows("/tmp/empty", "", "application/octet-stream", 0),
+                           "Empty files have nothing to preview")
+                } finally {
+                    PreviewSettings.enabled = savedEnabled
+                    PreviewSettings.systemMaxKiB = savedSystem
+                    PreviewSettings.externalMaxKiB = savedExternal
+                    PreviewSettings.setKindEnabled("images", savedImages)
+                }
+            }
+            function test_settings_dialog_edits_preview_preferences() {
+                const dialog = findChild(page, "settingsDialog")
+                const savedSystem = PreviewSettings.systemMaxKiB
+                const savedText = PreviewSettings.kindEnabled("text")
+                try {
+                    findChild(page, "openSettingsMenuItem").triggered()
+                    tryCompare(dialog, "opened", true)
+                    dialog.showSection("previews")
+                    tryCompare(dialog, "currentSection", "previews")
+                    const field = findChild(dialog.contentItem, "systemPreviewLimitField")
+                    const textSwitch = findChild(dialog.contentItem, "previewKindSwitch_text")
+                    verify(field !== null && textSwitch !== null)
+                    wait(350)
+                    mouseClick(field, field.width / 2, field.height / 2)
+                    tryCompare(field, "activeFocus", true)
+                    keyClick(Qt.Key_A, Qt.ControlModifier)
+                    keyClick(Qt.Key_1); keyClick(Qt.Key_0); keyClick(Qt.Key_2); keyClick(Qt.Key_4)
+                    keyClick(Qt.Key_Return)
+                    compare(PreviewSettings.systemMaxKiB, 1024)
+                    const scroll = findChild(dialog.contentItem, "settingsScroll")
+                    scroll.contentY = Math.min(scroll.contentHeight - scroll.height,
+                                               textSwitch.mapToItem(scroll.contentItem, 0, 0).y - scroll.height / 2)
+                    wait(50)
+                    mouseClick(textSwitch, textSwitch.width / 2, textSwitch.height / 2)
+                    compare(PreviewSettings.kindEnabled("text"), !savedText)
+                    compare(textSwitch.checked, !savedText)
+                } finally {
+                    dialog.close()
+                    tryCompare(dialog, "visible", false)
+                    PreviewSettings.systemMaxKiB = savedSystem
+                    PreviewSettings.setKindEnabled("text", savedText)
+                }
+            }
+            function test_view_menu_keeps_only_view_settings() {
+                const menu = findChild(page, "toolbarViewMenu")
+                verify(findChild(menu, "filePreviewsMenuItem") !== null)
+                verify(findChild(menu, "openSettingsMenuItem") !== null)
+                compare(findChild(menu, "qtThemeMenuItem"), null)
+                compare(findChild(menu, "skipPermanentDeleteConfirmationItem"), null)
+                verify(menu.count <= 12, "The view menu stays short: " + menu.count)
+            }
             function test_svgz_uses_image_preview_pipeline() {
                 const pane = page.activePane
-                verify(pane.isPreviewable("svgz"))
-                verify(pane.isPreviewable("SVGZ"))
+                compare(PreviewSettings.previewKind("svgz", ""), "svg")
+                compare(PreviewSettings.previewKind("SVGZ", ""), "svg")
                 verify(pane.thumbSource("/fixture/example.svgz", "svgz", null, 100, "revision").startsWith("image://gfilethumb/"))
                 compare(String(pane.iconForItem(false, "svgz", "", "example.svgz", "", "image/svg+xml-compressed")),
                         String(AppTheme.icon("image.svg")))

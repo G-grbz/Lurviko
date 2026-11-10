@@ -240,9 +240,9 @@ Item {
                 mouseClick(page, 20, page.height - 20)
                 tryCompare(nextMenu, "visible", false)
             }
-            function test_menu_is_in_view_menu_and_localized() {
-                const menu = findChild(page, "toolbarViewMenu")
-                const entry = findChild(menu, "qtThemeMenuItem")
+            function test_qt_theme_is_in_settings_and_localized() {
+                const dialog = findChild(page, "settingsDialog")
+                const entry = findChild(page, "qtThemeMenuItem")
                 verify(entry !== null)
                 compare(entry.text, "Use Qt theme")
                 entry.triggered()

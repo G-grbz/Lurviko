@@ -1,1 +1,14 @@
-<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M504.6 148.5C515.9 134.9 514.1 114.7 500.5 103.4C486.9 92.1 466.7 93.9 455.4 107.5L320 270L184.6 107.5C173.3 93.9 153.1 92.1 139.5 103.4C125.9 114.7 124.1 134.9 135.4 148.5L278.3 320L135.4 491.5C124.1 505.1 125.9 525.3 139.5 536.6C153.1 547.9 173.3 546.1 184.6 532.5L320 370L455.4 532.5C466.7 546.1 486.9 547.9 500.5 536.6C514.1 525.3 515.9 505.1 504.6 491.5L361.7 320L504.6 148.5z"/></svg>
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" viewBox="2.476 2.476 19.048 19.048" width="24" height="24" color="#ffffff">
+  <defs id="defs3051">
+    <style type="text/css" id="current-color-scheme">
+      .ColorScheme-Text {
+        color:#ffffff;
+      }
+      .ColorScheme-NegativeText {
+        color:#ffffff;
+      }
+      </style>
+  </defs>
+  <path style="fill:currentColor;fill-opacity:1;stroke:none" d="M 12 4 A 8 8.00001 0 0 0 4 12 A 8 8.00001 0 0 0 12 20 A 8 8.00001 0 0 0 20 12 A 8 8.00001 0 0 0 12 4 z M 8.7070312 8 L 12 11.292969 L 15.292969 8 L 16 8.7070312 L 12.707031 12 L 16 15.292969 L 15.292969 16 L 12 12.707031 L 8.7070312 16 L 8 15.292969 L 11.292969 12 L 8 8.7070312 L 8.7070312 8 z " class="ColorScheme-NegativeText" />
+</svg>

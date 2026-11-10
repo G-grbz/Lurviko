@@ -51,7 +51,28 @@ Item {
     signal locationNewTabRequested(string location)
     signal folderIconChanged(string path)
 
-    implicitWidth: collapsed ? railWidth : 248
+    implicitWidth: collapsed ? railWidth : expandedWidth
+
+    // The expanded sidebar follows its icon size instead of a fixed 248 px:
+    // small icons give a slimmer panel, large icons keep room for the labels.
+    // Mirrors SidebarItem's row (margins, icon column, spacing) plus room for
+    // a typical place name, within the space the footer controls need.
+    readonly property real minimumExpandedWidth: 212
+    readonly property real maximumExpandedWidth: 340
+    readonly property real expandedWidth: {
+        const icon = AppTheme.effectiveSidebarIconSize
+        const compact = AppTheme.sidebarCompact
+        const iconColumn = compact ? Math.max(20, icon + 2) : Math.max(30, icon + 8)
+        const rowChrome = (compact ? 13 : 15) + (compact ? 8 : 10) + 8
+        const panelChrome = 24
+        const label = Math.min(150, Math.max(64, Math.ceil(labelFont.advanceWidth("İndirilenler")) + 6))
+        return Math.round(Math.max(minimumExpandedWidth,
+                                   Math.min(maximumExpandedWidth, panelChrome + rowChrome + iconColumn + label)))
+    }
+    FontMetrics {
+        id: labelFont
+        font: AppTheme.sidebarTypography.fontFor(12, Font.Normal, false, false, false, false, false)
+    }
     onCollapsedChanged: closeSection()
     onVisibleChanged: if (!visible) closeSection()
 
@@ -82,7 +103,11 @@ Item {
         }
         contentItem: Item {
             id: badgeContent
-            readonly property real iconExtent: shell.titleOnly ? 0 : (shell.iconOnly ? 28 : 18)
+            // Symbolic glyphs (tinted bundled icons) are drawn smaller than
+            // colour artwork, which keeps its original icon-only size.
+            readonly property bool symbolicArtwork: String(railBadge.artwork).indexOf("image://bundledicon/") === 0
+            readonly property real iconOnlyExtent: symbolicArtwork ? 22 : 28
+            readonly property real iconExtent: shell.titleOnly ? 0 : (shell.iconOnly ? iconOnlyExtent : 18)
             readonly property real gap: !shell.titleOnly && !shell.iconOnly ? 6 : 0
             readonly property real labelExtent: shell.iconOnly ? 0 : Math.min(
                 Math.ceil(railFont.advanceWidth(railBadge.title)) + 2, Math.max(0, height - iconExtent - gap))
@@ -93,7 +118,8 @@ Item {
                 source: railBadge.selected ? AppTheme.recolorGlyph(railBadge.artwork, AppTheme.accent) : railBadge.artwork
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: (parent.height - badgeContent.groupHeight) / 2
-                width: shell.iconOnly ? 28 : 18
+                // Same extent the vertical centering uses.
+                width: shell.iconOnly ? badgeContent.iconOnlyExtent : 18
                 height: width
             }
             Item {

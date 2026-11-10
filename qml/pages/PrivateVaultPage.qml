@@ -9,6 +9,9 @@ import "../components"
 
 Rectangle {
     id: page
+    // Opens with the type's preferred application, like the file browser;
+    // Qt.openUrlExternally asked for an application every time.
+    OpenWithModel { id: vaultOpenWith }
     required property var lang
     required property var vault
     required property var musicPlayer
@@ -269,7 +272,9 @@ Rectangle {
         // random-name 0600 runtime copy.  This is not an export: the plaintext
         // copy remains inside Lurviko's private runtime area and is removed when
         // the vault locks / Lurviko exits.
-        if (!Qt.openUrlExternally(url)) {
+        if (vaultOpenWith.hasPreferredApplication(url, "")) {
+            vaultOpenWith.openDefault(url, "")
+        } else {
             vault.releaseMaterialized(url)
             infoPopupTitle.text = lang.language === "tr" ? "Dosya açılamadı" : "Could not open file"
             infoPopupBody.text = lang.language === "tr"

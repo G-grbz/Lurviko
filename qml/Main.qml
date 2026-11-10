@@ -1274,6 +1274,7 @@ ApplicationWindow {
             // Discover button on that line on every page.
             onClockAnchorYChanged: if (clockAnchorY >= 0) root.homeClockY = clockAnchorY
             updateChecker: appUpdates
+            operationPresentation: unifiedOperationPresentation
             storageModel: root.appStorage
             favoritesModel: root.appFavorites
             quickAccessModel: root.appQuickAccess
@@ -1281,6 +1282,7 @@ ApplicationWindow {
             lang: root.appLang
             cloudAuth: root.appCloudAuth
             cloudIntegrationPreferences: root.appCloudIntegrationPreferences
+            onWatermarkEditorRequested: appSidebar.openWatermarkEditor()
             privateVault: root.appPrivateVault
             onBrowseRequested: function(location) { root.browse(location) }
             onBrowseNewTabRequested: function(location) { root.openInNewTab(location) }

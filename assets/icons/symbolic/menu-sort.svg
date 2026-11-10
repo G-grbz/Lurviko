@@ -1,42 +1,16 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   viewBox="0 0 24 24"
-   width="24"
-   height="24"
-   version="1.1"
-   id="svg1"
-   sodipodi:docname="menu-sort.svg"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs1" />
-  <sodipodi:namedview
-     id="namedview1"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="25.75"
-     inkscape:cx="12"
-     inkscape:cy="12"
-     inkscape:window-width="1536"
-     inkscape:window-height="799"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="svg1" />
-  <g
-     transform="translate(4,4)"
-     id="g1">
-    <path
-       style="fill:#ffffff;fill-opacity:1"
-       d="M 11,1 8,5 H 10 V 8 H 12 V 5 H 14 Z M 2.5,2 A 1.5,1.5 0 0 0 1,3.5 1.5,1.5 0 0 0 2.5,5 1.5,1.5 0 0 0 4,3.5 1.5,1.5 0 0 0 2.5,2 Z M 2.5,6 A 1.5,1.5 0 0 0 1,7.5 1.5,1.5 0 0 0 2.5,9 1.5,1.5 0 0 0 4,7.5 1.5,1.5 0 0 0 2.5,6 Z M 7,7 V 10 H 5 L 8,14 11,10 H 9 V 7 Z M 2.5,10 A 1.5,1.5 0 0 0 1,11.5 1.5,1.5 0 0 0 2.5,13 1.5,1.5 0 0 0 4,11.5 1.5,1.5 0 0 0 2.5,10 Z"
-       id="path1" />
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" height="24" viewBox="2.476 2.476 19.048 19.048" width="24" color="#ffffff">
+  <style type="text/css" id="current-color-scheme">.ColorScheme-Text{color:#ffffff;}</style>
+  <g transform="translate(1.13385821443e-06 0) scale(3.77952738049)">
+    <g style="fill:currentColor;fill-opacity:1;stroke:none" class="ColorScheme-Text" transform="translate(0 -290.64998)">
+      <path d="m4.2333333 293.5604v1.87482l-.6066814-.60668-.1870686.18706.9260416.92605.9260417-.92605-.1870686-.18706-.6066814.60668v-1.87482z" />
+      <path d="m1.0583333 291.70831v.26458h1.8520833v-.26458z" />
+      <path d="m1.0583333 292.50206v.26458h1.3229167v-.26458z" />
+      <path d="m1.0583333 293.29581v.26458h1.8520833v-.26458z" />
+      <path d="m1.0583333 295.94164v-.26458h1.8520833v.26458z" />
+      <path d="m1.0583333 295.14789v-.26458h1.8520833v.26458z" />
+      <path d="m1.0583333 294.35414v-.26458h1.8520833v.26458z" />
+      <path d="m3.4395833 294.35414v-1.87482l-.6066814.60668-.1870686-.18707.9260416-.92604.9260417.92604-.1870686.18707-.6066814-.60668v1.87482z" />
+    </g>
   </g>
 </svg>

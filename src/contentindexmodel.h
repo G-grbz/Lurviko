@@ -63,6 +63,10 @@ public:
     Q_INVOKABLE void removeFromRecent(const QStringList &urlsOrPaths);
 
     Q_INVOKABLE QVariantList filesForCategory(const QString &key) const;
+    // Newest `limit` files of a category without sorting the whole category.
+    Q_INVOKABLE QVariantList latestFilesForCategory(const QString &key, int limit) const;
+    // Visible categories in display order: {key, titleTr, titleEn, icon, count}.
+    Q_INVOKABLE QVariantList visibleCategories() const;
     Q_INVOKABLE int countForCategory(const QString &key) const;
     Q_INVOKABLE qint64 bytesForCategory(const QString &key) const;
     Q_INVOKABLE qint64 homeStorageTotalBytes() const;

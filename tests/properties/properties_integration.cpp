@@ -601,6 +601,9 @@ ApplicationWindow {
     pause(200);
     auto popup = eval("propertiesDialog").value<QObject *>();
     require(popup && popup->property("visible").toBool(), "properties popup visible");
+    require(popup->property("currentTab").toString() == "general", "properties opens on the General tab");
+    popup->setProperty("currentTab", "access");
+    pause(120);
     auto scroll = findItem(window->contentItem(), "filePropertiesScroll");
     auto execution = findItem(window->contentItem(), "allowFileExecution");
     auto apply = findItem(window->contentItem(), "applyFilePermissions");
@@ -626,7 +629,9 @@ ApplicationWindow {
     QWheelEvent wheel(wheelPoint, window->mapToGlobal(wheelPoint.toPoint()), QPoint(), QPoint(0, -120),
                       Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QApplication::sendEvent(window, &wheel);
-    require(until([&] { return flick->property("contentY").toDouble() >= 200; }, 1200),
+    // One tab may be shorter than a wheel step; expect the step or the end.
+    const double reachable = qMin(200.0, flick->property("contentHeight").toDouble() - scroll->height());
+    require(reachable <= 0 || until([&] { return flick->property("contentY").toDouble() >= reachable - 1; }, 1200),
             "one mouse-wheel notch moves the properties content by the configured step");
     const QPointF local = execution->mapToItem(scroll, QPointF());
     flick->setProperty("contentY", flick->property("contentY").toDouble() + local.y() - scroll->height() / 2);
@@ -650,6 +655,7 @@ ApplicationWindow {
             "unsaved group write remains a draft");
     QMetaObject::invokeMethod(popup, "close"); pause(100);
     QMetaObject::invokeMethod(pane, "openPropertiesForSelection"); pause(200);
+    popup->setProperty("currentTab", "access"); pause(80);
     require(execution->property("checked").toBool() && groupRead->property("checked").toBool()
             && !groupWrite->property("checked").toBool(), "reopening keeps saved permissions and discards unsaved drafts");
     auto modeInput = findItem(window->contentItem(), "permissionModeInput");
@@ -686,6 +692,7 @@ ApplicationWindow {
     require(until([&] { return popup->property("visible").toBool()
                 && popup->property("permissionDraft").toInt() == (modeOf(folder) & 0777); }),
             "reopened properties finishes loading the folder permissions");
+    popup->setProperty("currentTab", "access"); pause(80);
     auto accessWarning = findItem(window->contentItem(), "folderTraversalWarning");
     require(accessWarning && !accessWarning->isVisible(), "accessible folder does not show a traversal warning");
     modeInput->forceActiveFocus(); modeInput->setProperty("text", "0644");
@@ -707,6 +714,7 @@ ApplicationWindow {
     eval("itemContextMenu.close(); root.showPropertiesForSelection()");
     require(until([&] { return popup->property("visible").toBool() && popup->property("multiple").toBool(); }),
             "Properties shortcut/action opens for multiple selected items");
+    popup->setProperty("currentTab", "access"); pause(80);
     require(!apply->property("enabled").toBool() && ownerCombo->property("value").toString().isEmpty()
             && groupCombo->property("value").toString().isEmpty(), "bulk drafts initially preserve all ownership and permission values");
     require(modeInput->property("text").toString().isEmpty() && !execution->isVisible(),

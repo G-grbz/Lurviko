@@ -925,6 +925,7 @@ Rectangle {
                         }
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("viewer-prev.svg")
+                        icon.width: 18; icon.height: 18
                         onClicked: root.previous()
                         Accessible.name: root.lang.language === "tr" ? "Önceki" : "Previous"
                         GToolTip { text: parent.Accessible.name }
@@ -939,6 +940,7 @@ Rectangle {
                         }
                         implicitWidth: 40; implicitHeight: 34
                         icon.source: root.icon(root.playing ? "viewer-pause.svg" : "viewer-play.svg")
+                        icon.width: 20; icon.height: 20
                         onClicked: root.toggle()
                         Accessible.name: root.lang.language === "tr" ? "Oynat / duraklat" : "Play / pause"
                         GToolTip { text: parent.Accessible.name }
@@ -953,6 +955,7 @@ Rectangle {
                         }
                         implicitWidth: 34; implicitHeight: 32
                         icon.source: root.icon("viewer-next.svg")
+                        icon.width: 18; icon.height: 18
                         onClicked: root.next()
                         Accessible.name: root.lang.language === "tr" ? "Sonraki" : "Next"
                         GToolTip { text: parent.Accessible.name }

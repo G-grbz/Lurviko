@@ -1,38 +1,9 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   viewBox="0 0 640 640"
-   version="1.1"
-   id="svg1"
-   sodipodi:docname="home-lg.svg"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs1" />
-  <sodipodi:namedview
-     id="namedview1"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="0.7125"
-     inkscape:cx="320"
-     inkscape:cy="320"
-     inkscape:window-width="1536"
-     inkscape:window-height="799"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="svg1" />
-  <!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. -->
-  <path
-     fill="currentColor"
-     d="M298.2 72.6C310.5 61.2 329.5 61.2 341.7 72.6L432 156.3L432 144C432 126.3 446.3 112 464 112L496 112C513.7 112 528 126.3 528 144L528 245.5L565.8 280.6C575.4 289.6 578.6 303.5 573.8 315.7C569 327.9 557.2 336 544 336L528 336L528 512C528 547.3 499.3 576 464 576L176 576C140.7 576 112 547.3 112 512L112 336L96 336C82.8 336 71 327.9 66.2 315.7C61.4 303.5 64.6 289.5 74.2 280.6L298.2 72.6zM304 384C277.5 384 256 405.5 256 432L256 528L384 528L384 432C384 405.5 362.5 384 336 384L304 384z"
-     id="path1"
-     style="fill:#ffffff;fill-opacity:1" />
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="2.952 3.452 18.095 18.095" width="24" height="24" color="#ffffff">
+  <defs>
+    <style id="current-color-scheme" type="text/css">.ColorScheme-Text {
+        color:#ffffff;
+      }</style>
+  </defs>
+  <path class="ColorScheme-Text" d="m12 5.0058c-0.12781 0-0.25558 0.04855-0.35352 0.14648l-7.0703 7.0723c-0.19587 0.19587-0.19587 0.51116 0 0.70703s0.51116 0.19587 0.70703 0l0.7168-0.7168v5.7852c0 1.108 0.892 2 2 2h8c1.108 0 2-0.892 2-2v-5.7852l0.7168 0.7168c0.19587 0.19587 0.51116 0.19587 0.70703 0 0.19587-0.19587 0.19587-0.51116 0-0.70703l-7.0703-7.0723c-0.09793-0.097934-0.22571-0.14648-0.35352-0.14648zm0 1.209 5 5v6.7852c0 0.554-0.446 1-1 1h-2v-3c0-1.108-0.892-2-2-2s-2 0.892-2 2v3h-2c-0.554 0-1-0.446-1-1v-6.7852z" fill="currentColor" />
 </svg>

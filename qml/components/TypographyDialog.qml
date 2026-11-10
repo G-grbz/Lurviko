@@ -34,26 +34,20 @@ GModalPopup {
     anchors.centerIn: parent
     width: Math.min(760, parent ? parent.width - 24 : 760)
     height: Math.min(690, parent ? parent.height - 24 : 690)
-    padding: 20
+    padding: 24
     onAboutToShow: fontFamilies = [turkish ? "Varsayılan" : "Default"].concat(AppTheme.availableFontFamilies)
 
     contentItem: ColumnLayout {
         spacing: 14
-        GText {
-            text: dialog.turkish ? "Yazı tipleri ve renkler" : "Fonts and colors"
-            basePixelSize: 20
-            baseBold: true
-            Layout.fillWidth: true
-            wrapMode: Text.Wrap
-        }
-        GText {
-            text: dialog.turkish
+        GModalHeader {
+            iconSource: AppTheme.icon("edit.svg", AppTheme.accent)
+            title: dialog.turkish ? "Yazı tipleri ve renkler" : "Fonts and colors"
+            subtitle: dialog.turkish
                 ? "Değişiklikler anında kaydedilir. Otomatik renk ve boyut temayı ve mevcut yerleşimi izler. Varsayılan yazı tipi Roboto; bulunamazsa sistem yazı tipi kullanılır. İşaretli stiller uygulanır; boş kutular kapalıdır."
                 : "Changes are saved immediately. Automatic colors and sizes follow the theme and existing layout. The default font is Roboto, with the system font as fallback. Checked styles are enabled; unchecked styles are off."
-            baseColor: AppTheme.textMuted
-            basePixelSize: 10
-            Layout.fillWidth: true
-            wrapMode: Text.Wrap
+            closeButtonName: "closeTypographyButton"
+            closeToolTip: dialog.turkish ? "Kapat" : "Close"
+            onCloseRequested: dialog.close()
         }
         ScrollView {
             id: scroll

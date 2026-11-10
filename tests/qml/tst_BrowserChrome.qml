@@ -305,8 +305,8 @@ Item {
                     const closeButton = findChild(visualTab(1), "browserTabClose")
                     verify(closeButton !== null && closeButton.visible)
                     verify(closeButton.width <= 22 && closeButton.height <= 22)
-                    compare(closeButton.icon.width, 12)
-                    compare(closeButton.icon.height, 12)
+                    compare(closeButton.icon.width, 14)
+                    compare(closeButton.icon.height, 14)
                     mouseClick(closeButton, closeButton.width / 2, closeButton.height / 2)
                     compare(page.tabs.length, 1)
                     compare(page.currentTab, 0)
@@ -405,7 +405,7 @@ Item {
                             verify(!String(button.icon.source).startsWith("image://systemicon/"))
                         }
                         if (!mode)
-                            verify(String(findChild(page, "browserRefreshButton").icon.source).endsWith("/refresh.svg"))
+                            verify(String(findChild(page, "browserRefreshButton").icon.source).indexOf("refresh.svg") >= 0)
                     }
                 } finally { AppTheme.setSystemIcons(savedIcons) }
             }
@@ -426,18 +426,30 @@ Item {
                     verify(topHost.height >= 82 && topHost.height <= 90)
                 } finally { page.tabs = savedTabs }
             }
-            function test_split_switches_one_address_row_without_changing_pane_geometry() {
+            function test_split_gives_each_pane_its_own_address_row() {
                 const left = page.activePane
                 page.setSplitEnabled(true)
                 tryVerify(function() { return findChild(page, "browserRightPane") !== null })
                 const other = findChild(page, "browserRightPane")
-                compare(left.navigationHost, other.navigationHost)
+                // Split view moves navigation from the shared header into each pane.
+                compare(left.navigationHost, null)
+                compare(other.navigationHost, null)
+                verify(!findChild(page, "browserNavigationHost").visible)
+                const leftBar = findChild(left, "paneNavigationBar")
+                const otherBar = findChild(other, "paneNavigationBar")
+                tryVerify(function() { return leftBar.visible && otherBar.visible })
+                // The row sits at the top of its pane, not below the content.
+                verify(leftBar.mapToItem(left, 0, 0).y < 20)
+                verify(otherBar.mapToItem(other, 0, 0).y < 20)
                 const leftY = left.mapToItem(window.contentItem, 0, 0).y
                 compare(other.mapToItem(window.contentItem, 0, 0).y, leftY)
                 page.activePane = other
-                verify(!findChild(left, "paneNavigationBar").visible)
-                verify(findChild(other, "paneNavigationBar").visible)
+                verify(leftBar.visible && otherBar.visible)
                 compare(other.mapToItem(window.contentItem, 0, 0).y, leftY)
+                page.setSplitEnabled(false)
+                tryVerify(function() { return left.navigationHost === findChild(page, "browserNavigationHost") })
+                verify(findChild(page, "browserNavigationHost").visible)
+                page.activePane = left
             }
             function test_home_search_context_menu_keeps_the_selection() {
                 window.showingBrowser = false

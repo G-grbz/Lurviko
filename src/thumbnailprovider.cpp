@@ -1,6 +1,8 @@
 #include "thumbnailprovider.h"
+#include "previewsettings.h"
 #include "svgpreviewidentity.h"
 #include <KCompressionDevice>
+#include <KZip>
 
 #include <QCryptographicHash>
 #include <QCache>
@@ -13,6 +15,10 @@
 #include <QImageReader>
 #include <QFile>
 #include <QFontDatabase>
+#include <QCollator>
+#include <QMimeDatabase>
+#include <QRawFont>
+#include <QXmlStreamReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -31,6 +37,7 @@
 #include <QtConcurrent>
 #include <QtEndian>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 
@@ -678,6 +685,245 @@ QImage renderTextThumbnail(const QString &path, const QSize &target)
     return image;
 }
 
+// ---- Embedded-thumbnail and document helpers -----------------------------
+
+constexpr qint64 kMaxEmbeddedEntryBytes = 24 * 1024 * 1024;
+
+QByteArray zipEntryData(const KArchiveDirectory *root, const QString &name)
+{
+    const KArchiveEntry *entry = root ? root->entry(name) : nullptr;
+    if (!entry || !entry->isFile())
+        return {};
+    const auto *file = static_cast<const KArchiveFile *>(entry);
+    if (file->size() <= 0 || file->size() > kMaxEmbeddedEntryBytes)
+        return {};
+    return file->data();
+}
+
+QImage decodeImageData(const QByteArray &data, const QSize &maximumSize = QSize(512, 512))
+{
+    if (data.isEmpty())
+        return {};
+    QBuffer buffer;
+    buffer.setData(data);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    reader.setAutoTransform(true);
+    const QSize source = reader.size();
+    if (source.isValid() && (source.width() > maximumSize.width() || source.height() > maximumSize.height()))
+        reader.setScaledSize(source.scaled(maximumSize, Qt::KeepAspectRatio));
+    return reader.read();
+}
+
+bool isImageEntryName(const QString &name)
+{
+    static const QStringList suffixes = {QStringLiteral("jpg"), QStringLiteral("jpeg"), QStringLiteral("png"),
+        QStringLiteral("webp"), QStringLiteral("gif"), QStringLiteral("bmp"), QStringLiteral("avif"),
+        QStringLiteral("jxl")};
+    return suffixes.contains(QFileInfo(name).suffix().toLower());
+}
+
+void collectFiles(const KArchiveDirectory *directory, const QString &prefix, QStringList &out)
+{
+    if (!directory || out.size() > 20000)
+        return;
+    const QStringList names = directory->entries();
+    for (const QString &name : names) {
+        const KArchiveEntry *entry = directory->entry(name);
+        const QString path = prefix.isEmpty() ? name : prefix + QLatin1Char('/') + name;
+        if (entry->isDirectory())
+            collectFiles(static_cast<const KArchiveDirectory *>(entry), path, out);
+        else
+            out.append(path);
+    }
+}
+
+// OpenDocument, OOXML and OpenRaster files carry a ready-made preview.
+QImage embeddedZipThumbnail(const QString &path)
+{
+    KZip zip(path);
+    if (!zip.open(QIODevice::ReadOnly))
+        return {};
+    for (const QString &name : {QStringLiteral("Thumbnails/thumbnail.png"),
+                                QStringLiteral("docProps/thumbnail.jpeg"),
+                                QStringLiteral("docProps/thumbnail.jpg"),
+                                QStringLiteral("docProps/thumbnail.png"),
+                                QStringLiteral("mergedimage.png"),
+                                QStringLiteral("preview.png")}) {
+        const QImage image = decodeImageData(zipEntryData(zip.directory(), name));
+        if (!image.isNull())
+            return image;
+    }
+    return {};
+}
+
+QString resolveRelative(const QString &baseDirectory, const QString &href)
+{
+    const QString decoded = QUrl::fromPercentEncoding(href.toUtf8()).section(QLatin1Char('#'), 0, 0);
+    return QDir::cleanPath(baseDirectory.isEmpty() ? decoded : baseDirectory + QLatin1Char('/') + decoded);
+}
+
+QImage epubCover(const QString &path)
+{
+    KZip zip(path);
+    if (!zip.open(QIODevice::ReadOnly))
+        return {};
+    const KArchiveDirectory *root = zip.directory();
+
+    QString opfPath;
+    QXmlStreamReader container(zipEntryData(root, QStringLiteral("META-INF/container.xml")));
+    while (!container.atEnd() && opfPath.isEmpty()) {
+        if (container.readNext() == QXmlStreamReader::StartElement
+                && container.name() == QLatin1String("rootfile"))
+            opfPath = container.attributes().value(QLatin1String("full-path")).toString();
+    }
+
+    if (!opfPath.isEmpty()) {
+        const QString base = QFileInfo(opfPath).path() == QLatin1String(".") ? QString() : QFileInfo(opfPath).path();
+        QString coverId;
+        QString coverHref;
+        QString guessedHref;
+        QHash<QString, QString> hrefById;
+        QXmlStreamReader opf(zipEntryData(root, opfPath));
+        while (!opf.atEnd()) {
+            if (opf.readNext() != QXmlStreamReader::StartElement)
+                continue;
+            const auto attributes = opf.attributes();
+            if (opf.name() == QLatin1String("meta")
+                    && attributes.value(QLatin1String("name")) == QLatin1String("cover")) {
+                coverId = attributes.value(QLatin1String("content")).toString();
+            } else if (opf.name() == QLatin1String("item")) {
+                const QString id = attributes.value(QLatin1String("id")).toString();
+                const QString href = attributes.value(QLatin1String("href")).toString();
+                const QString mediaType = attributes.value(QLatin1String("media-type")).toString();
+                hrefById.insert(id, href);
+                if (attributes.value(QLatin1String("properties")).contains(QLatin1String("cover-image")))
+                    coverHref = href;
+                else if (guessedHref.isEmpty() && mediaType.startsWith(QLatin1String("image/"))
+                         && (id.contains(QLatin1String("cover"), Qt::CaseInsensitive)
+                             || href.contains(QLatin1String("cover"), Qt::CaseInsensitive)))
+                    guessedHref = href;
+            }
+        }
+        if (coverHref.isEmpty() && !coverId.isEmpty())
+            coverHref = hrefById.value(coverId);
+        if (coverHref.isEmpty())
+            coverHref = guessedHref;
+        if (!coverHref.isEmpty()) {
+            const QImage image = decodeImageData(zipEntryData(root, resolveRelative(base, coverHref)));
+            if (!image.isNull())
+                return image;
+        }
+    }
+
+    QStringList files;
+    collectFiles(root, QString(), files);
+    for (const QString &name : std::as_const(files)) {
+        if (isImageEntryName(name) && name.contains(QLatin1String("cover"), Qt::CaseInsensitive)) {
+            const QImage image = decodeImageData(zipEntryData(root, name));
+            if (!image.isNull())
+                return image;
+        }
+    }
+    return {};
+}
+
+QImage comicCover(const QString &path)
+{
+    KZip zip(path);
+    if (!zip.open(QIODevice::ReadOnly))
+        return {};
+    QStringList pages;
+    collectFiles(zip.directory(), QString(), pages);
+    pages.erase(std::remove_if(pages.begin(), pages.end(), [](const QString &name) {
+        return !isImageEntryName(name) || name.startsWith(QLatin1String("__MACOSX/"));
+    }), pages.end());
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    std::sort(pages.begin(), pages.end(), [&collator](const QString &a, const QString &b) {
+        return collator.compare(a, b) < 0;
+    });
+    for (const QString &name : std::as_const(pages)) {
+        const QImage image = decodeImageData(zipEntryData(zip.directory(), name));
+        if (!image.isNull())
+            return image;
+    }
+    return {};
+}
+
+QImage fontSpecimen(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
+        return {};
+    const QByteArray data = file.readAll();
+    QRawFont font(data, 120);
+    if (!font.isValid())
+        return {};
+
+    QImage image(QSize(384, 384), QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(250, 250, 248));
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.setPen(QPen(QColor(190, 193, 198), 2));
+    painter.drawRoundedRect(image.rect().adjusted(1, 1, -2, -2), 8, 8);
+    painter.setPen(QColor(35, 38, 42));
+
+    auto drawLine = [&](const QString &text, qreal pixelSize, qreal baseline) {
+        font.setPixelSize(pixelSize);
+        const QList<quint32> glyphs = font.glyphIndexesForString(text);
+        if (glyphs.isEmpty())
+            return;
+        const QList<QPointF> advances = font.advancesForGlyphIndexes(glyphs);
+        qreal width = 0;
+        for (const QPointF &advance : advances)
+            width += advance.x();
+        qreal x = qMax<qreal>(16, (image.width() - width) / 2);
+        // Fill glyph outlines directly: large glyph runs from a raw font are
+        // not reliably rasterized by the image paint engine.
+        QPainterPath outline;
+        for (qsizetype i = 0; i < glyphs.size(); ++i) {
+            outline.addPath(font.pathForGlyph(glyphs.at(i)).translated(x, baseline));
+            x += advances.at(i).x();
+        }
+        painter.fillPath(outline, QColor(35, 38, 42));
+    };
+    drawLine(QStringLiteral("Aa"), 150, 200);
+    drawLine(QStringLiteral("Abc 123"), 44, 280);
+
+    QFont label = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+    label.setPixelSize(20);
+    painter.setFont(label);
+    painter.setPen(QColor(95, 100, 108));
+    const QString family = font.familyName() + (font.styleName().isEmpty() ? QString() : QStringLiteral(" ") + font.styleName());
+    painter.drawText(QRect(16, 310, image.width() - 32, 56), Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap,
+                     painter.fontMetrics().elidedText(family, Qt::ElideRight, (image.width() - 32) * 2));
+    return image;
+}
+
+// Text is detected the way Dolphin does it: a file without a known type
+// (".gitignore", "README", "claude"…) is previewed when its content says
+// it is text/plain or a subtype of it.
+bool contentLooksLikeText(const QString &path)
+{
+    static const QMimeDatabase database;
+    const QMimeType type = database.mimeTypeForFile(path, QMimeDatabase::MatchContent);
+    return type.isValid() && type.inherits(QStringLiteral("text/plain"));
+}
+
+QString mimeByName(const QFileInfo &info)
+{
+    static const QMimeDatabase database;
+    return database.mimeTypeForFile(info.fileName(), QMimeDatabase::MatchExtension).name();
+}
+
+QString previewKindForFile(const QFileInfo &info)
+{
+    return PreviewSettings::kindFor(info.suffix(), mimeByName(info));
+}
+
 } // namespace
 
 class ThumbnailResponse final : public QQuickImageResponse
@@ -708,10 +954,10 @@ public:
                 return QImage();
 
             const QString suffix = info.suffix().toLower();
-            const QStringList imageTypes = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "svgz"};
-            const QStringList videoTypes = {"mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"};
-            const QStringList audioTypes = {"mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "wma", "alac"};
-            const QStringList textTypes = {"srt", "lrc", "lrclib", "vtt", "ass", "ssa", "txt", "md", "log", "nfo", "json", "xml", "yaml", "yml", "toml", "ini", "conf", "cfg", "desktop", "service", "csv", "tsv", "m3u", "m3u8", "pls"};
+            const QString nameMime = mimeByName(info);
+            const QString kind = PreviewSettings::kindFor(suffix, nameMime);
+            if (kind.isEmpty())
+                return QImage();
 
             const QString cacheBase = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/thumbnails";
             QDir().mkpath(cacheBase);
@@ -742,30 +988,30 @@ public:
             bool previewAttempted = false;
             QImage generated;
             if (!QFileInfo::exists(cached)) {
-                if (imageTypes.contains(suffix)) {
-                    previewAttempted = true;
-                    QImage decoded;
-                    if (suffix == QStringLiteral("svg") || suffix == QStringLiteral("svgz")) {
-                        decoded = safeSvgThumbnail(path, QSize(512, 512));
+                const auto keep = [&](QImage produced, int maximum = 512) {
+                    if (produced.isNull())
+                        return;
+                    if (produced.width() > maximum || produced.height() > maximum)
+                        produced = produced.scaled(QSize(maximum, maximum), Qt::KeepAspectRatio,
+                                                   Qt::SmoothTransformation);
+                    produced.save(cached, "PNG");
+                    generated = produced;
+                };
+                previewAttempted = true;
+                if (kind == QLatin1String("svg")) {
+                    keep(safeSvgThumbnail(path, QSize(512, 512)));
+                } else if (kind == QLatin1String("images")) {
+                    if (suffix == QLatin1String("ora")) {
+                        keep(embeddedZipThumbnail(path));
                     } else {
                         QImageReader reader(path);
                         reader.setAutoTransform(true);
                         const QSize source = reader.size();
                         if (source.isValid())
                             reader.setScaledSize(source.scaled(QSize(512, 512), Qt::KeepAspectRatio));
-                        decoded = reader.read();
+                        keep(reader.read());
                     }
-                    if (!decoded.isNull()) {
-                        if (decoded.width() > 512 || decoded.height() > 512)
-                            decoded = decoded.scaled(QSize(512, 512), Qt::KeepAspectRatio,
-                                                     Qt::SmoothTransformation);
-                        decoded.save(cached, "PNG");
-                        generated = decoded;
-                    }
-                } else if (videoTypes.contains(suffix)) {
-                    previewAttempted = true;
-                    if (cancelled->load(std::memory_order_relaxed))
-                        return QImage();
+                } else if (kind == QLatin1String("video")) {
                     QImage cover = embeddedVideoCover(path, cancelled);
                     if (!cover.isNull()) {
                         cover.save(cached, "PNG");
@@ -779,10 +1025,7 @@ public:
                                     QStringLiteral("-q"), QStringLiteral("8")});
                         waitForThumbnailProcess(proc, cancelled, 15000);
                     }
-                } else if (suffix == QStringLiteral("pdf")) {
-                    previewAttempted = true;
-                    if (cancelled->load(std::memory_order_relaxed))
-                        return QImage();
+                } else if (kind == QLatin1String("pdf")) {
                     const QString base = cacheBase + "/" + hash;
                     QProcess proc;
                     proc.start(QStringLiteral("pdftoppm"),
@@ -791,38 +1034,50 @@ public:
                                 QStringLiteral("-scale-to"), QStringLiteral("512"),
                                 QStringLiteral("-png"), path, base});
                     waitForThumbnailProcess(proc, cancelled, 15000);
-                } else if (audioTypes.contains(suffix)) {
-                    previewAttempted = true;
+                } else if (kind == QLatin1String("print")) {
+                    QTemporaryFile output(cacheBase + QStringLiteral("/render-XXXXXX.ppm"));
+                    if (output.open()) {
+                        output.close();
+                        QProcess proc;
+                        if (suffix == QLatin1String("djvu") || suffix == QLatin1String("djv")) {
+                            proc.start(QStringLiteral("ddjvu"),
+                                       {QStringLiteral("-page=1"), QStringLiteral("-size=512x512"),
+                                        QStringLiteral("-format=ppm"), path, output.fileName()});
+                        } else {
+                            // -dSAFER keeps PostScript from touching the file system.
+                            proc.start(QStringLiteral("gs"),
+                                       {QStringLiteral("-q"), QStringLiteral("-dSAFER"), QStringLiteral("-dBATCH"),
+                                        QStringLiteral("-dNOPAUSE"), QStringLiteral("-dEPSCrop"),
+                                        QStringLiteral("-dFirstPage=1"), QStringLiteral("-dLastPage=1"),
+                                        QStringLiteral("-sDEVICE=ppmraw"), QStringLiteral("-r72"),
+                                        QStringLiteral("-sOutputFile=") + output.fileName(), path});
+                        }
+                        if (waitForThumbnailProcess(proc, cancelled, 15000))
+                            keep(QImage(output.fileName(), "PPM"));
+                    }
+                } else if (kind == QLatin1String("office")) {
+                    keep(embeddedZipThumbnail(path));
+                } else if (kind == QLatin1String("ebooks")) {
+                    keep(epubCover(path));
+                } else if (kind == QLatin1String("comics")) {
+                    keep(comicCover(path));
+                } else if (kind == QLatin1String("fonts")) {
+                    keep(fontSpecimen(path));
+                } else if (kind == QLatin1String("audio")) {
                     // MP3 APIC extraction remains the fastest path. Other common
                     // audio containers expose artwork as an attached-picture stream,
                     // which the generic FFmpeg cover extractor can read without
                     // decoding the audio payload.
-                    QImage cover = suffix == QStringLiteral("mp3")
-                        ? embeddedMp3Cover(path)
-                        : embeddedVideoCover(path, cancelled);
-                    if (!cover.isNull()) {
-                        if (cover.width() > 384 || cover.height() > 384)
-                            cover = cover.scaled(QSize(384, 384), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                        cover.save(cached, "PNG");
-                        generated = cover;
-                    }
-                } else if (suffix == QStringLiteral("appimage")) {
-                    previewAttempted = true;
-                    QImage icon = embeddedAppImageIcon(path, cancelled);
-                    if (!icon.isNull()) {
-                        icon.save(cached, "PNG");
-                        generated = icon;
-                    }
-                } else if (textTypes.contains(suffix)) {
-                    previewAttempted = true;
+                    keep(suffix == QLatin1String("mp3") ? embeddedMp3Cover(path)
+                                                        : embeddedVideoCover(path, cancelled), 384);
+                } else if (kind == QLatin1String("appimage")) {
+                    keep(embeddedAppImageIcon(path, cancelled));
+                } else if (kind == QLatin1String("text")) {
                     // Use a stable cache resolution instead of tying expensive
                     // document rendering to whichever delegate (list/grid)
                     // happened to request the file first.
-                    const QImage document = renderTextThumbnail(path, QSize(384, 384));
-                    if (!document.isNull()) {
-                        document.save(cached, "PNG");
-                        generated = document;
-                    }
+                    if (!PreviewSettings::needsContentSniffing(nameMime) || contentLooksLikeText(path))
+                        keep(renderTextThumbnail(path, QSize(384, 384)), 384);
                 }
             }
 
@@ -876,15 +1131,26 @@ private:
     QImage m_image;
 };
 
+QString ThumbnailProvider::cacheDirectory()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/thumbnails");
+}
+
+void ThumbnailProvider::clearMemoryCache()
+{
+    ThumbnailMemoryCache &cache = thumbnailMemoryCache();
+    QMutexLocker locker(&cache.mutex);
+    cache.images.clear();
+}
+
 QString ThumbnailProvider::cachedFilePath(const QString &path)
 {
     const QFileInfo info(path);
     const QString suffix = info.suffix().toLower();
-    const QStringList videoTypes = {"mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mpeg", "mpg"};
-    const QStringList audioTypes = {"mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "wma", "alac"};
-    const QString version = videoTypes.contains(suffix) ? QStringLiteral("v4|")
-        : audioTypes.contains(suffix) ? QStringLiteral("audio-v1|")
-        : suffix == QStringLiteral("appimage") ? QStringLiteral("appimage-v1|")
+    const QString kind = previewKindForFile(info);
+    const QString version = kind == QLatin1String("video") ? QStringLiteral("v4|")
+        : kind == QLatin1String("audio") ? QStringLiteral("audio-v1|")
+        : kind == QLatin1String("appimage") ? QStringLiteral("appimage-v1|")
         : suffix == QStringLiteral("svgz") ? QStringLiteral("svgz-v1|")
         : QStringLiteral("v2|");
     const QByteArray key = (version + path + QLatin1Char('|')

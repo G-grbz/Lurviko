@@ -2,9 +2,13 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
 import Lurviko.App
+import Lurviko.Backend
 
 Rectangle {
     id: card
+    // Opens with the type's preferred application, like the file browser;
+    // Qt.openUrlExternally asked for an application every time.
+    OpenWithModel { id: cardOpenWith }
     property var itemData: null
     property string imageSource: ""
     property bool videoMode: false
@@ -211,7 +215,7 @@ Rectangle {
         }
         GMenuItem {
             text: card.lang.language === "tr" ? "Harici uygulamada aç" : "Open externally"
-            onTriggered: Qt.openUrlExternally(card.itemData.url)
+            onTriggered: cardOpenWith.openDefault(card.itemData.url, "")
         }
     }
 }

@@ -1,1 +1,11 @@
-<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM288 224C288 206.3 302.3 192 320 192C337.7 192 352 206.3 352 224C352 241.7 337.7 256 320 256C302.3 256 288 241.7 288 224zM280 288L328 288C341.3 288 352 298.7 352 312L352 400L360 400C373.3 400 384 410.7 384 424C384 437.3 373.3 448 360 448L280 448C266.7 448 256 437.3 256 424C256 410.7 266.7 400 280 400L304 400L304 336L280 336C266.7 336 256 325.3 256 312C256 298.7 266.7 288 280 288z"/></svg>
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" viewBox="2.476 2.476 19.048 19.048" width="24" height="24" color="#ffffff">
+  <defs id="defs3051">
+    <style type="text/css" id="current-color-scheme">
+      .ColorScheme-Text {
+        color:#ffffff;
+      }
+      </style>
+  </defs>
+  <path style="fill:currentColor;fill-opacity:1;stroke:none" d="M 12 4 C 7.568 4 4 7.568 4 12 C 4 16.432 7.568 20 12 20 C 16.432 20 20 16.432 20 12 C 20 7.568 16.432 4 12 4 z M 12 5 C 15.878 5 19 8.122 19 12 C 19 15.878 15.878 19 12 19 C 8.122 19 5 15.878 5 12 C 5 8.122 8.122 5 12 5 z M 11 7 L 11 9 L 13 9 L 13 7 L 11 7 z M 11 10 L 11 17 L 13 17 L 13 10 L 11 10 z " class="ColorScheme-Text" />
+</svg>

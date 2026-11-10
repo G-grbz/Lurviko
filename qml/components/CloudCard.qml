@@ -19,7 +19,10 @@ Rectangle {
     property bool dragging: reorderDrag.active
     property bool suppressClick: false
     readonly property bool stackedLayout: effectiveIconPixels >= 72
-    implicitHeight: stackedLayout
+    // Compact tile: icon, name and status stacked; settings in the corner.
+    property bool compact: false
+    implicitWidth: compact ? 152 : 280
+    implicitHeight: compact ? 116 : stackedLayout
             ? Math.max(124, effectiveIconPixels + 54)
             : Math.max(76, effectiveIconPixels + 30)
     signal actionRequested()
@@ -110,7 +113,7 @@ Rectangle {
 
     RowLayout {
         z: 2
-        visible: !card.stackedLayout
+        visible: !card.stackedLayout && !card.compact
         anchors.fill: parent
         anchors.margins: 14
         spacing: 11
@@ -134,9 +137,48 @@ Rectangle {
         GText { text: "›"; baseColor: card.accentColor; basePixelSize: 22; Layout.alignment: Qt.AlignVCenter }
     }
 
+    Column {
+        z: 2
+        visible: card.compact
+        anchors.centerIn: parent
+        spacing: 6
+        CrispIcon {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 40; height: 40
+            source: AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(card.iconSource, 40) : card.iconSource
+            scale: mouse.containsMouse ? 1.06 : 1.0
+            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        }
+        GText {
+            objectName: "cloudCardCompactTitle"
+            width: card.width - 20
+            horizontalAlignment: Text.AlignHCenter
+            text: card.provider
+            baseColor: AppTheme.text
+            basePixelSize: 12
+            elide: Text.ElideRight
+        }
+        GText {
+            width: card.width - 20
+            horizontalAlignment: Text.AlignHCenter
+            text: card.statusText
+            baseColor: AppTheme.textMuted
+            basePixelSize: 9
+            elide: Text.ElideRight
+        }
+    }
+    CloudSettingsButton {
+        visible: card.compact
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 4
+        implicitWidth: 26
+        implicitHeight: 26
+    }
+
     ColumnLayout {
         z: 2
-        visible: card.stackedLayout
+        visible: card.stackedLayout && !card.compact
         anchors.fill: parent
         anchors.margins: 14
         spacing: 6
@@ -173,19 +215,18 @@ Rectangle {
         HoverHandler { cursorShape: Qt.PointingHandCursor }
         implicitWidth: 30
         implicitHeight: 30
-        text: "⚙"
+        text: ""
         onClicked: card.settingsRequested()
         background: Rectangle {
             radius: 9
             color: cloudSettingsControl.hovered ? AppTheme.surfaceActive : "transparent"
         }
-        contentItem: GText {
-        typographyRole: "menu"
-            text: cloudSettingsControl.text
-            baseColor: AppTheme.textMuted
-            basePixelSize: 15
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+        contentItem: Item {
+            CrispIcon {
+                anchors.centerIn: parent
+                width: 18; height: 18
+                source: AppTheme.icon("settings.svg", cloudSettingsControl.hovered ? AppTheme.text : AppTheme.textMuted)
+            }
         }
         GToolTip { text: card.settingsToolTip }
     }

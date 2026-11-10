@@ -151,6 +151,10 @@ qt_add_executable(lurviko
     src/keyboardshortcutmanager.h
     src/cloudauthmanager.cpp
     src/cloudauthmanager.h
+    src/previewsettings.cpp
+    src/previewsettings.h
+    src/storagehousekeeping.cpp
+    src/storagehousekeeping.h
     src/thumbnailprovider.cpp
     src/thumbnailprovider.h
     src/systemiconprovider.cpp
@@ -334,7 +338,16 @@ qt_add_qml_module(lurviko
         qml/components/GToolTip.qml
         qml/components/GModalSurface.qml
         qml/components/GModalPopup.qml
+        qml/components/GModalBackdrop.qml
+        qml/components/GModalHeader.qml
+        qml/components/ViewModeSwitcher.qml
+        qml/components/DiscoverSectionHeader.qml
+        qml/components/DiscoverHeaderButton.qml
+        qml/components/DiscoverTabStrip.qml
+        qml/components/StorageGauge.qml
+        qml/components/DiscoverInfoPanel.qml
         qml/components/KeyboardShortcutsDialog.qml
+        qml/components/SettingsDialog.qml
         qml/components/GModalButton.qml
         qml/components/DragPreview.qml
         qml/components/GMenuItem.qml

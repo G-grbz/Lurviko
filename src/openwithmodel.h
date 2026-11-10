@@ -47,6 +47,8 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void openWith(const QString &desktopEntry);
     Q_INVOKABLE void openDefault(const QString &itemUrl, const QString &mimeType = QString());
+    // True when the item's type has a preferred desktop application.
+    Q_INVOKABLE bool hasPreferredApplication(const QString &itemUrl, const QString &mimeType = QString()) const;
     Q_INVOKABLE void openDefaults(const QStringList &itemUrls);
     Q_INVOKABLE bool setDefaultApplication(const QString &desktopEntry);
     Q_INVOKABLE QString nameForDesktopEntry(const QString &desktopEntry) const;

@@ -927,15 +927,10 @@ Item {
         }
     }
 
-    Loader {
-        id: typographyDialogLoader
-        objectName: "typographyDialogLoader"
-        active: false
-        sourceComponent: TypographyDialog {
-            lang: page.lang
-            onClosed: Qt.callLater(function() { typographyDialogLoader.active = false })
-        }
-        onLoaded: item.open()
+    SettingsDialog {
+        id: settingsDialog
+        lang: page.lang
+        onWatermarkEditorRequested: page.watermarkEditorRequested()
     }
 
     GMenu {
@@ -945,88 +940,6 @@ Item {
         parent: page
         maximumPopupHeight: page.toolbarPopupHeight
         closePolicy: Popup.CloseOnEscape
-        GMenuItem {
-            objectName: "exploreWatermarkViewSetting"
-            text: lang.language === "tr" ? "Keşfet filigranını düzenle…" : "Edit Discover watermark…"
-            onTriggered: page.watermarkEditorRequested()
-        }
-        GMenuSeparator {}
-        Item {
-            objectName: "sidebarAutoHideSetting"
-            implicitWidth: 300
-            implicitHeight: 44
-            width: parent ? parent.width : implicitWidth
-            height: implicitHeight
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 8
-                GText {
-                    Layout.fillWidth: true
-                    typographyRole: "menu"
-                    text: lang.language === "tr" ? "Kompakt sol menü" : "Compact sidebar"
-                    basePixelSize: 12
-                }
-                GSwitch {
-                    objectName: "sidebarAutoHideSwitch"
-                    checked: AppTheme.sidebarAutoHide
-                    onClicked: AppTheme.setSidebarAutoHide(checked)
-                }
-            }
-        }
-        Item {
-            objectName: "sidebarRailModeSetting"
-            visible: AppTheme.sidebarAutoHide
-            implicitWidth: 300
-            implicitHeight: visible ? 50 : 0
-            width: parent ? parent.width : implicitWidth
-            height: implicitHeight
-            GComboBox {
-                objectName: "sidebarRailModePicker"
-                anchors.fill: parent
-                anchors.margins: 8
-                model: lang.language === "tr" ? ["Başlık ve ikon", "Yalnız başlık", "Yalnız ikon"]
-                                             : ["Title and icon", "Title only", "Icon only"]
-                currentIndex: ["both", "title", "icon"].indexOf(AppTheme.sidebarRailMode)
-                onActivated: function(index) { AppTheme.setSidebarRailMode(["both", "title", "icon"][index]) }
-            }
-        }
-        GMenuSeparator {}
-        Item {
-            objectName: "gitModuleViewSetting"
-            implicitWidth: 300
-            implicitHeight: 44
-            width: parent ? parent.width : implicitWidth
-            height: implicitHeight
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 8
-                GText {
-                    Layout.fillWidth: true
-                    typographyRole: "menu"
-                    text: lang.language === "tr" ? "Git modülünü etkinleştir" : "Enable Git module"
-                    basePixelSize: 12
-                }
-                GSwitch {
-                    objectName: "gitModuleViewSwitch"
-                    checked: AppTheme.gitEnabled
-                    onClicked: AppTheme.setGitEnabled(checked)
-                }
-            }
-        }
-        GMenuSeparator {}
-        GMenuItem {
-            objectName: "typographyMenuItem"
-            text: lang.language === "tr" ? "Yazı tipleri ve renkler…" : "Fonts and colors…"
-            onTriggered: typographyDialogLoader.active = true
-        }
-        GMenuItem {
-            objectName: "qtThemeMenuItem"
-            text: lang.language === "tr" ? "Qt temasını kullan" : "Use Qt theme"
-            checkable: true
-            checked: AppTheme.useQtTheme
-            onTriggered: AppTheme.setQtTheme(!AppTheme.useQtTheme)
-        }
-        GMenuSeparator {}
         GMenuItem {
             text: lang.t("grid")
             checkable: true
@@ -1118,33 +1031,12 @@ Item {
         }
         GMenuSeparator {}
         GMenuItem {
-            text: lang.t("default_icons")
+            objectName: "filePreviewsMenuItem"
+            text: lang.language === "tr" ? "Dosya önizlemeleri" : "File previews"
             checkable: true
-            checked: !AppTheme.useSystemIcons
-            onTriggered: AppTheme.setSystemIcons(false)
+            checked: PreviewSettings.enabled
+            onTriggered: PreviewSettings.enabled = !PreviewSettings.enabled
         }
-        Item {
-            objectName: "coloredFolderIconsSetting"
-            visible: !AppTheme.useSystemIcons
-            implicitHeight: !AppTheme.useSystemIcons ? 42 : 0
-            implicitWidth: 250
-            GSwitch {
-                objectName: "coloredFolderIconsSwitch"
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                text: lang.t("colored_folder_icons")
-                checked: AppTheme.useColoredFolderIcons
-                onToggled: AppTheme.setColoredFolderIcons(checked)
-            }
-        }
-        GMenuItem {
-            text: lang.t("system_icons")
-            checkable: true
-            checked: AppTheme.useSystemIcons
-            onTriggered: AppTheme.setSystemIcons(true)
-        }
-        GMenuSeparator {}
         GMenuItem {
             text: lang.language === "tr" ? "Klasör önizlemeleri" : "Folder previews"
             checkable: true
@@ -1153,108 +1045,10 @@ Item {
         }
         GMenuSeparator {}
         GMenuItem {
-            text: lang.language === "tr" ? "Yeni sekmeye otomatik geç" : "Switch to newly opened tab"
-            checkable: true
-            checked: BrowserSession.activateNewTabs
-            onTriggered: BrowserSession.setActivateNewTabs(!BrowserSession.activateNewTabs)
-        }
-        GMenuItem {
-            objectName: "resumeSessionMenuItem"
-            text: lang.t("resume_previous_session")
-            checkable: true
-            checked: BrowserSession.resumeSession
-            onTriggered: BrowserSession.setResumeSession(!BrowserSession.resumeSession)
-        }
-        GMenuItem {
-            objectName: "warnOnMultipleTabsMenuItem"
-            text: lang.t("warn_closing_multiple_tabs")
-            checkable: true
-            checked: BrowserSession.warnOnMultipleTabs
-            onTriggered: BrowserSession.setWarnOnMultipleTabs(!BrowserSession.warnOnMultipleTabs)
-        }
-        GMenuSeparator {}
-        GMenuItem {
-            text: lang.language === "tr" ? "Tek tıkla aç" : "Open with single click"
-            checkable: true
-            checked: AppTheme.singleClickOpen
-            onTriggered: AppTheme.setSingleClickOpen(!AppTheme.singleClickOpen)
-        }
-        GMenuSeparator {}
-        GMenuItem {
-            text: lang.t("kio_progress")
-            checkable: true
-            checked: AppTheme.kioProgressEnabled
-            onTriggered: AppTheme.setKioProgressEnabled(!AppTheme.kioProgressEnabled)
-        }
-        Item {
-            objectName: "operationAutoHideSettings"
-            visible: !AppTheme.kioProgressEnabled
-            implicitWidth: 310
-            implicitHeight: visible ? (AppTheme.operationAutoHide ? 132 : 40) : 0
-            width: parent ? parent.width : implicitWidth
-            height: implicitHeight
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 8
-                spacing: 6
-                GSwitch {
-                    objectName: "operationAutoHideSwitch"
-                    Layout.fillWidth: true
-                    text: lang.t("operation_auto_hide")
-                    checked: AppTheme.operationAutoHide
-                    onToggled: AppTheme.setOperationAutoHide(checked)
-                }
-                RowLayout {
-                    visible: AppTheme.operationAutoHide
-                    GText {
-                        Layout.fillWidth: true
-                        text: lang.t("operation_hide_seconds")
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 11
-                    }
-                    GTextField {
-                        id: operationHideDelay
-                        objectName: "operationAutoHideDelay"
-                        Layout.preferredWidth: 90
-                        Layout.minimumWidth: 70
-                        Layout.preferredHeight: 34
-                        horizontalAlignment: Text.AlignHCenter
-                        inputMethodHints: Qt.ImhDigitsOnly
-                        validator: IntValidator { bottom: 1; top: 300 }
-                        text: String(AppTheme.operationAutoHideSeconds)
-                        Accessible.name: lang.t("operation_hide_seconds")
-                        function saveDelay() {
-                            if (acceptableInput) AppTheme.setOperationAutoHideSeconds(Number(text))
-                            text = Qt.binding(function() { return String(AppTheme.operationAutoHideSeconds) })
-                        }
-                        onAccepted: saveDelay()
-                        onEditingFinished: saveDelay()
-                    }
-                }
-                GSwitch {
-                    objectName: "operationShowOnCompletionSwitch"
-                    visible: AppTheme.operationAutoHide
-                    Layout.fillWidth: true
-                    text: lang.t("operation_show_on_completion")
-                    checked: AppTheme.operationShowOnCompletion
-                    onToggled: AppTheme.setOperationShowOnCompletion(checked)
-                }
-            }
-        }
-        GMenuSeparator {}
-        GMenuItem {
-            objectName: "skipHiddenNameConfirmationItem"
-            text: lang.language === "tr" ? "Gizli ad onayını atla" : "Skip hidden name confirmation"
-            checkable: true
-            checked: AppTheme.skipHiddenNameConfirmation
-            onTriggered: AppTheme.setSkipHiddenNameConfirmation(!AppTheme.skipHiddenNameConfirmation)
-        }
-        GMenuItem {
-            objectName: "skipPermanentDeleteConfirmationItem"
-            text: lang.language === "tr" ? "Kalıcı silme onayını atla" : "Skip permanent delete confirmation"
-            checkable: true
-            checked: AppTheme.skipPermanentDeleteConfirmation
-            onTriggered: AppTheme.setSkipPermanentDeleteConfirmation(!AppTheme.skipPermanentDeleteConfirmation)
+            objectName: "openSettingsMenuItem"
+            text: lang.language === "tr" ? "Tüm ayarlar…" : "All settings…"
+            icon.source: AppTheme.icon("settings.svg")
+            onTriggered: settingsDialog.open()
         }
     }
 
@@ -1610,7 +1404,7 @@ Item {
                                         text: ""
                                         display: AbstractButton.IconOnly
                                         icon.source: AppTheme.icon("close-ui.svg")
-                                        icon.width: 12; icon.height: 12
+                                        icon.width: 14; icon.height: 14
                                         implicitWidth: 22; implicitHeight: 22
                                         onPressed: page.dismissActivePaneTransientUi()
                                         onClicked: page.closeTab(index)
@@ -1747,7 +1541,9 @@ Item {
             id: navigationSlot
             objectName: "browserNavigationHost"
             Layout.fillWidth: true
-            implicitHeight: Math.max(42, AppTheme.typographySize("menu", 11) + 18)
+            // Split view moves navigation into each pane.
+            visible: !page.splitEnabled
+            implicitHeight: page.splitEnabled ? 0 : Math.max(42, AppTheme.typographySize("menu", 11) + 18)
             Rectangle {
                 objectName: "browserNavigationSurface"
                 anchors.fill: parent
@@ -1799,12 +1595,18 @@ Item {
                 GButton {
                     objectName: "commandNewFolder"
                     topPadding: 4; bottomPadding: 4
-                    text: lang.t("new_folder")
+                    // Narrow bars show only the icon. An empty text makes GButton use
+                    // its icon-button size and padding; text padding (16 px a side)
+                    // would squeeze the icon in a 34 px button down to a dot.
+                    text: commandControls.compactLevel > 0 ? "" : lang.t("new_folder")
                     display: commandControls.compactLevel > 0 ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
+                    implicitWidth: commandControls.compactLevel > 0 ? 34
+                                   : Math.max(90, implicitContentWidth + leftPadding + rightPadding)
+                    Accessible.name: lang.t("new_folder")
                     Layout.minimumWidth: implicitWidth
                     GToolTip { visible: commandControls.compactLevel > 0 && parent.hovered; text: lang.t("new_folder") }
                     icon.source: AppTheme.icon("plus.svg")
-                    icon.width: 16; icon.height: 16
+                    icon.width: 14; icon.height: 14
                     implicitHeight: commandControls.controlHeight
                     visible: !page.activePane.isCategoryLocation && !page.activePane.isTrashLocation
                     onClicked: page.activePane.showNewFolderDialog()
@@ -1831,7 +1633,7 @@ Item {
                         implicitWidth: 34; implicitHeight: commandControls.controlHeight
                         Layout.minimumWidth: implicitWidth
                         icon.source: AppTheme.icon(modelData.icon)
-                        icon.width: 18; icon.height: 18
+                        icon.width: 16; icon.height: 16
                         enabled: modelData.key === "paste" ? page.activePane.canPasteHere
                                  : page.activePane.selectedCount > 0
                         Accessible.name: modelData.label
@@ -1991,6 +1793,37 @@ Item {
             Layout.fillHeight: true
             orientation: Qt.Horizontal
 
+            // A clear divider in every theme: a hairline with a centred grip
+            // that turns to the accent colour while hovered or dragged.
+            handle: Item {
+                id: splitHandle
+                objectName: "browserSplitHandle"
+                implicitWidth: 14
+                readonly property bool hovered: SplitHandle.hovered
+                readonly property bool pressed: SplitHandle.pressed
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.topMargin: 8
+                    anchors.bottomMargin: 8
+                    width: 1
+                    color: splitHandle.hovered || splitHandle.pressed ? AppTheme.accentBorder : AppTheme.borderStrong
+                }
+                Rectangle {
+                    objectName: "browserSplitGrip"
+                    anchors.centerIn: parent
+                    width: splitHandle.pressed || splitHandle.hovered ? 6 : 4
+                    height: splitHandle.pressed ? 56 : 44
+                    radius: width / 2
+                    color: splitHandle.pressed ? AppTheme.accent
+                         : splitHandle.hovered ? AppTheme.accentBorder
+                         : Qt.rgba(AppTheme.textMuted.r, AppTheme.textMuted.g, AppTheme.textMuted.b, 0.55)
+                    Behavior on height { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                }
+                HoverHandler { cursorShape: Qt.SplitHCursor }
+            }
+
             BrowserPane {
                 id: leftPane
                 objectName: "browserLeftPane"
@@ -1999,7 +1832,8 @@ Item {
                 unifiedSurface: page.headerHost !== null
                 categoryToolsHost: categoryToolsSlot
                 categoryToolsVisible: page.activePane === leftPane
-                navigationHost: navigationSlot
+                navigationHost: page.splitEnabled ? null : navigationSlot
+                splitNavigation: page.splitEnabled
                 navigationVisible: page.activePane === leftPane
                 initialLocation: page.initialLocation
                 lang: page.lang
@@ -2058,7 +1892,8 @@ Item {
                 unifiedSurface: page.headerHost !== null
                 categoryToolsHost: categoryToolsSlot
                 categoryToolsVisible: page.activePane === rightPane
-                navigationHost: navigationSlot
+                navigationHost: page.splitEnabled ? null : navigationSlot
+                splitNavigation: page.splitEnabled
                 navigationVisible: page.activePane === rightPane
                 initialLocation: page.initialLocation
                 lang: page.lang

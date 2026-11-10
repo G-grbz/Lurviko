@@ -1033,26 +1033,29 @@ Rectangle {
                     border.color: AppTheme.dark ? AppTheme.accentBorder : AppTheme.border
                     Behavior on color { ColorAnimation { duration: 140 } }
 
+                    // Track icons are drawn only on the side the knob does not
+                    // cover. When the switch is disabled (Qt theme) it is drawn
+                    // translucent, and a covered icon showed through as a ghost.
                     CrispIcon {
-                        visible: !sidebar.controlsHost
+                        visible: !sidebar.controlsHost && AppTheme.dark
                         anchors.left: parent.left
                         anchors.leftMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         width: 14
                         height: 14
                         source: AppTheme.icon("sun.svg")
-                        opacity: AppTheme.dark ? 0.38 : 0.92
+                        opacity: 0.38
                     }
 
                     CrispIcon {
-                        visible: !sidebar.controlsHost
+                        visible: !sidebar.controlsHost && !AppTheme.dark
                         anchors.right: parent.right
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         width: 14
                         height: 14
                         source: AppTheme.icon("moon.svg")
-                        opacity: AppTheme.dark ? 0.92 : 0.38
+                        opacity: 0.38
                     }
 
                     Rectangle {

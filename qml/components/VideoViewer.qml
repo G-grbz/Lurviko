@@ -12,6 +12,9 @@ import "VideoMetadata.js" as VideoMetadata
 
 Popup {
     id: viewer
+    // Opens with the type's preferred application, like the file browser;
+    // Qt.openUrlExternally asked for an application every time.
+    OpenWithModel { id: videoOpenWith }
     required property var lang
 
     // Custom mode keeps the player dark; Qt mode follows desktop chrome colors.
@@ -1967,7 +1970,7 @@ Popup {
                         onClicked: viewer.allowVideoUpscale = !viewer.allowVideoUpscale
                     }
                     ViewerIconButton { visible: viewer.currentItem && String(viewer.currentItem.parentPath || "").length > 0; iconName: "viewer-folder.svg"; toolTipText: viewer.lang.language === "tr" ? "Konumu aç" : "Open location"; onClicked: if (viewer.currentItem) { const p = viewer.currentItem.parentPath; viewer.close(); viewer.browseRequested(p) } }
-                    ViewerIconButton { iconName: "viewer-external.svg"; toolTipText: viewer.lang.language === "tr" ? "Harici aç" : "Open externally"; onClicked: if (viewer.currentItem) Qt.openUrlExternally(viewer.currentItem.url) }
+                    ViewerIconButton { iconName: "viewer-external.svg"; toolTipText: viewer.lang.language === "tr" ? "Harici aç" : "Open externally"; onClicked: if (viewer.currentItem) videoOpenWith.openDefault(viewer.currentItem.url, "") }
                     ViewerIconButton { iconName: viewer.hostFullScreen ? "viewer-fullscreen-exit.svg" : "viewer-fullscreen.svg"; toolTipText: viewer.lang.language === "tr" ? "Tam ekran (F11)" : "Full screen (F11)"; emphasized: viewer.hostFullScreen; onClicked: viewer.toggleHostFullScreen() }
                 }
             }

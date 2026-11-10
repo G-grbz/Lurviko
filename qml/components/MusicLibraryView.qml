@@ -4,10 +4,14 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Window
 import Lurviko.App
+import Lurviko.Backend
 import "MusicArtists.js" as Artists
 
 Item {
     id: root
+    // Opens with the type's preferred application, like the file browser;
+    // Qt.openUrlExternally asked for an application every time.
+    OpenWithModel { id: musicOpenWith }
     required property var lang
     required property var manager
     required property var player
@@ -146,7 +150,7 @@ Item {
         GMenuItem {
             objectName: "musicOpenExternally"
             text: root.tr("Harici uygulamada aç", "Open externally")
-            onTriggered: Qt.openUrlExternally(String(root.contextTrack.itemUrl))
+            onTriggered: musicOpenWith.openDefault(String(root.contextTrack.itemUrl), "")
         }
     }
 

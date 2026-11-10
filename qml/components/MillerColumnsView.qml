@@ -355,7 +355,8 @@ Item {
                             id: thumbnail
                             anchors.fill: parent
                             candidateSource: view.previewVisible ? browser.thumbSource(browser.selectedLocalPath, browser.selectedSuffix,
-                                               browser.selectedModified, browser.selectedSize, view.selectedItem.previewRevision) : ""
+                                               browser.selectedModified, browser.selectedSize, view.selectedItem.previewRevision,
+                                               browser.selectedMimeType) : ""
                             fileIdentity: browser.selectedUrl
                             fileSuffix: browser.selectedSuffix
                             fileModified: browser.selectedModified

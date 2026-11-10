@@ -14,7 +14,11 @@ Rectangle {
     property int itemCount: 0
     property string itemLabel: "öğe"
     property int systemIconPixels: AppTheme.systemHomeIconSize
-    readonly property int iconPixels: Math.round(AppTheme.effectiveHomeIconSize)
+    // List view: a slimmer row with a capped icon and an extra detail column.
+    property bool compact: false
+    property string detailText: ""
+    readonly property int iconPixels: compact ? Math.min(32, Math.round(AppTheme.effectiveHomeIconSize))
+                                              : Math.round(AppTheme.effectiveHomeIconSize)
     property bool categoryReorder: true
     property bool editable: true
     property bool dragging: reorderDrag.active
@@ -30,7 +34,7 @@ Rectangle {
     signal actionRequested()
 
     implicitWidth: 280
-    implicitHeight: Math.max(74, root.iconPixels + 28)
+    implicitHeight: compact ? Math.max(54, root.iconPixels + 20) : Math.max(74, root.iconPixels + 28)
     radius: AppTheme.cardRadius
     clip: true
     color: dropTarget.containsDrag ? AppTheme.accentSoft : (mouse.containsMouse || dragging ? AppTheme.cardHover : AppTheme.cardSurface)
@@ -98,7 +102,7 @@ Rectangle {
         Column {
             id: labelsColumn
             anchors.left: iconStage.right
-            anchors.right: arrowText.left
+            anchors.right: detailLabel.visible ? detailLabel.left : arrowText.left
             anchors.leftMargin: 12
             anchors.rightMargin: root.actionVisible ? 28 : 12
             anchors.verticalCenter: parent.verticalCenter
@@ -119,6 +123,18 @@ Rectangle {
                 baseColor: AppTheme.textMuted
                 basePixelSize: 10
             }
+        }
+
+        GText {
+            id: detailLabel
+            objectName: "categoryTileDetail"
+            visible: root.detailText.length > 0
+            anchors.right: arrowText.left
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.detailText
+            baseColor: AppTheme.textMuted
+            basePixelSize: 11
         }
 
         GText {

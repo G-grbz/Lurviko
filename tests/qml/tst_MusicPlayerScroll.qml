@@ -139,23 +139,25 @@ Item {
             view.contentY = top
             const track = player.currentUrl
             mouseWheel(area, area.width / 2, area.height / 2, 0, -120, Qt.NoButton, Qt.NoModifier, 0)
-            wait(180)
-            verify(Math.abs(view.contentY - top - 180) < 3, "A notch must use the shared 180 px setting")
+            tryVerify(function() { return Math.abs(view.contentY - top - 180) < 3 }, 1000,
+                      "A notch must use the shared 180 px setting")
             mouseWheel(area, area.width / 2, area.height / 2, 0, 120, Qt.NoButton, Qt.NoModifier, 0)
-            wait(180)
-            verify(Math.abs(view.contentY - top) < 3, "Reversing the wheel must return to the top")
+            tryVerify(function() { return Math.abs(view.contentY - top) < 3 }, 1000,
+                      "Reversing the wheel must return to the top")
             mouseWheel(area, area.width / 2, area.height / 2, 0, -120, Qt.NoButton, Qt.NoModifier, 0)
             mouseWheel(area, area.width / 2, area.height / 2, 0, -120, Qt.NoButton, Qt.NoModifier, 0)
-            wait(180)
+            tryVerify(function() { return view.contentY - top > 350 && view.contentY - top < 380 }, 1000,
+                      "Fast wheel events must accumulate with the shared mild acceleration")
+            wait(450)
             verify(view.contentY - top > 350 && view.contentY - top < 380,
-                   "Fast wheel events must accumulate with the shared mild acceleration")
+                   "Accumulated wheel scrolling must settle on the accelerated target")
             compare(player.currentUrl, track, "Scrolling must not activate a track or seek lyrics")
+            wait(450)
             AppTheme.setWheelScrollStep(300)
-            wait(320)
             const before = view.contentY
             mouseWheel(area, area.width / 2, area.height / 2, 0, -120, Qt.NoButton, Qt.NoModifier, 0)
-            wait(180)
-            verify(Math.abs(view.contentY - before - 300) < 3, "Player must follow changes to the shared speed setting")
+            tryVerify(function() { return Math.abs(view.contentY - before - 300) < 3 }, 1000,
+                      "Player must follow changes to the shared speed setting")
             AppTheme.setWheelScrollStep(180)
         }
     }

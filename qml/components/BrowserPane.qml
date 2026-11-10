@@ -13,7 +13,10 @@ Rectangle {
     property string initialLocation: ""
     property bool unifiedSurface: false
     property Item navigationHost: null
-    readonly property real navigationControlHeight: root.navigationHost
+    // Split view: each pane shows its own navigation row (and address field)
+    // inside the pane instead of sharing the page header.
+    property bool splitNavigation: false
+    readonly property real navigationControlHeight: root.navigationHost || root.splitNavigation
         ? Math.max(30, AppTheme.typographySize("menu", 11) + 10) : 38
     property bool navigationVisible: true
     property Item categoryToolsHost: null
@@ -752,7 +755,7 @@ Rectangle {
                 groupDateMs: directory.sortMode === "created" ? createdMs : modifiedMs,
                 iconSource: iconName,
                 hidden: !!entry.hidden,
-                thumbnailSource: !entry.isDir ? root.thumbSource(String(entry.localPath || ""), String(entry.suffix || ""), entry.modified, entry.size, entry.previewRevision) : "",
+                thumbnailSource: !entry.isDir ? root.thumbSource(String(entry.localPath || ""), String(entry.suffix || ""), entry.modified, entry.size, entry.previewRevision, String(entry.mimeType || "")) : "",
                 metaText: entry.isDir
                           ? (lang.language === "tr" ? "Klasör" : "Folder")
                           : directory.formatBytes(Number(entry.size || 0))
@@ -1159,16 +1162,6 @@ Rectangle {
         return (lang.language === "tr" ? "Kalan " : "Remaining ") + formatRemaining(remainingBytes / speed)
     }
 
-    function isPreviewable(suffix) {
-        const s = suffix.toLowerCase()
-        return ["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "svgz",
-                "mp4", "mkv", "avi", "mov", "webm", "m4v", "pdf", "mp3",
-                "appimage",
-                "srt", "lrc", "lrclib", "vtt", "ass", "ssa", "txt", "md", "log", "nfo",
-                "json", "xml", "yaml", "yml", "toml", "ini", "conf", "cfg", "desktop",
-                "service", "csv", "tsv", "m3u", "m3u8", "pls"].indexOf(s) >= 0
-    }
-
     function folderItemCountText(count) {
         if (count < 0)
             return lang.t("folder")
@@ -1268,8 +1261,13 @@ Rectangle {
         return ""
     }
 
-    function thumbSource(localPath, suffix, modified, size, previewRevision) {
-        if (!localPath || !isPreviewable(suffix)) return ""
+    function thumbSource(localPath, suffix, modified, size, previewRevision, mimeType) {
+        // Dolphin-style policy: global switch, per-type switches and separate
+        // size limits for the system disk and other mounts. Reading revision
+        // re-evaluates every binding that calls this when a setting changes.
+        if (!localPath || PreviewSettings.revision < 0
+                || !PreviewSettings.allows(localPath, String(suffix || ""), String(mimeType || ""), Number(size || 0)))
+            return ""
         let stamp = thumbnailRevision
         if (previewRevision)
             return "image://gfilethumb/" + encodeURIComponent(localPath) + "|" + stamp + "-" + previewRevision
@@ -4132,19 +4130,33 @@ Rectangle {
         id: browserContent
         anchors.fill: parent
         anchors.margins: 8
+        // 4 px less at the bottom so the status bar lines up with the
+        // sidebar footer (12 px sidebar margin vs page 8 + pane 8 px).
+        anchors.bottomMargin: 4
         spacing: 6
+
+        // Fixed first slot for an in-pane navigation row. Reparenting the row
+        // straight into this ColumnLayout would append it below the content.
+        Item {
+            id: inlineNavigationSlot
+            objectName: "paneInlineNavigationSlot"
+            // Not navigationBar.visible: the row's effective visibility depends
+            // on this slot, which would lock both hidden after reparenting.
+            visible: !root.navigationHost && (root.navigationVisible || root.splitNavigation)
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? navigationBar.implicitHeight : 0
+        }
 
         RowLayout {
             id: navigationBar
             objectName: "paneNavigationBar"
-            parent: root.navigationHost || browserContent
-            anchors.fill: root.navigationHost ? parent : null
+            parent: root.navigationHost || inlineNavigationSlot
+            anchors.fill: parent
             anchors.leftMargin: root.navigationHost ? 12 : 0
             anchors.rightMargin: root.navigationHost ? 12 : 0
             anchors.topMargin: root.navigationHost ? 4 : 0
             anchors.bottomMargin: root.navigationHost ? 4 : 0
-            visible: root.navigationVisible
-            Layout.fillWidth: true
+            visible: root.navigationVisible || root.splitNavigation
             spacing: 6
 
             GButton {
@@ -4188,17 +4200,6 @@ Rectangle {
                 background: Rectangle { radius: 10; color: parent.hovered ? AppTheme.surfaceHover : AppTheme.surface; border.color: AppTheme.border }
             }
 
-            GToolButton {
-                objectName: "browserRefreshButton"
-                implicitWidth: 32; implicitHeight: root.navigationControlHeight
-                topPadding: 4; bottomPadding: 4
-                icon.source: AppTheme.useSystemIcons ? AppTheme.systemIcon("view-refresh") : AppTheme.icon("refresh.svg")
-                icon.width: 18; icon.height: 18
-                Accessible.name: lang.t("refresh")
-                onClicked: root.refreshDirectory()
-                GToolTip { text: lang.t("refresh") + root.shortcutSuffix("refresh") }
-            }
-
             GButton {
                 id: recentLocationsButton
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -4230,7 +4231,9 @@ Rectangle {
                 Layout.preferredHeight: root.navigationControlHeight
                 radius: 10
                 color: AppTheme.surface
-                border.color: root.locationEditMode && locationField.activeFocus ? AppTheme.accent : AppTheme.border
+                // In split view the active pane's address field is marked.
+                border.color: root.locationEditMode && locationField.activeFocus ? AppTheme.accent
+                            : root.splitNavigation && root.navigationVisible ? AppTheme.accentBorder : AppTheme.border
                 clip: true
 
                 MouseArea {
@@ -4242,10 +4245,44 @@ Rectangle {
                     onClicked: root.enterLocationEdit(false)
                 }
 
+                // Refresh lives inside the address field, at its far left.
+                GToolButton {
+                    id: locationRefreshButton
+                    objectName: "browserRefreshButton"
+                    z: 3
+                    anchors.left: parent.left
+                    anchors.leftMargin: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    implicitWidth: 28
+                    implicitHeight: Math.max(20, locationBar.height - 6)
+                    topPadding: 2; bottomPadding: 2
+                    icon.source: AppTheme.useSystemIcons ? AppTheme.systemIcon("view-refresh") : AppTheme.icon("refresh.svg")
+                    icon.width: 16; icon.height: 16
+                    Accessible.name: lang.t("refresh")
+                    onClicked: root.refreshDirectory()
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    background: Rectangle {
+                        radius: 7
+                        color: locationRefreshButton.pressed ? AppTheme.surfacePressed
+                             : locationRefreshButton.hovered ? AppTheme.surfaceHover : "transparent"
+                    }
+                    GToolTip { text: lang.t("refresh") + root.shortcutSuffix("refresh") }
+                }
+                Rectangle {
+                    id: locationRefreshDivider
+                    z: 3
+                    anchors.left: locationRefreshButton.right
+                    anchors.leftMargin: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 1
+                    height: Math.max(10, locationBar.height - 16)
+                    color: AppTheme.border
+                }
+
                 Flickable {
                     id: breadcrumbFlick
                     anchors.fill: parent
-                    anchors.leftMargin: 7
+                    anchors.leftMargin: locationRefreshDivider.x + locationRefreshDivider.width + 5
                     anchors.rightMargin: 7
                     visible: !root.locationEditMode
                     z: 1
@@ -4342,6 +4379,7 @@ Rectangle {
                     objectName: "browserLocationField"
                     persistentSelection: true
                     anchors.fill: parent
+                    anchors.leftMargin: locationRefreshDivider.x + locationRefreshDivider.width
                     visible: root.locationEditMode
                     z: 2
                     text: directory.displayLocation
@@ -4466,7 +4504,7 @@ Rectangle {
             }
 
             Rectangle {
-                Layout.preferredWidth: 210
+                Layout.preferredWidth: root.splitNavigation ? 150 : 210
                 Layout.preferredHeight: root.navigationControlHeight
                 radius: 10
                 color: AppTheme.surface
@@ -4595,7 +4633,7 @@ Rectangle {
 
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                visible: !root.navigationHost && !root.isCategoryLocation && !root.isTrashLocation
+                visible: !root.navigationHost && !root.splitNavigation && !root.isCategoryLocation && !root.isTrashLocation
                 text: ""
                 display: AbstractButton.IconOnly
                 icon.source: AppTheme.icon("plus.svg")
@@ -5236,7 +5274,7 @@ Rectangle {
                                     // decoding/rendering a 4x image for every delegate while scrolling.
                                     sourceSize.width: Math.max(160, Math.ceil(parent.width * 1.75))
                                     sourceSize.height: Math.max(160, Math.ceil(parent.height * 1.75))
-                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision) : ""
+                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision, mimeType) : ""
                                     paused: fileOps.ioBusy
                                     fileIdentity: localPath
                                     fileSuffix: suffix
@@ -5907,7 +5945,7 @@ Rectangle {
                                 DeferredThumbnail {
                                     id: listPreview
                                     anchors.fill: parent
-                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision) : ""
+                                    candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision, mimeType) : ""
                                     paused: fileOps.ioBusy
                                     fileIdentity: localPath
                                     fileSuffix: suffix
@@ -6833,11 +6871,14 @@ Rectangle {
         }
 
         Rectangle {
+            id: paneStatusBar
+            objectName: "paneStatusBar"
             visible: !directory.searchActive
                 || (root.navigationVisible && root.effectivePresentation
                     && root.effectivePresentation.activeCount > 0)
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 30 : 0
+            // Same height as the sidebar footer controls.
+            Layout.preferredHeight: visible ? 32 : 0
             color: "transparent"
 
             RowLayout {
@@ -8512,11 +8553,50 @@ Rectangle {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(620, Overlay.overlay.width - 40)
-        height: Math.min(root.selectedIsDir ? 720 : 700, Overlay.overlay.height - 40)
+        // Same breathing room as Settings when the window is small.
+        width: Math.min(880, Overlay.overlay.width - 48)
+        height: Math.min(660, Overlay.overlay.height - 48)
         padding: 0
+        // Tabs on the left, like Settings. Only tabs that apply are listed.
+        property string currentTab: "general"
+        readonly property var tabs: {
+            const tr = lang.language === "tr"
+            const list = [{id: "general", title: tr ? "Genel" : "General", icon: "info.svg",
+                           subtitle: tr ? "Konum, boyut, tarihler ve tür" : "Location, size, dates and type"}]
+            if (localSelection)
+                list.push({id: "access", title: tr ? "İzinler" : "Permissions", icon: "lock.svg",
+                           subtitle: tr ? "Erişim izinleri, sahip ve grup" : "Access permissions, owner and group"})
+            if (localSelection && !multiple)
+                list.push({id: "share", title: tr ? "Paylaşım" : "Sharing", icon: "menu-share.svg",
+                           subtitle: tr ? "Ağ üzerinden Samba paylaşımı" : "Samba sharing on the network"})
+            if (localSelection && fileProperties.linkType.length > 0)
+                list.push({id: "link", title: tr ? "Bağlantı" : "Link", icon: "menu-link.svg",
+                           subtitle: tr ? "Bağlantının hedefi" : "Where the link points"})
+            if (!multiple && !root.selectedIsDir)
+                list.push({id: "app", title: tr ? "Uygulama" : "Application", icon: "menu-apps.svg",
+                           subtitle: tr ? "Bu türü açan varsayılan uygulama" : "Default application for this type"})
+            return list
+        }
+        readonly property var currentTabInfo: {
+            for (let i = 0; i < tabs.length; ++i)
+                if (tabs[i].id === currentTab) return tabs[i]
+            return tabs[0]
+        }
+        onTabsChanged: if (!tabs.some(function(tab) { return tab.id === currentTab })) currentTab = "general"
+        onCurrentTabChanged: { propertiesWheel.reset(); propertiesScroll.contentItem.contentY = 0 }
+        // Switches to the tab that contains the given control.
+        function showTabFor(item) {
+            for (let entry = item; entry; entry = entry.parent) {
+                if (entry.propertiesTab !== undefined) {
+                    currentTab = entry.propertiesTab
+                    return true
+                }
+            }
+            return false
+        }
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onAboutToShow: {
+            currentTab = "general"
             propertiesWheel.reset()
             recursiveDraft = false
             administratorDraft = false
@@ -8542,27 +8622,46 @@ Rectangle {
         }
         background: GModalSurface { }
 
-        ColumnLayout {
+        Item {
+            id: propertiesFrame
             anchors.fill: parent
-            anchors.margins: 22
-            spacing: 16
 
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 118
-                radius: 18
-                color: AppTheme.surfaceRaised
-                border.color: AppTheme.border
+            // Full-height side panel: what is selected, then the tabs.
+            Item {
+                id: propertiesSidePanel
+                objectName: "filePropertiesSidePanel"
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: Math.min(250, Math.max(200, propertiesFrame.width * 0.3))
+                Item {
+                    anchors.fill: parent
+                    clip: true
+                    Rectangle {
+                        width: parent.width + 30
+                        height: parent.height
+                        radius: 26
+                        color: AppTheme.dark ? Qt.rgba(1, 1, 1, 0.035)
+                                             : Qt.rgba(AppTheme.accent.r, AppTheme.accent.g, AppTheme.accent.b, 0.045)
+                    }
+                }
+                Rectangle {
+                    anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.right: parent.right
+                    width: 1
+                    color: AppTheme.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0.05, 0.08, 0.19, 0.08)
+                }
 
-                RowLayout {
+                ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 16
-                    spacing: 15
+                    anchors.topMargin: 22
+                    spacing: 3
 
                     Rectangle {
-                        Layout.preferredWidth: 72
-                        Layout.preferredHeight: 72
-                        radius: 18
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 84
+                        Layout.preferredHeight: 84
+                        radius: 22
                         color: AppTheme.accentSoft
                         border.color: AppTheme.accentBorder
                         CrispIcon {
@@ -8571,8 +8670,8 @@ Rectangle {
                                                      root.selectedIsDir && root.selectedLocalPath.length > 0
                                                      ? fileProperties.iconName : root.selectedSystemIconName,
                                                      root.selectedName)
-                            width: 48
-                            height: 48
+                            width: 56
+                            height: 56
                         }
                         MouseArea {
                             anchors.fill: parent
@@ -8593,27 +8692,22 @@ Rectangle {
                         }
                         HoverHandler { id: folderIconHover }
                     }
-
-                    ColumnLayout {
+                    GText {
                         Layout.fillWidth: true
-                        spacing: 3
-                        GText {
-                            text: lang.language === "tr" ? "ÖZELLİKLER" : "PROPERTIES"
-                            baseColor: AppTheme.accent
-                            basePixelSize: 9
-                            baseBold: true
-                            baseLetterSpacing: 1.1
-                        }
-                        GText {
-                            text: propertiesDialog.multiple ? fileProperties.name : root.selectedName
-                            baseColor: AppTheme.text
-                            basePixelSize: 19
-                            baseFontWeight: Font.DemiBold
-                            Layout.fillWidth: true
-                            elide: Text.ElideMiddle
-                        }
-                        GText {
-                            text: propertiesDialog.multiple && !propertiesDialog.localSelection
+                        Layout.topMargin: 10
+                        horizontalAlignment: Text.AlignHCenter
+                        text: propertiesDialog.multiple ? fileProperties.name : root.selectedName
+                        baseColor: AppTheme.text
+                        basePixelSize: 15
+                        baseFontWeight: Font.DemiBold
+                        wrapMode: Text.WrapAnywhere
+                        maximumLineCount: 2
+                        elide: Text.ElideMiddle
+                    }
+                    GText {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: propertiesDialog.multiple && !propertiesDialog.localSelection
                                   ? (lang.language === "tr" ? "Uzak konumlardaki seçim" : "Selection from remote locations")
                                   : propertiesDialog.multiple
                                   ? (fileProperties.selectedFiles + (lang.language === "tr" ? " dosya · " : " files · ")
@@ -8622,36 +8716,94 @@ Rectangle {
                                   : root.selectedIsDir
                                   ? (lang.language === "tr" ? "Klasör" : "Folder")
                                   : (root.selectedMimeType || (lang.language === "tr" ? "Dosya" : "File"))
-                            baseColor: AppTheme.textMuted
-                            basePixelSize: 11
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                        GText {
-                            visible: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
-                            text: lang.language === "tr" ? "Klasör ikonunu değiştirmek için simgeye tıkla" : "Click the icon to customize this folder"
-                            baseColor: AppTheme.accent
-                            basePixelSize: 9
-                        }
+                        baseColor: AppTheme.textMuted
+                        basePixelSize: 11
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
+                    GText {
+                        Layout.fillWidth: true
+                        visible: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
+                        horizontalAlignment: Text.AlignHCenter
+                        text: lang.language === "tr" ? "Değiştirmek için simgeye tıkla" : "Click the icon to change it"
+                        baseColor: AppTheme.accent
+                        basePixelSize: 9
                     }
 
-                    GToolButton {
-                        id: propertiesCloseButton
-                        Layout.alignment: Qt.AlignTop
-                        implicitWidth: 34
-                        implicitHeight: 34
-                        text: ""
-                        display: AbstractButton.IconOnly
-                        icon.source: AppTheme.icon("close-ui.svg")
-                        icon.width: 16
-                        icon.height: 16
-                        onClicked: propertiesDialog.close()
-                        background: Rectangle {
-                            radius: 10
-                            color: propertiesCloseButton.hovered ? AppTheme.surfaceHover : "transparent"
+                    Item { Layout.preferredHeight: 14 }
+
+                    Repeater {
+                        model: propertiesDialog.tabs
+                        delegate: Rectangle {
+                            id: propertiesTabEntry
+                            required property var modelData
+                            readonly property bool current: propertiesDialog.currentTab === modelData.id
+                            objectName: "filePropertiesTab_" + modelData.id
+                            Layout.fillWidth: true
+                            implicitHeight: 38
+                            radius: 11
+                            color: current ? (AppTheme.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(1, 1, 1, 0.9))
+                                           : (propertiesTabMouse.containsMouse ? AppTheme.surfaceHover : "transparent")
+                            border.width: current ? 1 : 0
+                            border.color: AppTheme.dark ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0.05, 0.08, 0.19, 0.08)
+                            Rectangle {
+                                visible: propertiesTabEntry.current
+                                anchors.left: parent.left
+                                anchors.leftMargin: 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 3; height: 16; radius: 2
+                                color: AppTheme.accent
+                            }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 10
+                                spacing: 10
+                                CrispIcon {
+                                    Layout.preferredWidth: 18; Layout.preferredHeight: 18
+                                    source: AppTheme.icon(propertiesTabEntry.modelData.icon,
+                                                          propertiesTabEntry.current ? AppTheme.accent : AppTheme.textMuted)
+                                }
+                                GText {
+                                    Layout.fillWidth: true
+                                    text: propertiesTabEntry.modelData.title
+                                    baseColor: propertiesTabEntry.current ? AppTheme.text : AppTheme.textMuted
+                                    baseFontWeight: propertiesTabEntry.current ? Font.DemiBold : Font.Normal
+                                    basePixelSize: 13
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            MouseArea {
+                                id: propertiesTabMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: propertiesDialog.currentTab = propertiesTabEntry.modelData.id
+                            }
                         }
                     }
+                    Item { Layout.fillHeight: true }
                 }
+            }
+
+        ColumnLayout {
+            anchors.left: propertiesSidePanel.right
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 26
+            anchors.rightMargin: 18
+            anchors.topMargin: 22
+            anchors.bottomMargin: 18
+            spacing: 14
+
+            GModalHeader {
+                title: propertiesDialog.currentTabInfo.title
+                subtitle: propertiesDialog.currentTabInfo.subtitle
+                closeButtonName: "propertiesCloseButton"
+                closeToolTip: lang.t("close")
+                onCloseRequested: propertiesDialog.close()
             }
 
             ScrollView {
@@ -8668,16 +8820,10 @@ Rectangle {
                     width: propertiesScroll.availableWidth
                     spacing: 14
 
-                    GText {
-                        text: lang.language === "tr" ? "GENEL BİLGİLER" : "GENERAL"
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 10
-                        baseBold: true
-                        baseLetterSpacing: 0.8
-                    }
-
                     Rectangle {
                         Layout.fillWidth: true
+                        readonly property string propertiesTab: "general"
+                        visible: propertiesDialog.currentTab === propertiesTab
                         Layout.preferredHeight: propertiesGrid.implicitHeight + 34
                         radius: 16
                         color: AppTheme.surfaceRaised
@@ -8741,17 +8887,9 @@ Rectangle {
                         }
                     }
 
-                    GText {
-                        visible: propertiesDialog.localSelection
-                        text: lang.language === "tr" ? "ERİŞİM İZİNLERİ" : "ACCESS PERMISSIONS"
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 10
-                        baseBold: true
-                        baseLetterSpacing: 0.8
-                    }
-
                     Rectangle {
-                        visible: propertiesDialog.localSelection
+                        readonly property string propertiesTab: "access"
+                        visible: propertiesDialog.localSelection && propertiesDialog.currentTab === propertiesTab
                         Layout.fillWidth: true
                         Layout.preferredHeight: permissionsContent.implicitHeight + 32
                         radius: 16
@@ -9057,26 +9195,22 @@ Rectangle {
                     SambaSharePanel {
                         textEditMenu: propertiesTextEditMenu
                         objectName: "sambaSharePanel"
+                        property string propertiesTab: "share"
                         Layout.fillWidth: true
                         visible: propertiesDialog.localSelection && !propertiesDialog.multiple
-                        active: visible && propertiesDialog.opened
+                                 && propertiesDialog.currentTab === propertiesTab
+                        // Stay loaded across tab switches while the dialog is open.
+                        active: propertiesDialog.localSelection && !propertiesDialog.multiple && propertiesDialog.opened
                         folder: fileProperties.directory
                         location: fileProperties.path
                         lang: root.lang
                         onNotify: function(message) { root.requestToast(message) }
                     }
 
-                    GText {
-                        visible: propertiesDialog.localSelection && fileProperties.linkType.length > 0
-                        text: lang.language === "tr" ? "BAĞLANTI" : "LINK"
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 10
-                        baseBold: true
-                        baseLetterSpacing: 0.8
-                    }
-
                     Rectangle {
+                        readonly property string propertiesTab: "link"
                         visible: propertiesDialog.localSelection && fileProperties.linkType.length > 0
+                                 && propertiesDialog.currentTab === propertiesTab
                         Layout.fillWidth: true
                         Layout.preferredHeight: linkDetails.implicitHeight + 30
                         radius: 16
@@ -9187,17 +9321,10 @@ Rectangle {
                         }
                     }
 
-                    GText {
-                        visible: !propertiesDialog.multiple && !root.selectedIsDir
-                        text: lang.language === "tr" ? "VARSAYILAN UYGULAMA" : "DEFAULT APPLICATION"
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 10
-                        baseBold: true
-                        baseLetterSpacing: 0.8
-                    }
-
                     Rectangle {
+                        readonly property string propertiesTab: "app"
                         visible: !propertiesDialog.multiple && !root.selectedIsDir
+                                 && propertiesDialog.currentTab === propertiesTab
                         Layout.fillWidth: true
                         Layout.preferredHeight: 128
                         radius: 16
@@ -9248,15 +9375,17 @@ Rectangle {
                 Layout.fillWidth: true
                 GText {
                     Layout.fillWidth: true
-                    text: !propertiesDialog.multiple && root.selectedIsDir && propertiesDialog.localSelection
-                          ? (lang.language === "tr" ? "Simgeyi başlıktan değiştirebilirsin" : "You can change the icon from the header")
-                          : ""
+                    // The side panel already explains how to change a folder icon.
+                    text: ""
                     baseColor: AppTheme.textFaint
                     basePixelSize: 9
                 }
                 GModalButton {
                     objectName: "applyFilePermissions"
+                    // Only permissions are applied; keep it visible elsewhere while
+                    // an unsaved permission draft exists.
                     visible: propertiesDialog.localSelection
+                             && (propertiesDialog.currentTab === "access" || propertiesDialog.permissionsDirty)
                     enabled: propertiesDialog.canEditAccess && propertiesDialog.permissionsDirty && propertiesDialog.validMode
                     primary: true
                     text: lang.language === "tr" ? "Uygula" : "Apply"
@@ -9273,6 +9402,7 @@ Rectangle {
                     onClicked: propertiesDialog.close()
                 }
             }
+        }
         }
     }
 

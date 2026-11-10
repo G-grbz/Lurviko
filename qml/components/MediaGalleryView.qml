@@ -9,6 +9,9 @@ import Lurviko.Backend
 
 Item {
     id: root
+    // Opens with the type's preferred application, like the file browser;
+    // Qt.openUrlExternally asked for an application every time.
+    OpenWithModel { id: galleryOpenWith }
     required property var files
     required property var lang
     required property string categoryKey
@@ -522,7 +525,7 @@ Item {
         else if (videoMode)
             videoViewer.openAt(idx)
         else
-            Qt.openUrlExternally(item.url)
+            galleryOpenWith.openDefault(item.url, "")
     }
 
     function normalizedWheelDelta(event) {

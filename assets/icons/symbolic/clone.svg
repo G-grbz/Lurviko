@@ -1,38 +1,10 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   viewBox="0 0 640 640"
-   version="1.1"
-   id="svg1"
-   sodipodi:docname="clone.svg"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs1" />
-  <sodipodi:namedview
-     id="namedview1"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="0.7125"
-     inkscape:cx="320"
-     inkscape:cy="320"
-     inkscape:window-width="1536"
-     inkscape:window-height="803"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="svg1" />
-  <!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. -->
-  <path
-     fill="currentColor"
-     d="M352 512L128 512L128 288L176 288L176 224L128 224C92.7 224 64 252.7 64 288L64 512C64 547.3 92.7 576 128 576L352 576C387.3 576 416 547.3 416 512L416 464L352 464L352 512zM288 416L512 416C547.3 416 576 387.3 576 352L576 128C576 92.7 547.3 64 512 64L288 64C252.7 64 224 92.7 224 128L224 352C224 387.3 252.7 416 288 416z"
-     id="path1"
-     style="fill:#ffffff;fill-opacity:1" />
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="1.286 1.286 21.429 21.429" width="24" height="24" color="#ffffff">
+  <defs>
+    <style id="current-color-scheme" type="text/css">.ColorScheme-Text {
+        color:#ffffff;
+      }</style>
+  </defs>
+  <path class="ColorScheme-Text" d="m9 21c-1.662 0-3-1.338-3-3v-10c0-1.662 1.338-3 3-3h8c1.662 0 3 1.338 3 3v9l-4 4zm0-1h6v-2c0-1.108 0.892-2 2-2h2v-8c0-1.108-0.892-2-2-2h-8c-1.108 0-2 0.892-2 2v10c0 1.108 0.892 2 2 2z" fill="currentColor" />
+  <path class="ColorScheme-Text" d="m7 3c-1.662 0-3 1.338-3 3v10c0 1.3551 0.89551 2.4829 2.125 2.8574-0.080326-0.27154-0.125-0.55915-0.125-0.85742v-0.27539c-0.5958-0.34556-1-0.98355-1-1.7246v-10c0-1.108 0.892-2 2-2h8c0.74107 0 1.379 0.4042 1.7246 1h0.27539c0.29827 0 0.58588 0.044674 0.85742 0.125-0.37457-1.2295-1.5023-2.125-2.8574-2.125h-8zm12.816 3.9707c0.009953 0.027373 0.020123 0.054288 0.029297 0.082031-0.009271-0.027724-0.019239-0.054687-0.029297-0.082031zm0.070313 0.21875c0.012369 0.044427 0.024796 0.08952 0.035156 0.13477-0.010489-0.045432-0.02262-0.090182-0.035156-0.13477zm0.060547 0.25781c0.012153 0.065592 0.021457 0.13217 0.029296 0.19922-0.007888-0.066981-0.017064-0.13374-0.029296-0.19922zm0.037109 0.25977c0.009328 0.096729 0.015625 0.19371 0.015625 0.29297 0-0.099202-0.006246-0.19641-0.015625-0.29297zm-12.014 13.109c0.027344 0.010057 0.054308 0.020026 0.082031 0.029297-0.027743-0.009174-0.054659-0.019344-0.082031-0.029297zm0.21875 0.070313c0.044582 0.012536 0.089334 0.024667 0.13477 0.035156-0.045246-0.01036-0.090338-0.022787-0.13477-0.035156zm0.25781 0.060547c0.065478 0.012231 0.13224 0.021408 0.19922 0.029296-0.067044-0.007839-0.13363-0.017143-0.19922-0.029296zm0.25977 0.037109c0.096557 0.009379 0.19377 0.015625 0.29297 0.015625-0.099256 0-0.19624-0.006297-0.29297-0.015625z" fill="currentColor" />
 </svg>

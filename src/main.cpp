@@ -55,6 +55,8 @@
 #include "languagemanager.h"
 #include "keyboardshortcutmanager.h"
 #include "cloudauthmanager.h"
+#include "previewsettings.h"
+#include "storagehousekeeping.h"
 #include "thumbnailprovider.h"
 #include "bundlediconprovider.h"
 #include "admineditmanager.h"
@@ -392,6 +394,7 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(true);
 
     qmlRegisterType<StorageModel>("Lurviko.Backend", 1, 0, "StorageModel");
+    qmlRegisterType<StorageHousekeeping>("Lurviko.Backend", 1, 0, "StorageHousekeeping");
     qmlRegisterType<FolderStats>("Lurviko.Backend", 1, 0, "FolderStats");
     qmlRegisterType<DesktopAppearance>("Lurviko.Backend", 1, 0, "DesktopAppearance");
     qmlRegisterType<DesktopWindowEffects>("Lurviko.Backend", 1, 0, "DesktopWindowEffects");
@@ -433,6 +436,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonType<DiskImageManager>("Lurviko.Backend", 1, 0, "DiskImages",
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new DiskImageManager; });
 
+    qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PreviewSettings", PreviewSettings::instance());
     PlaybackResumeManager playbackResumeManager;
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PlaybackResumeManager", &playbackResumeManager);
     VideoPlayerInputManager videoPlayerInputManager;

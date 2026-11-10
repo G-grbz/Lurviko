@@ -43,6 +43,9 @@ Item {
                 wait(160)
             }
             function reveal(field) {
+                // Properties is tabbed: open the tab that holds the field first.
+                verify(findChild(pane, "filePropertiesDialog").showTabFor(field))
+                tryVerify(function() { return field.visible })
                 const scroll = findChild(pane, "filePropertiesScroll")
                 const flick = scroll.contentItem
                 flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height,

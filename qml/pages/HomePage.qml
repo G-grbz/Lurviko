@@ -13,11 +13,12 @@ Item {
     // Window y of the clock block's centre as if Home were scrolled to the top.
     // The icon-only sidebar rail centres its Discover button on it.
     readonly property real clockAnchorY: {
-        void (page.width + page.height + homeClockBlock.y + homeClockBlock.height)
+        void (page.width + page.height + homeClockBlock.y + homeClockBlock.height + homeClockTime.y)
         if (!homeClockBlock.visible || !page.Window.window)
             return -1
         const flick = homeScroll.contentItem
-        return homeClockBlock.mapToItem(null, 0, homeClockBlock.height / 2).y
+        // Anchor on the time itself, not the whole block with greeting and chips.
+        return homeClockTime.mapToItem(null, 0, homeClockTime.height / 2).y
                + (flick && flick.contentY !== undefined ? flick.contentY : 0)
     }
     required property var favoritesModel
@@ -28,6 +29,7 @@ Item {
     required property var cloudIntegrationPreferences
     required property var privateVault
     property var updateChecker: null
+    property var operationPresentation: null
     property Item headerHost: null
     readonly property real tabStripHeight: homeHeader.tabStripHeight
     readonly property real headerHeight: homeHeader.headerHeight
@@ -40,6 +42,7 @@ Item {
 
     signal browseRequested(string location)
     signal browseNewTabRequested(string location)
+    signal watermarkEditorRequested()
     signal backNavigationRequested()
     signal forwardNavigationRequested()
     signal searchRequested(string query)
@@ -50,6 +53,24 @@ Item {
     property int wheelBurstCount: 0
     property int wheelBurstDirection: 0
     property date now: new Date()
+    readonly property string greeting: {
+        const hour = page.now.getHours()
+        const tr = lang.language === "tr"
+        if (hour >= 5 && hour < 12) return tr ? "Günaydın" : "Good morning"
+        if (hour >= 12 && hour < 17) return tr ? "İyi günler" : "Good afternoon"
+        if (hour >= 17 && hour < 22) return tr ? "İyi akşamlar" : "Good evening"
+        return tr ? "İyi geceler" : "Good night"
+    }
+    // Free space of the disk holding the home folder, refreshed each minute.
+    readonly property real homeFreeBytes: {
+        void Math.floor(page.now.getTime() / 60000)
+        return page.contentIndexModel.homeStorageAvailableBytes()
+    }
+    readonly property int recentFileCount: {
+        page.categoryTabsRevision
+        page.contentIndexModel.totalIndexed
+        return page.contentIndexModel.countForCategory("recent")
+    }
     Timer { interval: 1000; running: true; repeat: true; onTriggered: page.now = new Date() }
 
     property string diskPropertiesPath: ""
@@ -646,7 +667,118 @@ Item {
     property string oauthProvider: ""
     property string oauthErrorText: ""
     property bool infoPanelOpen: false
+    FileOperations { id: homeFileOps }
+    // Launches the file type's preferred application directly, like the file
+    // browser. Qt.openUrlExternally went through the portal and asked for an
+    // application every time.
+    OpenWithModel { id: homeOpenWith }
+
+    // ---- Discover section layouts (remembered per section) -------------------
+    Settings {
+        id: discoverViews
+        category: "DiscoverViews"
+        property string categories: "grid"
+        property string clouds: "grid"
+        property string quickAccess: "grid"
+        property string disks: "cards"
+    }
+    readonly property alias discoverViewSettings: discoverViews
+    property string selectedCategoryKey: ""
+    property int categoryTabsRevision: 0
+    // Categories can show a selected category's newest files behind a tab;
+    // Clouds and Quick Access offer a compact dock instead.
+    readonly property var categoryViewModes: lang.language === "tr"
+        ? [{id: "list", label: "Liste"}, {id: "grid", label: "Izgara"}, {id: "tab", label: "Sekme"}]
+        : [{id: "list", label: "List"}, {id: "grid", label: "Grid"}, {id: "tab", label: "Tabs"}]
+    readonly property var compactViewModes: lang.language === "tr"
+        ? [{id: "list", label: "Liste"}, {id: "grid", label: "Izgara"}, {id: "compact", label: "Kompakt"}]
+        : [{id: "list", label: "List"}, {id: "grid", label: "Grid"}, {id: "compact", label: "Compact"}]
+    readonly property var diskViewModes: lang.language === "tr"
+        ? [{id: "cards", label: "Kart"}, {id: "compact", label: "Kompakt"}]
+        : [{id: "cards", label: "Cards"}, {id: "compact", label: "Compact"}]
+    // Category tab rows open files with one or two clicks, following the
+    // global setting or the category's own "open with single click".
+    function categoryOpensOnSingleClick(key) {
+        if (AppTheme.singleClickOpen) return true
+        const revision = page.contentIndexModel.categoryInteractionRevision
+        return revision >= 0 && key.length > 0 && !!page.contentIndexModel.categorySingleClickOpen(key)
+    }
+    function openIndexedFile(key, url) {
+        if (key === "appimage" || String(url).toLowerCase().endsWith(".appimage"))
+            homeFileOps.runExecutable(url)
+        else
+            homeOpenWith.openDefault(url, "")
+    }
+    function categoryArtwork(icon, key) {
+        const artwork = AppTheme.discoveryIcon(icon, AppTheme.categoryDefaultIcon(key))
+        return AppTheme.useSystemIcons ? AppTheme.systemIconAtSize(artwork, 22) : artwork
+    }
+    function categoryItemCount(key, count) {
+        if (key !== "private") return count
+        return page.privateVault.unlocked ? page.privateVault.totalItemCount : 0
+    }
+    readonly property var categoryTabs: {
+        page.categoryTabsRevision
+        contentIndexModel.totalIndexed
+        const tr = lang.language === "tr"
+        return contentIndexModel.visibleCategories().map(function(category) {
+            const locked = category.key === "private" && page.privateVault.exists && !page.privateVault.unlocked
+            return {key: category.key, title: tr ? category.titleTr : category.titleEn,
+                    iconName: category.icon, icon: page.categoryArtwork(category.icon, category.key),
+                    count: page.categoryItemCount(category.key, category.count),
+                    badge: locked ? "" : page.categoryItemCount(category.key, category.count)}
+        })
+    }
+    readonly property var currentCategoryTab: {
+        const tabs = page.categoryTabs
+        for (let i = 0; i < tabs.length; ++i)
+            if (tabs[i].key === page.selectedCategoryKey) return tabs[i]
+        return tabs.length ? tabs[0] : null
+    }
+    readonly property var cloudTabs: {
+        page.visibleCloudCount
+        return page.cloudOrderKeys.filter(function(key) { return page.cloudVisible(key) }).map(function(key) {
+            return {key: key, title: page.cloudDisplayName(key),
+                    icon: AppTheme.discoveryIcon(page.cloudDisplayIcon(key), page.cloudDefaultIcon(key))}
+        })
+    }
+    function cloudReady(key) {
+        if (key === "google") return cloudAuth.googleConnected
+        if (key === "onedrive") return cloudAuth.oneDriveConnected
+        return page.externalCloudLocation(key).length > 0
+    }
+    function cloudStatus(key) {
+        return key === "google" || key === "onedrive" ? page.oauthStatusText(key) : page.externalCloudStatus(key)
+    }
+    function cloudCardShown(key) { return page.cloudVisible(key) }
+    function fileGlyph(suffix) {
+        const s = String(suffix || "").toLowerCase()
+        if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "svgz", "heic", "avif", "tif", "tiff"].indexOf(s) >= 0) return "image.svg"
+        if (["mp3", "flac", "ogg", "opus", "m4a", "wav", "aac"].indexOf(s) >= 0) return "file-audio.svg"
+        if (["mp4", "mkv", "webm", "avi", "mov", "m4v", "ts"].indexOf(s) >= 0) return "file-video.svg"
+        if (["zip", "rar", "7z", "tar", "gz", "xz", "zst", "bz2"].indexOf(s) >= 0) return "file-archive.svg"
+        if (s === "pdf") return "pdf.svg"
+        return "file.svg"
+    }
+    Connections {
+        target: page.contentIndexModel
+        function onRowsMoved() { page.categoryTabsRevision += 1 }
+        function onDataChanged() { page.categoryTabsRevision += 1 }
+        function onModelReset() { page.categoryTabsRevision += 1 }
+        function onCategoryInteractionRevisionChanged() { page.categoryTabsRevision += 1 }
+    }
     KeyboardShortcutsDialog { id: keyboardShortcutsDialog; lang: page.lang }
+    Loader {
+        id: settingsDialogLoader
+        objectName: "homeSettingsDialogLoader"
+        active: false
+        sourceComponent: SettingsDialog {
+            lang: page.lang
+            onWatermarkEditorRequested: page.watermarkEditorRequested()
+            onClosed: Qt.callLater(function() { settingsDialogLoader.active = false })
+        }
+        onLoaded: item.open()
+    }
     onWidthChanged: { if (width < 1240 && infoPanelOpen) infoPanelOpen = false }
     property int editingShortcutIndex: -1
     property bool editingShortcutFixed: false
@@ -950,6 +1082,7 @@ Item {
 
         ScrollView {
             id: homeScroll
+            objectName: "homeScroll"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -997,23 +1130,87 @@ Item {
                         ColumnLayout {
                             id: homeClockBlock
                             objectName: "homeClockBlock"
-                            Layout.preferredWidth: Math.min(260, homeScroll.availableWidth * 0.48)
+                            Layout.preferredWidth: Math.min(560, homeScroll.availableWidth * 0.5)
                             Layout.minimumWidth: 0
-                            spacing: 0
+                            spacing: 2
                             GText {
-                                text: Qt.formatTime(page.now, "HH:mm")
-                                baseColor: AppTheme.text
-                                basePixelSize: 30
-                                baseFontWeight: Font.Bold
+                                objectName: "homeGreeting"
+                                text: page.greeting
+                                baseColor: AppTheme.accent
+                                basePixelSize: 11
+                                baseFontWeight: Font.DemiBold
                             }
-                            GText {
-                                text: page.now.toLocaleDateString(
-                                          Qt.locale(lang.language === "tr" ? "tr_TR" : "en_US"),
-                                          lang.language === "tr" ? "dddd, d MMMM yyyy" : "dddd, MMMM d, yyyy")
-                                baseColor: AppTheme.textMuted
-                                basePixelSize: 10
+                            RowLayout {
                                 Layout.fillWidth: true
-                                elide: Text.ElideRight
+                                spacing: 12
+                                GText {
+                                    id: homeClockTime
+                                    objectName: "homeClockTime"
+                                    text: Qt.formatTime(page.now, "HH:mm")
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 34
+                                    baseFontWeight: Font.Bold
+                                }
+                                GText {
+                                    Layout.alignment: Qt.AlignBottom
+                                    Layout.bottomMargin: 7
+                                    Layout.fillWidth: true
+                                    text: page.now.toLocaleDateString(
+                                              Qt.locale(lang.language === "tr" ? "tr_TR" : "en_US"),
+                                              lang.language === "tr" ? "dddd, d MMMM yyyy" : "dddd, MMMM d, yyyy")
+                                    baseColor: AppTheme.textMuted
+                                    basePixelSize: 11
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            Flow {
+                                objectName: "homeSummaryChips"
+                                Layout.fillWidth: true
+                                Layout.topMargin: 6
+                                spacing: 6
+                                SummaryChip {
+                                    objectName: "homeRecentChip"
+                                    visible: page.recentFileCount > 0
+                                    iconName: "history.svg"
+                                    // 0 is the "All" window, 1 is "Today" (see the category settings).
+                                    readonly property int days: page.contentIndexModel.recentWindowDays
+                                    text: lang.language === "tr"
+                                          ? (days <= 0 ? page.recentFileCount + " son dosya"
+                                             : days === 1 ? "Bugün " + page.recentFileCount + " dosya"
+                                             : "Son " + days + " günde " + page.recentFileCount + " dosya")
+                                          : (days <= 0 ? page.recentFileCount + " recent files"
+                                             : days === 1 ? page.recentFileCount + " files today"
+                                             : page.recentFileCount + " files in the last " + days + " days")
+                                    onClicked: page.categoryRequested("recent", page.contentIndexModel.titleForCategory("recent", lang.language), "recent.svg")
+                                }
+                                SummaryChip {
+                                    objectName: "homeFreeSpaceChip"
+                                    visible: page.homeFreeBytes > 0
+                                    iconName: "drive-symbolic.svg"
+                                    text: lang.language === "tr"
+                                          ? "Ev diskinde " + page.storageModel.formatBytes(page.homeFreeBytes) + " boş"
+                                          : page.storageModel.formatBytes(page.homeFreeBytes) + " free on home disk"
+                                    onClicked: page.browseRequested(page.homePath)
+                                }
+                                SummaryChip {
+                                    objectName: "homeOperationsChip"
+                                    visible: !!page.operationPresentation && page.operationPresentation.activeCount > 0
+                                    accent: true
+                                    iconName: "edit-copy.svg"
+                                    text: page.operationPresentation
+                                          ? page.operationPresentation.activeCount + (lang.language === "tr" ? " işlem sürüyor" : " operations running")
+                                          : ""
+                                    onClicked: page.infoPanelOpen = true
+                                }
+                                SummaryChip {
+                                    objectName: "homeVaultChip"
+                                    visible: page.privateVault.unlocked
+                                    warning: true
+                                    iconName: "unlock.svg"
+                                    text: lang.language === "tr" ? "Kasa açık" : "Vault unlocked"
+                                    onClicked: page.privateVault.lock()
+                                    toolTip: lang.language === "tr" ? "Kilitlemek için tıkla" : "Click to lock"
+                                }
                             }
                         }
 
@@ -1078,6 +1275,15 @@ Item {
                             onClicked: keyboardShortcutsDialog.open()
                             GToolTip { text: lang.language === "tr" ? "Klavye kısayolları" : "Keyboard shortcuts" }
                         }
+                        GButton {
+                            objectName: "homeSettingsButton"
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 34
+                            icon.source: AppTheme.icon("settings.svg")
+                            icon.width: 16; icon.height: 16
+                            onClicked: settingsDialogLoader.active = true
+                            GToolTip { text: lang.language === "tr" ? "Ayarlar" : "Settings" }
+                        }
                     }
 
                     // The search field moves below the clock/actions on narrow windows.
@@ -1092,26 +1298,16 @@ Item {
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    GText {
-                        text: lang.language === "tr" ? "Kategoriler" : "Categories"
-                        baseColor: AppTheme.text
-                        basePixelSize: 17
-                        baseFontWeight: Font.DemiBold
-                    }
-                    GText {
-                        text: lang.language === "tr"
+                DiscoverSectionHeader {
+                    objectName: "categoriesHeader"
+                    switcherName: "categoriesViewSwitcher"
+                    title: lang.language === "tr" ? "Kategoriler" : "Categories"
+                    subtitle: lang.language === "tr"
                               ? "Her kategori kendi kaynaklarını ve indeks ayarlarını yönetir"
                               : "Each category manages its own sources and indexing settings"
-                        baseColor: AppTheme.textMuted
-                        basePixelSize: 10
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        elide: Text.ElideRight
-                    }
-                    Item { Layout.fillWidth: true }
+                    modes: page.categoryViewModes
+                    viewMode: discoverViews.categories
+                    onViewModeRequested: function(mode) { discoverViews.categories = mode }
                 }
 
                 Rectangle {
@@ -1168,8 +1364,9 @@ Item {
 
                 Item {
                     id: categoryFlowHost
+                    visible: discoverViews.categories !== "tab"
                     Layout.fillWidth: true
-                    Layout.preferredHeight: categoryFlow.height
+                    Layout.preferredHeight: visible ? categoryFlow.height : 0
 
                     Flow {
                         id: categoryFlow
@@ -1177,7 +1374,9 @@ Item {
                         height: childrenRect.height
                         spacing: 12
                         // Match the Discover cloud grid: Categories scale 4 → 3 → 2 → 1.
-                        property int columnCount: width >= 1160 ? 4 : (width >= 860 ? 3 : (width >= 560 ? 2 : 1))
+                        // The list layout is a single column of slimmer rows.
+                        property int columnCount: discoverViews.categories === "list" ? 1
+                            : (width >= 1160 ? 4 : (width >= 860 ? 3 : (width >= 560 ? 2 : 1)))
                         property real tileWidth: Math.floor((width - (columnCount - 1) * spacing) / columnCount)
 
                         Repeater {
@@ -1197,6 +1396,10 @@ Item {
                                     language: page.lang.language
                                     id: categoryTile
                                     anchors.fill: parent
+                                    compact: discoverViews.categories === "list"
+                                    detailText: !compact || parent.categoryKey === "private" ? ""
+                                        : page.storageModel.formatBytes(parent.categoryCount >= 0
+                                              ? page.contentIndexModel.bytesForCategory(parent.categoryKey) : 0)
                                     categoryIndex: parent.index
                                     categoryKey: parent.categoryKey
                                     title: lang.language === "tr" ? parent.categoryTitleTr : parent.categoryTitleEn
@@ -1242,55 +1445,234 @@ Item {
                     }
                 }
 
-                RowLayout {
+                ColumnLayout {
+                    id: categoryTabView
+                    objectName: "categoryTabView"
+                    visible: discoverViews.categories === "tab"
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: 12
 
-                    GText {
-                        text: lang.t("cloud_integrations")
-                        baseColor: AppTheme.text
-                        basePixelSize: 18
-                        baseFontWeight: Font.DemiBold
+                    DiscoverTabStrip {
                         Layout.fillWidth: true
+                        tabs: page.categoryTabs
+                        current: page.currentCategoryTab ? page.currentCategoryTab.key : ""
+                        onSelected: function(key) { page.selectedCategoryKey = key }
                     }
 
-                    GButton {
+                    Rectangle {
+                        id: categoryTabPanel
+                        objectName: "categoryTabPanel"
+                        readonly property var info: page.currentCategoryTab
+                        readonly property string key: info ? info.key : ""
+                        readonly property bool locked: key === "private" && !page.privateVault.unlocked
+                        readonly property var files: {
+                            page.categoryTabsRevision
+                            page.contentIndexModel.totalIndexed
+                            return !categoryTabView.visible || !key.length || locked ? []
+                                 : page.contentIndexModel.latestFilesForCategory(key, 8)
+                        }
+                        Layout.fillWidth: true
+                        implicitHeight: categoryTabColumn.implicitHeight + 32
+                        radius: AppTheme.cardRadius
+                        color: AppTheme.cardSurface
+                        border.color: AppTheme.border
+
+                        ColumnLayout {
+                            id: categoryTabColumn
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: 16
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 14
+                                CrispIcon {
+                                    Layout.preferredWidth: 44; Layout.preferredHeight: 44
+                                    source: categoryTabPanel.info ? page.categoryArtwork(categoryTabPanel.info.iconName, categoryTabPanel.key) : ""
+                                }
+                                ColumnLayout {
+                                    spacing: 2
+                                    GText {
+                                        text: categoryTabPanel.info ? categoryTabPanel.info.title : ""
+                                        baseColor: AppTheme.text
+                                        basePixelSize: 15
+                                        baseFontWeight: Font.DemiBold
+                                    }
+                                    GText {
+                                        text: !categoryTabPanel.info ? ""
+                                              : categoryTabPanel.locked ? (lang.language === "tr" ? "Kasa kilitli" : "Vault is locked")
+                                              : categoryTabPanel.info.count + (lang.language === "tr" ? " öğe · " : " items · ")
+                                                + page.storageModel.formatBytes(page.contentIndexModel.bytesForCategory(categoryTabPanel.key))
+                                        baseColor: AppTheme.textMuted
+                                        basePixelSize: 11
+                                    }
+                                }
+                                Item { Layout.fillWidth: true }
+                                DiscoverHeaderButton {
+                                    objectName: "categoryTabOpenButton"
+                                    accented: true
+                                    iconName: "nav-forward.svg"
+                                    text: lang.language === "tr" ? "Kategoriyi aç" : "Open category"
+                                    onClicked: if (categoryTabPanel.info)
+                                        page.categoryRequested(categoryTabPanel.key, categoryTabPanel.info.title, categoryTabPanel.info.iconName)
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: AppTheme.border }
+
+                            GText {
+                                visible: categoryTabPanel.files.length === 0
+                                Layout.fillWidth: true
+                                Layout.topMargin: 6
+                                Layout.bottomMargin: 6
+                                horizontalAlignment: Text.AlignHCenter
+                                text: categoryTabPanel.locked
+                                      ? (lang.language === "tr" ? "İçeriği görmek için kasanın kilidini aç." : "Unlock the vault to see its contents.")
+                                      : (lang.language === "tr" ? "Bu kategoride henüz dosya yok." : "No files in this category yet.")
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 11
+                            }
+
+                            Repeater {
+                                model: categoryTabPanel.files
+                                delegate: Rectangle {
+                                    id: recentRow
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    implicitHeight: 40
+                                    radius: 9
+                                    color: recentRowMouse.containsMouse ? AppTheme.surfaceHover : "transparent"
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 12
+                                        spacing: 12
+                                        CrispIcon {
+                                            Layout.preferredWidth: 22; Layout.preferredHeight: 22
+                                            source: AppTheme.icon(page.fileGlyph(recentRow.modelData.suffix))
+                                        }
+                                        GText {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 80
+                                            text: recentRow.modelData.name
+                                            baseColor: AppTheme.text
+                                            basePixelSize: 12
+                                            elide: Text.ElideMiddle
+                                        }
+                                        GText {
+                                            Layout.preferredWidth: Math.min(320, categoryTabColumn.width * 0.3)
+                                            text: String(recentRow.modelData.parentPath).replace(page.homePath, "~")
+                                            baseColor: AppTheme.textMuted
+                                            basePixelSize: 10
+                                            elide: Text.ElideMiddle
+                                        }
+                                        GText {
+                                            Layout.preferredWidth: 72
+                                            horizontalAlignment: Text.AlignRight
+                                            text: page.storageModel.formatBytes(recentRow.modelData.size)
+                                            baseColor: AppTheme.textMuted
+                                            basePixelSize: 10
+                                        }
+                                        GText {
+                                            Layout.preferredWidth: 104
+                                            horizontalAlignment: Text.AlignRight
+                                            text: Qt.formatDateTime(new Date(recentRow.modelData.modifiedMs), "dd.MM.yyyy HH:mm")
+                                            baseColor: AppTheme.textFaint
+                                            basePixelSize: 10
+                                        }
+                                    }
+                                    readonly property bool singleClick: page.categoryOpensOnSingleClick(categoryTabPanel.key)
+                                    MouseArea {
+                                        id: recentRowMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                                        onClicked: function(mouse) {
+                                            if (mouse.button === Qt.MiddleButton)
+                                                page.browseNewTabRequested(recentRow.modelData.parentPath)
+                                            else if (recentRow.singleClick)
+                                                page.openIndexedFile(categoryTabPanel.key, recentRow.modelData.url)
+                                        }
+                                        onDoubleClicked: function(mouse) {
+                                            if (mouse.button === Qt.LeftButton && !recentRow.singleClick)
+                                                page.openIndexedFile(categoryTabPanel.key, recentRow.modelData.url)
+                                        }
+                                    }
+                                    GToolButton {
+                                        objectName: "categoryTabRevealButton"
+                                        z: 3
+                                        visible: recentRowMouse.containsMouse || hovered
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 4
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        implicitWidth: 30; implicitHeight: 30
+                                        icon.source: AppTheme.icon("viewer-folder.svg")
+                                        icon.width: 16; icon.height: 16
+                                        onClicked: page.browseRequested(recentRow.modelData.parentPath)
+                                        background: Rectangle {
+                                            radius: 9
+                                            color: parent.hovered ? AppTheme.surfacePressed : AppTheme.surfaceRaised
+                                            border.color: AppTheme.border
+                                        }
+                                        GToolTip { text: lang.language === "tr" ? "İçeren klasörü aç" : "Open containing folder" }
+                                    }
+                                    GToolTip {
+                                        visible: recentRowMouse.containsMouse
+                                        text: recentRow.modelData.path + "\n"
+                                              + (recentRow.singleClick
+                                                 ? (lang.language === "tr" ? "Açmak için tıkla" : "Click to open")
+                                                 : (lang.language === "tr" ? "Açmak için çift tıkla" : "Double-click to open"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                DiscoverSectionHeader {
+                    objectName: "cloudsHeader"
+                    switcherName: "cloudsViewSwitcher"
+                    title: lang.t("cloud_integrations")
+                    countText: page.visibleCloudCount > 0 ? String(page.visibleCloudCount) : ""
+                    modes: page.visibleCloudCount > 0 ? page.compactViewModes : []
+                    viewMode: discoverViews.clouds
+                    onViewModeRequested: function(mode) { discoverViews.clouds = mode }
+                    DiscoverHeaderButton {
                         id: manageCloudIntegrationsButton
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
-                        text: lang.language === "tr" ? "⚙  Bulutları yönet" : "⚙  Manage clouds"
+                        objectName: "manageCloudIntegrationsButton"
+                        iconName: "settings.svg"
+                        text: lang.language === "tr" ? "Bulutları yönet" : "Manage clouds"
                         onClicked: page.openCloudManager("")
-                        background: Rectangle {
-                            radius: 10
-                            color: manageCloudIntegrationsButton.hovered ? AppTheme.surfaceActive : AppTheme.surfaceRaised
-                            border.color: manageCloudIntegrationsButton.hovered ? AppTheme.accentBorder : AppTheme.border
-                        }
-                        contentItem: GText {
-        typographyRole: "menu"
-                            text: manageCloudIntegrationsButton.text
-                            baseColor: AppTheme.text
-                            basePixelSize: 10
-                            baseFontWeight: Font.DemiBold
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                 }
 
                 GridLayout {
                     id: cloudGrid
-                    Layout.fillWidth: true
+                    objectName: "cloudGrid"
                     // Responsive cloud cards: 4 → 3 → 2 → 1 as the Discover area narrows.
-                    columns: width >= 1160 ? 4 : (width >= 860 ? 3 : (width >= 560 ? 2 : 1))
+                    // List: one full-width column. Compact: fixed-size tiles.
+                    readonly property bool compactLayout: discoverViews.clouds === "compact"
+                    // Columns follow the section width; compact tiles pack left.
+                    readonly property real availableWidth: parent ? parent.width : width
+                    Layout.fillWidth: !compactLayout
+                    columns: discoverViews.clouds === "list" ? 1
+                        : compactLayout ? Math.max(1, Math.floor((availableWidth + columnSpacing) / (152 + columnSpacing)))
+                        : (availableWidth >= 1160 ? 4 : (availableWidth >= 860 ? 3 : (availableWidth >= 560 ? 2 : 1)))
                     columnSpacing: 12
                     rowSpacing: 12
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showGoogle
+                        visible: page.cloudCardShown("google")
                         cloudKey: "google"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("google")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("google")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("google")
                         iconName: page.cloudDisplayIcon("google")
@@ -1318,11 +1700,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showOneDrive
+                        visible: page.cloudCardShown("onedrive")
                         cloudKey: "onedrive"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("onedrive")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("onedrive")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("onedrive")
                         iconName: page.cloudDisplayIcon("onedrive")
@@ -1349,11 +1733,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showDropbox
+                        visible: page.cloudCardShown("dropbox")
                         cloudKey: "dropbox"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("dropbox")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("dropbox")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("dropbox")
                         iconName: page.cloudDisplayIcon("dropbox")
@@ -1369,11 +1755,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showNextcloud
+                        visible: page.cloudCardShown("nextcloud")
                         cloudKey: "nextcloud"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("nextcloud")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("nextcloud")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("nextcloud")
                         iconName: page.cloudDisplayIcon("nextcloud")
@@ -1389,11 +1777,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showOwnCloud
+                        visible: page.cloudCardShown("owncloud")
                         cloudKey: "owncloud"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("owncloud")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("owncloud")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("owncloud")
                         iconName: page.cloudDisplayIcon("owncloud")
@@ -1409,11 +1799,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showMega
+                        visible: page.cloudCardShown("mega")
                         cloudKey: "mega"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("mega")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("mega")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("mega")
                         iconName: page.cloudDisplayIcon("mega")
@@ -1429,11 +1821,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showPCloud
+                        visible: page.cloudCardShown("pcloud")
                         cloudKey: "pcloud"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("pcloud")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("pcloud")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("pcloud")
                         iconName: page.cloudDisplayIcon("pcloud")
@@ -1449,11 +1843,13 @@ Item {
 
                     CloudCard {
                         language: page.lang.language
-                        visible: cloudIntegrationPreferences.showWebDav
+                        visible: page.cloudCardShown("webdav")
                         cloudKey: "webdav"
                         Layout.row: Math.floor(Math.max(0, page.visibleCloudRank("webdav")) / cloudGrid.columns)
                         Layout.column: Math.max(0, page.visibleCloudRank("webdav")) % cloudGrid.columns
-                        Layout.fillWidth: true
+                        compact: cloudGrid.compactLayout
+                        Layout.fillWidth: !compact
+                        Layout.preferredWidth: compact ? implicitWidth : -1
                         Layout.preferredHeight: implicitHeight
                         provider: page.cloudDisplayName("webdav")
                         iconName: page.cloudDisplayIcon("webdav")
@@ -1499,46 +1895,29 @@ Item {
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    GText {
-                        text: lang.t("quick_access")
-                        baseColor: AppTheme.text
-                        basePixelSize: 17
-                        baseFontWeight: Font.DemiBold
-                    }
-                    GText {
-                        // Only while something is being dragged over the shortcuts.
-                        visible: quickDrop.containsDrag
-                        text: lang.language === "tr" ? "Bırakınca kısayol eklenir" : "Drop to add a shortcut"
-                        baseColor: AppTheme.accent
-                        basePixelSize: 10
-                    }
-                    Item { Layout.fillWidth: true }
-                    GButton {
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                DiscoverSectionHeader {
+                    objectName: "quickAccessHeader"
+                    switcherName: "quickAccessViewSwitcher"
+                    title: lang.t("quick_access")
+                    // Only while something is being dragged over the shortcuts.
+                    subtitle: quickDrop.containsDrag
+                              ? (lang.language === "tr" ? "Bırakınca kısayol eklenir" : "Drop to add a shortcut") : ""
+                    modes: page.compactViewModes
+                    viewMode: discoverViews.quickAccess
+                    onViewModeRequested: function(mode) { discoverViews.quickAccess = mode }
+                    DiscoverHeaderButton {
                         id: addShortcutButton
-                        text: lang.language === "tr" ? "+  Yeni kısayol" : "+  New shortcut"
+                        objectName: "addShortcutButton"
+                        accented: true
+                        iconName: "plus.svg"
+                        text: lang.language === "tr" ? "Yeni kısayol" : "New shortcut"
                         onClicked: page.addShortcut()
-                        background: Rectangle {
-                            radius: 10
-                            color: addShortcutButton.hovered ? AppTheme.tint(AppTheme.accent, AppTheme.dark ? 0.22 : 0.12) : "transparent"
-                            border.color: addShortcutButton.hovered ? AppTheme.accent : AppTheme.accentBorder
-                        }
-                        contentItem: GText {
-        typographyRole: "menu"
-                            text: addShortcutButton.text
-                            baseColor: AppTheme.accent
-                            basePixelSize: 11
-                            baseFontWeight: Font.DemiBold
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                 }
 
                 Rectangle {
                     id: quickAccessPanel
+                    readonly property bool compactLayout: discoverViews.quickAccess === "compact"
                     Layout.fillWidth: true
                     Layout.preferredHeight: quickGrid.implicitHeight + 12
                     radius: 18
@@ -1564,11 +1943,18 @@ Item {
 
                     GridLayout {
                         id: quickGrid
+                        objectName: "quickAccessGrid"
+                        // Compact tiles keep their size and pack to the left: the
+                        // grid is only as wide as its tiles, so columns come from
+                        // the panel width instead of the grid's own width.
+                        readonly property real availableWidth: quickAccessPanel.width - 12
                         anchors.left: parent.left
-                        anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: 6
-                        columns: width > 940 ? 4 : (width > 700 ? 3 : (width > 460 ? 2 : 1))
+                        width: quickAccessPanel.compactLayout ? implicitWidth : availableWidth
+                        columns: discoverViews.quickAccess === "list" ? 1
+                            : quickAccessPanel.compactLayout ? Math.max(1, Math.floor((availableWidth + columnSpacing) / (108 + columnSpacing)))
+                            : (availableWidth > 940 ? 4 : (availableWidth > 700 ? 3 : (availableWidth > 460 ? 2 : 1)))
                         columnSpacing: 10
                         rowSpacing: 10
 
@@ -1581,8 +1967,10 @@ Item {
                                 required property string shortcutLocation
                                 required property string shortcutIcon
                                 required property bool shortcutFixed
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Math.max(74, AppTheme.effectiveHomeIconSize + 28)
+                                compact: quickAccessPanel.compactLayout
+                                Layout.fillWidth: !compact
+                                Layout.preferredWidth: compact ? implicitWidth : -1
+                                Layout.preferredHeight: compact ? implicitHeight : Math.max(74, AppTheme.effectiveHomeIconSize + 28)
                                 shortcutIndex: index
                                 fixedShortcut: shortcutFixed
                                 recentLocations: shortcutFixed ? page.quickAccessModel.recentLocations : []
@@ -1636,11 +2024,19 @@ Item {
                    Favorites remain in the sidebar and can be dragged into Quick Access.
                    Keeping one home collection avoids duplicate shortcut surfaces.
                 */
-                SectionHeader {
-                    Layout.fillWidth: true
+                DiscoverSectionHeader {
+                    objectName: "disksHeader"
+                    switcherName: "disksViewSwitcher"
                     title: lang.t("disks")
-                    actionText: lang.t("refresh")
-                    onActionTriggered: page.storageModel.refresh()
+                    modes: page.diskViewModes
+                    viewMode: discoverViews.disks
+                    onViewModeRequested: function(mode) { discoverViews.disks = mode }
+                    DiscoverHeaderButton {
+                        objectName: "refreshDisksButton"
+                        iconName: "refresh.svg"
+                        text: lang.t("refresh")
+                        onClicked: page.storageModel.refresh()
+                    }
                 }
 
                 Rectangle {
@@ -1830,18 +2226,25 @@ Item {
                 }
 
                 GridLayout {
+                    id: diskGrid
+                    objectName: "diskGrid"
+                    readonly property bool compactLayout: discoverViews.disks === "compact"
                     Layout.fillWidth: true
                     Layout.leftMargin: 6
                     Layout.rightMargin: 6
-                    columns: width > 940 ? 4 : (width > 700 ? 3 : (width > 460 ? 2 : 1))
-                    columnSpacing: 14
-                    rowSpacing: 14
+                    columns: compactLayout
+                        ? (width > 1180 ? 6 : (width > 940 ? 5 : (width > 700 ? 4 : (width > 460 ? 3 : 2))))
+                        : (width > 940 ? 4 : (width > 700 ? 3 : (width > 460 ? 2 : 1)))
+                    columnSpacing: compactLayout ? 10 : 14
+                    rowSpacing: compactLayout ? 10 : 14
 
                     Repeater {
                         model: page.storageModel
                         delegate: DiskCard {
                             language: page.lang.language
                             diskIndex: index
+                            compact: diskGrid.compactLayout
+                            unmountInMenu: compact
                             Layout.fillWidth: true
                             Layout.preferredHeight: responsiveHeight
                             title: name
@@ -1888,12 +2291,16 @@ Item {
 
                 // Mounted disk images. Shown with the same cards as Disks, and
                 // not at all (header included) while no image is mounted.
-                SectionHeader {
+                DiscoverSectionHeader {
+                    objectName: "mountedImagesHeader"
                     visible: DiskImages.count > 0
-                    Layout.fillWidth: true
                     title: lang.t("mounted_images")
-                    actionText: lang.t("refresh")
-                    onActionTriggered: DiskImages.refresh()
+                    countText: String(DiskImages.count)
+                    DiscoverHeaderButton {
+                        iconName: "refresh.svg"
+                        text: lang.t("refresh")
+                        onClicked: DiskImages.refresh()
+                    }
                 }
 
                 GridLayout {
@@ -2038,139 +2445,65 @@ Item {
             }
         }
 
-        Rectangle {
+        DiscoverInfoPanel {
             visible: page.infoPanelOpen
-            Layout.preferredWidth: visible ? 304 : 0
-            Layout.minimumWidth: visible ? 304 : 0
-            Layout.maximumWidth: visible ? 304 : 0
+            Layout.preferredWidth: visible ? 320 : 0
+            Layout.minimumWidth: visible ? 320 : 0
+            Layout.maximumWidth: visible ? 320 : 0
             Layout.fillHeight: true
-            radius: AppTheme.panelRadius
-            color: AppTheme.cardSurface
-            border.color: AppTheme.border
+            home: page
+            lang: page.lang
+            storageModel: page.storageModel
+            contentIndexModel: page.contentIndexModel
+            updateChecker: page.updateChecker
+            operationPresentation: page.operationPresentation
+        }
+    }
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 22
-                spacing: 16
-
-                RowLayout {
-                    CrispIcon {
-                        source: AppTheme.icon("logo.png")
-                        Layout.preferredWidth: 40
-                        Layout.preferredHeight: 40
-                    }
-                    ColumnLayout {
-                        GText { text: "Lurviko"; baseColor: AppTheme.text; basePixelSize: 16; baseBold: true }
-                        GText { text: "v" + (page.updateChecker ? page.updateChecker.currentVersion : Qt.application.version); baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                    }
-                }
-
-                Rectangle { Layout.fillWidth: true; height: 1; color: AppTheme.border }
-
-                GText { text: lang.t("storage_overview"); baseColor: AppTheme.text; basePixelSize: 12; baseBold: true }
-                RowLayout {
-                    GText { text: storageModel.formatBytes(storageModel.usedBytes); baseColor: AppTheme.text; baseBold: true; basePixelSize: 11 }
-                    Item { Layout.fillWidth: true }
-                    GText { text: storageModel.formatBytes(storageModel.totalBytes); baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                }
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 7
-                    radius: 4
-                    color: AppTheme.surfaceHover
-                    Rectangle {
-                        width: parent.width * (storageModel.totalBytes > 0 ? storageModel.usedBytes / storageModel.totalBytes : 0)
-                        height: parent.height
-                        radius: 4
-                        color: AppTheme.accent
-                    }
-                }
-
-                Rectangle { Layout.fillWidth: true; height: 1; color: AppTheme.border }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 9
-                    GText { text: (lang.language === "tr" ? "Diskler" : "Disks") + ": " + storageModel.count; baseColor: AppTheme.textMuted; basePixelSize: 11 }
-                    GText { text: (lang.language === "tr" ? "Favoriler" : "Favorites") + ": " + favoritesModel.count; baseColor: AppTheme.textMuted; basePixelSize: 11 }
-                    GText { text: "SMB · SFTP · admin://"; baseColor: AppTheme.textMuted; basePixelSize: 11 }
-                    GText { text: "Google Drive · OneDrive · Dropbox · Nextcloud · ownCloud · MEGA · pCloud · WebDAV"; baseColor: AppTheme.textMuted; basePixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                }
-
-                Rectangle { Layout.fillWidth: true; height: 1; color: AppTheme.border }
-
-                GText { text: lang.language === "tr" ? "Özellikler" : "Features"; baseColor: AppTheme.text; basePixelSize: 12; baseBold: true }
-
-                Flow {
-                    Layout.fillWidth: true
-                    spacing: 7
-                    Repeater {
-                        model: ["KIO", "Tabs", "Split", "Drag & Drop", "Thumbnails", "ServiceMenus", "OAuth2"]
-                        delegate: Rectangle {
-                            required property string modelData
-                            width: tagText.implicitWidth + 16
-                            height: 26
-                            radius: 9
-                            color: AppTheme.surfaceRaised
-                            border.color: AppTheme.border
-                            GText { id: tagText; anchors.centerIn: parent; text: modelData; baseColor: AppTheme.textMuted; basePixelSize: 9 }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    objectName: "updateReleaseCard"
-                    visible: page.updateChecker !== null && page.updateChecker.updateAvailable
-                    Layout.fillWidth: true
-                    implicitHeight: updateDescription.implicitHeight + 28
-                    radius: 12
-                    color: updateCardMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.accentSoft
-                    border.color: AppTheme.accent
-                    ColumnLayout {
-                        id: updateDescription
-                        anchors.left: parent.left; anchors.right: parent.right
-                        anchors.top: parent.top; anchors.margins: 14
-                        spacing: 6
-                        GText {
-                            Layout.fillWidth: true
-                            text: "Lurviko v" + (page.updateChecker ? page.updateChecker.latestVersion : "")
-                            baseColor: AppTheme.accent; baseBold: true; basePixelSize: 12
-                        }
-                        GText {
-                            Layout.fillWidth: true
-                            text: lang.language === "tr" ? "Yeni sürüm hazır. Yenilikleri ve kaynak kodunu GitHub’da görüntüle →" : "A new release is available. View the changes and source code on GitHub →"
-                            baseColor: AppTheme.text; basePixelSize: 11; wrapMode: Text.WordWrap
-                        }
-                    }
-                    MouseArea {
-                        id: updateCardMouse
-                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: page.updateChecker.openReleasePage()
-                    }
-                }
-                GText {
-                    Layout.fillWidth: true
-                    text: lang.language === "tr" ? "Yeni sürümler otomatik kontrol edilir." : "New releases are checked automatically."
-                    baseColor: AppTheme.textMuted; basePixelSize: 10; wrapMode: Text.WordWrap
-                }
-
-                Item { Layout.fillHeight: true }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 86
-                    radius: 14
-                    color: AppTheme.surfaceRaised
-                    border.color: AppTheme.border
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 5
-                        GText { Layout.alignment: Qt.AlignHCenter; text: lang.language === "tr" ? "Yerel + Ağ + Bulut" : "Local + Network + Cloud"; baseColor: AppTheme.text; basePixelSize: 11; baseBold: true }
-                        GText { Layout.alignment: Qt.AlignHCenter; text: lang.language === "tr" ? "Tek dosya yöneticisinde" : "in one file manager"; baseColor: AppTheme.textMuted; basePixelSize: 10 }
-                    }
-                }
+    // Small status pill under the Home clock.
+    component SummaryChip: Rectangle {
+        id: chip
+        property string iconName
+        property string text
+        property string toolTip
+        property bool accent: false
+        property bool warning: false
+        signal clicked()
+        readonly property color tone: warning ? "#E8A23A" : accent ? AppTheme.accent : AppTheme.textMuted
+        height: 26
+        width: chipRow.implicitWidth + 20
+        radius: 13
+        color: chipMouse.containsMouse ? AppTheme.surfaceHover
+             : accent ? AppTheme.accentSoft
+             : warning ? Qt.rgba(0.91, 0.64, 0.23, AppTheme.dark ? 0.16 : 0.12)
+             : (AppTheme.dark ? Qt.rgba(1, 1, 1, 0.04) : AppTheme.surfaceRaised)
+        border.width: 1
+        border.color: accent ? AppTheme.accentBorder : warning ? Qt.rgba(0.91, 0.64, 0.23, 0.5) : AppTheme.border
+        Row {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: 6
+            CrispIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 13; height: 13
+                source: chip.iconName.length ? AppTheme.icon(chip.iconName, chip.tone) : ""
+            }
+            GText {
+                anchors.verticalCenter: parent.verticalCenter
+                text: chip.text
+                baseColor: chip.accent || chip.warning ? chip.tone : AppTheme.text
+                basePixelSize: 10
+                baseFontWeight: Font.Medium
             }
         }
+        MouseArea {
+            id: chipMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: chip.clicked()
+        }
+        GToolTip { visible: chipMouse.containsMouse && chip.toolTip.length > 0; text: chip.toolTip }
     }
 
     component CloudManageRow: Rectangle {

@@ -1,1 +1,11 @@
-<svg fill="#ffffff" color="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc. --><path fill="#ffffff" d="M40 48C26.7 48 16 58.7 16 72l0 48c0 13.3 10.7 24 24 24l48 0c13.3 0 24-10.7 24-24l0-48c0-13.3-10.7-24-24-24L40 48zM192 64c-17.7 0-32 14.3-32 32s14.3 32 32 32l288 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L192 64zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l288 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-288 0zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32l288 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-288 0zM16 232l0 48c0 13.3 10.7 24 24 24l48 0c13.3 0 24-10.7 24-24l0-48c0-13.3-10.7-24-24-24l-48 0c-13.3 0-24 10.7-24 24zM40 368c-13.3 0-24 10.7-24 24l0 48c0 13.3 10.7 24 24 24l48 0c13.3 0 24-10.7 24-24l0-48c0-13.3-10.7-24-24-24l-48 0z"/></svg>
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" viewBox="2.476 2.476 19.048 19.048" width="24" height="24" color="#ffffff">
+  <defs id="defs3051">
+    <style type="text/css" id="current-color-scheme">
+      .ColorScheme-Text {
+        color:#ffffff;
+      }
+      </style>
+  </defs>
+  <path style="fill:currentColor;fill-opacity:1;stroke:none" d="M 5.5 4 C 4.671579 4 4.000008 4.67157 4 5.5 C 4.000008 6.32843 4.671579 7 5.5 7 C 6.328421 7 6.999992 6.32843 7 5.5 C 6.999992 4.67157 6.328421 4 5.5 4 z M 8 5 L 8 6 L 9 6 L 9 5 L 8 5 z M 10 5 L 10 6 L 20 6 L 20 5 L 10 5 z M 10 7 L 10 8 L 13 8 L 13 7 L 10 7 z M 5.5 10 C 4.671573 9.9999999 4 10.671572 4 11.5 C 4 12.328428 4.671573 13.000001 5.5 13 C 6.328427 13 7 12.328428 7 11.5 C 7 10.671572 6.328427 9.999999 5.5 10 z M 8 11 L 8 12 L 9 12 L 9 11 L 8 11 z M 10 11 L 10 12 L 20 12 L 20 11 L 10 11 z M 10 13 L 10 14 L 14 14 L 14 13 L 10 13 z M 5.5 16 C 4.671573 16 4 16.671572 4 17.5 C 4 18.328428 4.671573 19.000001 5.5 19 C 6.328427 19 7 18.328428 7 17.5 C 7 16.671572 6.328427 15.999999 5.5 16 z M 8 17 L 8 18 L 9 18 L 9 17 L 8 17 z M 10 17 L 10 18 L 20 18 L 20 17 L 10 17 z M 10 19 L 10 20 L 17 20 L 17 19 L 10 19 z " class="ColorScheme-Text" />
+</svg>

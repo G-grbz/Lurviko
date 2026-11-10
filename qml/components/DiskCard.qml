@@ -41,10 +41,13 @@ Rectangle {
     // siblings or escape the rounded card at high DPI / narrow widths.
     // Unlike the old 48/62 px clamp, retain the user's real icon preference.
     // The card and its content grow with the image instead of clipping it.
-    readonly property int effectiveIconPixels: Math.max(28, Math.min(
+    // Compact disk tile: small icon, one usage line and the bar. Unmounting
+    // moves to the context menu.
+    property bool compact: false
+    readonly property int effectiveIconPixels: compact ? 28 : Math.max(28, Math.min(
             Math.round(AppTheme.effectiveHomeIconSize), Math.max(28, Math.floor(card.width * 0.34))))
     // Folder silhouette: a tab on the upper left, the body below it.
-    readonly property real folderTabHeight: 14
+    readonly property real folderTabHeight: compact ? 10 : 14
     readonly property real folderTabWidth: Math.min(card.width * 0.42, 150)
     readonly property real folderRadius: AppTheme.cardRadius
     // The folder tab's slope is the cubic P0..P3 used in the folder path; the
@@ -80,7 +83,7 @@ Rectangle {
                 + " C " + n(c1[0]) + " " + n(c1[1]) + " " + n(b2[0]) + " " + n(b2[1]) + " " + n(start[0]) + " " + n(start[1]) + " Z"
         }
     }
-    readonly property int responsiveHeight: Math.max(158, effectiveIconPixels + 116)
+    readonly property int responsiveHeight: compact ? 112 : Math.max(158, effectiveIconPixels + 116)
     readonly property color usageColor: card.ratio >= 0.9 ? AppTheme.danger : AppTheme.accent
     readonly property string percentText: "%" + Math.round(Math.max(0, Math.min(1, card.ratio)) * 100)
     readonly property string mountPillText: card.mountActionText.length ? card.mountActionText : card.mountedStatusText
@@ -327,7 +330,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 8
                 DiskInfoChip {
-                    visible: card.fileSystem.length > 0
+                    visible: card.fileSystem.length > 0 && !card.compact
                     text: card.fileSystem
                     emphasis: false
                     Layout.alignment: Qt.AlignVCenter
@@ -350,14 +353,22 @@ Rectangle {
             spacing: 6
             GText {
                 Layout.fillWidth: true
-                text: card.usedText.length && card.totalText.length ? card.usedText : card.usageSummaryText
+                text: card.compact ? card.usageSummaryText
+                      : (card.usedText.length && card.totalText.length ? card.usedText : card.usageSummaryText)
                 baseColor: AppTheme.text
-                basePixelSize: 13
+                basePixelSize: card.compact ? 11 : 13
                 baseFontWeight: Font.DemiBold
                 elide: Text.ElideRight
             }
             GText {
-                visible: card.usedText.length > 0 && card.totalText.length > 0
+                visible: card.compact && card.mounted && card.totalText.length > 0
+                text: card.percentText
+                baseColor: card.usageColor
+                basePixelSize: 11
+                baseFontWeight: Font.DemiBold
+            }
+            GText {
+                visible: !card.compact && card.usedText.length > 0 && card.totalText.length > 0
                 text: card.totalText
                 baseColor: AppTheme.textMuted
                 basePixelSize: 12
@@ -388,6 +399,7 @@ Rectangle {
         }
 
         RowLayout {
+            visible: !card.compact
             Layout.fillWidth: true
             spacing: 8
             DiskMountBadge {

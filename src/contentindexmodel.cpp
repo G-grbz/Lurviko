@@ -471,6 +471,25 @@ QVariant ContentIndexModel::data(const QModelIndex &index, int role) const
     }
 }
 
+QVariantList ContentIndexModel::visibleCategories() const
+{
+    QVariantList result;
+    for (int row = 0; row < m_categories.size(); ++row) {
+        const Category &category = m_categories.at(row);
+        if (!category.visible)
+            continue;
+        const QModelIndex at = index(row, 0);
+        QVariantMap item;
+        item.insert(QStringLiteral("key"), category.key);
+        item.insert(QStringLiteral("titleTr"), data(at, TitleTrRole));
+        item.insert(QStringLiteral("titleEn"), data(at, TitleEnRole));
+        item.insert(QStringLiteral("icon"), data(at, IconRole));
+        item.insert(QStringLiteral("count"), countForCategory(category.key));
+        result.push_back(item);
+    }
+    return result;
+}
+
 QHash<int, QByteArray> ContentIndexModel::roleNames() const
 {
     return {
@@ -515,6 +534,50 @@ QVariantList ContentIndexModel::filesForCategory(const QString &key) const
         item.insert(QStringLiteral("modifiedMs"), entry.modifiedMs);
         if (key == kRecentCategory)
             item.insert(QStringLiteral("recentMs"), entry.receivedMs);
+        result.push_back(item);
+    }
+    return result;
+}
+
+QVariantList ContentIndexModel::latestFilesForCategory(const QString &key, int limit) const
+{
+    limit = qBound(0, limit, 200);
+    if (limit == 0)
+        return {};
+    const bool recent = key == kRecentCategory;
+    const auto &source = recent ? m_recentFiles : m_files;
+    const auto newer = [recent](const IndexedFile &a, const IndexedFile &b) {
+        const qint64 aTime = recent ? a.receivedMs : a.modifiedMs;
+        const qint64 bTime = recent ? b.receivedMs : b.modifiedMs;
+        if (aTime != bTime)
+            return aTime > bTime;
+        return a.path < b.path;
+    };
+    // Keep only the newest `limit` entries while scanning once.
+    QVector<IndexedFile> best;
+    best.reserve(limit + 1);
+    for (auto it = source.constBegin(); it != source.constEnd(); ++it) {
+        if (!recent && it->category != key)
+            continue;
+        if (best.size() == limit && !newer(*it, best.constLast()))
+            continue;
+        const auto position = std::upper_bound(best.begin(), best.end(), *it, newer);
+        best.insert(position, *it);
+        if (best.size() > limit)
+            best.removeLast();
+    }
+    QVariantList result;
+    result.reserve(best.size());
+    for (const IndexedFile &entry : std::as_const(best)) {
+        const QFileInfo info(entry.path);
+        QVariantMap item;
+        item.insert(QStringLiteral("path"), entry.path);
+        item.insert(QStringLiteral("url"), QUrl::fromLocalFile(entry.path).toString());
+        item.insert(QStringLiteral("name"), info.fileName());
+        item.insert(QStringLiteral("parentPath"), info.absolutePath());
+        item.insert(QStringLiteral("suffix"), info.suffix().toLower());
+        item.insert(QStringLiteral("size"), entry.size);
+        item.insert(QStringLiteral("modifiedMs"), recent ? entry.receivedMs : entry.modifiedMs);
         result.push_back(item);
     }
     return result;

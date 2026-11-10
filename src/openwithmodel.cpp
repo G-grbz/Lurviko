@@ -288,6 +288,19 @@ void OpenWithModel::openDefault(const QString &itemUrl, const QString &mimeType)
     job->start();
 }
 
+bool OpenWithModel::hasPreferredApplication(const QString &itemUrl, const QString &mimeType) const
+{
+    const QUrl url = QUrl::fromUserInput(itemUrl);
+    if (!url.isValid())
+        return false;
+    QString resolvedMime = mimeType.trimmed();
+    if (resolvedMime.isEmpty() || resolvedMime == QStringLiteral("application/octet-stream"))
+        resolvedMime = QMimeDatabase().mimeTypeForUrl(url).name();
+    const KService::Ptr preferred = resolvedMime.isEmpty()
+        ? KService::Ptr{} : KApplicationTrader::preferredService(resolvedMime);
+    return preferred && preferred->isApplication();
+}
+
 void OpenWithModel::openDefaults(const QStringList &itemUrls)
 {
     struct LaunchGroup {

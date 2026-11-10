@@ -1,48 +1,11 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   width="24"
-   height="24"
-   version="1.1"
-   id="svg1"
-   sodipodi:docname="edit-rename.svg"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <sodipodi:namedview
-     id="namedview1"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="19"
-     inkscape:cx="12"
-     inkscape:cy="12"
-     inkscape:window-width="1536"
-     inkscape:window-height="799"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="svg1" />
-  <defs
-     id="defs1">
-    <style
-       id="current-color-scheme"
-       type="text/css">
-   .ColorScheme-Text { color:#444444; } .ColorScheme-Highlight { color:#4285f4; } .ColorScheme-NeutralText { color:#ff9800; } .ColorScheme-PositiveText { color:#4caf50; } .ColorScheme-NegativeText { color:#f44336; }
-  </style>
+<?xml version='1.0' encoding='utf-8'?>
+<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" viewBox="2.476 2.476 19.048 19.048" width="24" height="24" color="#ffffff">
+  <defs id="defs3051">
+    <style type="text/css" id="current-color-scheme">
+      .ColorScheme-Text {
+        color:#ffffff;
+      }
+      </style>
   </defs>
-  <g
-     transform="translate(4,4)"
-     id="g1">
-    <path
-       style="fill:#ffffff;fill-opacity:1"
-       class="ColorScheme-Text"
-       d="M 12.778,1.2222 C 12.778,1.2222 12.278,0.72224 11.778,1.2222 L 10,3 13,6 14.778,4.2222 C 15.278,3.7222 14.778,3.2222 14.778,3.2222 Z M 9,4 1,12 V 15 H 4 L 12,7 Z"
-       id="path1" />
-  </g>
+  <path style="fill:currentColor;fill-opacity:1;stroke:none" d="m14.996094 3l-11.992188 11.992188h-.003906v4.00781h1 2 1.00781v-.003906l11.992188-11.992188-.001953-.001953.001953-.001953-4-4-.001953.001953-.001953-.001953m-1.998047 3.412109l2.589844 2.589844-7.587891 7.587891v-1.589844h-1-1v-1-.589844l6.998047-6.998047m-7.998047 7.998047v1.589844h1 1v1 .589844l-.410156.410156h-1.589844l-1-1v-1.589844l1-1" class="ColorScheme-Text" transform="translate(1,1)" />
 </svg>
