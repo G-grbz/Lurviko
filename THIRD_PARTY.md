@@ -12,7 +12,7 @@ Qt, KDE Frameworks, OpenSSL and optional helper programs are installed separatel
 
 ## Visual assets
 
-Font Awesome Free 7.3.1 SVG icons, including renamed/edited copies, use **CC BY 4.0**. The attribution and modification notice is in [assets/LICENSE-FontAwesome.txt](assets/LICENSE-FontAwesome.txt) and is installed with the application. Preserve embedded Font Awesome attribution comments. See the [upstream license](https://github.com/FortAwesome/Font-Awesome/blob/7.x/LICENSE.txt).
+The former Font Awesome interface glyphs were replaced with Microsoft Fluent UI System Icons, which are distributed under the **MIT License**. The copyright and license notice is in [assets/LICENSE-FluentUI.txt](assets/LICENSE-FluentUI.txt) and is installed with the application. See the [upstream repository and license](https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE).
 
 The 24 `assets/icons/symbolic/git.svg` and `menu-*.svg` action icons were
 replaced with user-provided Papirus-derived SVG artwork for the menu refresh.

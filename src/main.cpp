@@ -524,6 +524,7 @@ int main(int argc, char *argv[])
     engine.addImageProvider(QStringLiteral("systemicon"), new SystemIconProvider);
     engine.addImageProvider(QStringLiteral("bundledicon"), new BundledIconProvider);
     engine.addImageProvider(QStringLiteral("folderart"), new FolderIconProvider);
+    engine.addImageProvider(QStringLiteral("fileart"), new ArtworkIconProvider);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, [] { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);

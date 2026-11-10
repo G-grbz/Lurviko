@@ -44,7 +44,7 @@ Item {
             property int recentWindowDays: 7
             property int refreshes: 0
             ListElement { categoryKey: "recent"; categoryTitleTr: "Son Dosyalar"; categoryTitleEn: "Recent"; categoryIcon: "recent.svg"; categoryCount: 2; categoryVisible: true; categoryIndexHidden: false }
-            ListElement { categoryKey: "images"; categoryTitleTr: "Resimler"; categoryTitleEn: "Pictures"; categoryIcon: "pictures.svg"; categoryCount: 1; categoryVisible: true; categoryIndexHidden: false }
+            ListElement { categoryKey: "images"; categoryTitleTr: "Resimler"; categoryTitleEn: "Pictures"; categoryIcon: "image.svg"; categoryCount: 1; categoryVisible: true; categoryIndexHidden: false }
             readonly property var fixtureFiles: [
                 {path: "/fixture/a.png", url: "file:///fixture/a.png", name: "a.png", parentPath: "/fixture", suffix: "png", size: 2048, modifiedMs: 1700000000000},
                 {path: "/fixture/b.txt", url: "file:///fixture/b.txt", name: "b.txt", parentPath: "/fixture", suffix: "txt", size: 10, modifiedMs: 1690000000000}

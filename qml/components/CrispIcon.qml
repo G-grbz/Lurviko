@@ -17,7 +17,8 @@ Image {
         const sourceName = String(icon.source)
         // Providers already bound their rendering and folderart deliberately
         // returns a transparent pixel until the layout has usable geometry.
-        const minimum = sourceName.indexOf("image://") !== 0 && /\.svgz?$/i.test(sourceName) ? 16 : 1
+        const minimum = (sourceName.indexOf("image://") !== 0 || sourceName.indexOf("image://fileart/") === 0)
+                        && /\.svgz?$/i.test(sourceName) ? 16 : 1
         var pixels = Number(value) * effectiveDpr
         if (!isFinite(pixels) || pixels <= 0)
             return minimum

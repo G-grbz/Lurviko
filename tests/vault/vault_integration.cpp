@@ -626,6 +626,7 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "Vault test: loading security UI\n");
     engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.addImageProvider("folderart", new FolderIconProvider);
+    engine.addImageProvider("fileart", new ArtworkIconProvider);
     engine.addImageProvider("systemicon", new SystemIconProvider);
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.rootContext()->setContextProperty("fixtureVault", &vault);

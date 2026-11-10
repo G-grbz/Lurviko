@@ -800,6 +800,9 @@ QtObject {
             return "image://bundledicon/" + raw + "|" + encodeURIComponent(String(foreground === undefined ? text : foreground))
         if (/^(?:folder|(?:blue|green|orange|pink|purple|red|turquoise|yellow)-(?:folder|documents|download|music|picture|video))\.svg$/.test(raw))
             return "image://folderart/" + raw
-        return "qrc:/qt/qml/Lurviko/App/assets/icons/" + raw
+        // Colour artwork goes through a provider that keeps each rendered
+        // size; Qt's own cache drops unreferenced pixmaps after ~2 MiB, so
+        // scrolled views re-rasterised the same SVG for every recycled item.
+        return "image://fileart/" + raw
     }
 }

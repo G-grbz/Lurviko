@@ -11,6 +11,15 @@ public:
     QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override;
 };
 
+// Original-colour bundled artwork (file types, categories, logos), rendered
+// once per size and cached.
+class ArtworkIconProvider final : public QQuickImageProvider
+{
+public:
+    ArtworkIconProvider();
+    QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override;
+};
+
 // Cached original-color rasters; never parse SVG on the UI/thumbnail queue.
 class FolderIconProvider final : public QQuickImageProvider
 {

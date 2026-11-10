@@ -34,7 +34,7 @@ int main(int argc,char **argv) {
     QFile moved(base+"/copy-source.txt");require(moved.open(QIODevice::WriteOnly),"copy fixture");moved.write("preserve");moved.close();
     QProcess git; git.start("git", {"-C", base, "init", "-q"});
     require(git.waitForFinished() && git.exitCode() == 0, "Git integration fixture initializes");
-    QQmlApplicationEngine engine;engine.addImageProvider("gfilethumb",new ThumbnailProvider);engine.addImageProvider("systemicon",new SystemIconProvider);engine.addImageProvider("bundledicon",new BundledIconProvider);engine.addImageProvider("folderart",new FolderIconProvider);
+    QQmlApplicationEngine engine;engine.addImageProvider("gfilethumb",new ThumbnailProvider);engine.addImageProvider("systemicon",new SystemIconProvider);engine.addImageProvider("bundledicon",new BundledIconProvider);engine.addImageProvider("folderart",new FolderIconProvider);engine.addImageProvider("fileart",new ArtworkIconProvider);
     engine.rootContext()->setContextProperty("fixturePath",base);
     engine.loadData(R"qml(
 import QtQuick

@@ -62,6 +62,7 @@ int main(int argc, char **argv) {
     engine.addImageProvider("systemicon", new SystemIconProvider);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.addImageProvider("folderart", new FolderIconProvider);
+    engine.addImageProvider("fileart", new ArtworkIconProvider);
     if (mode == "explicit") engine.setInitialProperties({{"launchLocation", base + "/explicit"}});
     if (mode == "activation") engine.setInitialProperties({{"fileManagerActivation", true}});
     engine.loadFromModule("Lurviko.App", "Main");

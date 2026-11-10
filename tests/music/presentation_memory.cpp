@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
     engine.addImageProvider("systemicon", new SystemIconProvider);
     engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.addImageProvider("folderart", new FolderIconProvider);
+    engine.addImageProvider("fileart", new ArtworkIconProvider);
     engine.setInitialProperties({{"launchLocation", QUrl::fromLocalFile(folder).toString()}});
     engine.loadFromModule("Lurviko.App", "Main");
     require(!engine.rootObjects().isEmpty(), "actual Main loads");

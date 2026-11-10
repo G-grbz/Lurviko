@@ -72,7 +72,10 @@ struct ThumbnailMemoryCache {
     QMutex mutex;
     // QCache costs are KiB here. Keep final, view-sized images instead of the
     // larger 384/512 px source cache so repeated directory visits stay cheap.
-    QCache<QString, QImage> images{32 * 1024};
+    // Scrolling back and forth re-requests every recycled delegate's preview;
+    // 32 MiB held only about 32 HiDPI grid previews, so most of a large folder
+    // was decoded, rescaled and rounded again on every pass.
+    QCache<QString, QImage> images{96 * 1024};
 };
 
 ThumbnailMemoryCache &thumbnailMemoryCache()
@@ -953,6 +956,23 @@ public:
             if (cancelled->load(std::memory_order_relaxed))
                 return QImage();
 
+            // Fast path for previews already produced at this size. The file's
+            // own metadata identifies the result, so a recycled delegate does
+            // not pay for MIME lookup, cache-path hashing and directory checks
+            // on every scroll pass.
+            const QString memoryKey = path + QLatin1Char('|')
+                + QString::number(info.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|')
+                + QString::number(info.size()) + QLatin1Char('|')
+                + QString::number(target.width()) + QLatin1Char('x')
+                + QString::number(target.height())
+                // Replaced SVGs can keep size and second-resolution mtime.
+                + (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)
+                   || path.endsWith(QLatin1String(".svgz"), Qt::CaseInsensitive)
+                       ? QLatin1Char('|') + svgPreviewIdentity(path) : QString());
+            QImage image = cachedMemoryThumbnail(memoryKey);
+            if (!image.isNull())
+                return image;
+
             const QString suffix = info.suffix().toLower();
             const QString nameMime = mimeByName(info);
             const QString kind = PreviewSettings::kindFor(suffix, nameMime);
@@ -964,14 +984,6 @@ public:
             const QString cached = ThumbnailProvider::cachedFilePath(path);
             const QString hash = QFileInfo(cached).completeBaseName();
             const QString missing = cacheBase + "/" + hash + ".miss";
-            const QString memoryKey = hash + QLatin1Char('|')
-                + QString::number(target.width()) + QLatin1Char('x')
-                + QString::number(target.height());
-
-            QImage image = cachedMemoryThumbnail(memoryKey);
-            if (!image.isNull())
-                return image;
-
             image = QImage(cached);
             if (!image.isNull()) {
                 QImage result = roundedThumbnail(image.scaled(target, Qt::KeepAspectRatio,

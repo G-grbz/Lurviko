@@ -5270,8 +5270,11 @@ Rectangle {
                                 DeferredThumbnail {
                                     id: gridPreview
                                     anchors.fill: parent
-                                    // Request enough source pixels for a crisp preview without
-                                    // decoding/rendering a 4x image for every delegate while scrolling.
+                                    // Qt already scales sourceSize by the screen's pixel ratio,
+                                    // so the item size requests a preview at the exact physical
+                                    // size. A larger request was decoded, cached and uploaded at
+                                    // up to twice the shown size for every delegate a scroll
+                                    // recycled, and needed mipmaps to scale it back down.
                                     sourceSize.width: Math.max(160, Math.ceil(parent.width * 1.75))
                                     sourceSize.height: Math.max(160, Math.ceil(parent.height * 1.75))
                                     candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision, mimeType) : ""

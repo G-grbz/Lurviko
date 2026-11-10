@@ -88,6 +88,7 @@ int main(int argc, char **argv) {
     QQmlApplicationEngine engine;
     engine.addImageProvider("bundledicon", new BundledIconProvider);
     engine.addImageProvider("folderart", new FolderIconProvider);
+    engine.addImageProvider("fileart", new ArtworkIconProvider);
     engine.addImageProvider("gfilethumb", new ThumbnailProvider);
     engine.loadData(R"qml(import QtQuick
 import QtQuick.Controls

@@ -301,6 +301,7 @@ public slots:
         engine->addImageProvider("gfilethumb", new ThumbnailProvider);
         engine->addImageProvider("bundledicon", new BundledIconProvider);
         engine->addImageProvider("folderart", new FolderIconProvider);
+        engine->addImageProvider("fileart", new ArtworkIconProvider);
     }
 };
 int main(int argc, char **argv) {

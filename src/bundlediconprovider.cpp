@@ -1,7 +1,6 @@
 #include "bundlediconprovider.h"
 
 #include <QColor>
-#include <QFile>
 #include <QImageReader>
 #include <QPainter>
 #include <QRegularExpression>
@@ -15,6 +14,38 @@ BundledIconProvider::BundledIconProvider()
 {
 }
 
+namespace {
+
+// Rendered icons are small and few, but Qt's own cache of unreferenced
+// pixmaps is only a couple of MiB: views that recycle delegates while
+// scrolling asked for the same artwork again and again, and each request
+// parsed and rasterised its SVG from scratch. Costs are KiB.
+struct RenderedIconCache {
+    explicit RenderedIconCache(int maxKiB) : images(maxKiB) {}
+    QMutex mutex;
+    QCache<QString, QImage> images;
+
+    QImage find(const QString &key)
+    {
+        QMutexLocker lock(&mutex);
+        const QImage *hit = images.object(key);
+        return hit ? *hit : QImage();
+    }
+    void store(const QString &key, const QImage &image)
+    {
+        QMutexLocker lock(&mutex);
+        images.insert(key, new QImage(image), qMax<qsizetype>(1, (image.sizeInBytes() + 1023) / 1024));
+    }
+};
+
+QString sizedKey(const QString &id, const QSize &extent)
+{
+    return id + QLatin1Char('#') + QString::number(extent.width())
+        + QLatin1Char('x') + QString::number(extent.height());
+}
+
+} // namespace
+
 QImage BundledIconProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
 {
     // Controls' IconImage percent-encodes the separator as well as the color;
@@ -25,64 +56,65 @@ QImage BundledIconProvider::requestImage(const QString &id, QSize *size, const Q
     const QColor foreground(decoded.section(QLatin1Char('|'), 1, 1));
     if (!safeName.match(name).hasMatch() || !foreground.isValid())
         return {};
-    const QString resource = QStringLiteral(":/qt/qml/Lurviko/App/assets/icons/") + name;
-    QFile artwork(resource);
-    const bool fontAwesome = artwork.open(QIODevice::ReadOnly)
-        && artwork.read(4096).contains("Font Awesome");
-    QImageReader reader(resource);
     const QSize extent(qBound(1, requestedSize.width() > 0 ? requestedSize.width() : 24, 512),
                        qBound(1, requestedSize.height() > 0 ? requestedSize.height() : 24, 512));
-    const QSize original = reader.size();
-    // SVG canvases have different built-in padding. Give up/history/search
-    // the same visible extent as back/forward, without editing the artwork.
-    qreal canvasScale = 1.0;
-    if (fontAwesome) {
-        if (name == QStringLiteral("nav-up.svg")) canvasScale = 0.8;
-        else if (name == QStringLiteral("history.svg")) canvasScale = 0.75;
-        else if (name == QStringLiteral("search.svg")) canvasScale = 0.625;
+    static RenderedIconCache cache(8 * 1024);
+    const QString key = sizedKey(name + QLatin1Char('|') + foreground.name(QColor::HexArgb), extent);
+    QImage result = cache.find(key);
+    if (result.isNull()) {
+        const QString resource = QStringLiteral(":/qt/qml/Lurviko/App/assets/icons/") + name;
+        QImageReader reader(resource);
+        const QSize original = reader.size();
+        reader.setScaledSize(original.isValid() ? original.scaled(extent, Qt::KeepAspectRatio) : extent);
+        result = reader.read().convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        if (result.isNull())
+            return {};
+        QPainter painter(&result);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        painter.fillRect(result.rect(), foreground);
+        painter.end();
+        cache.store(key, result);
     }
-    const bool normalizeNavigation = canvasScale < 1.0;
-    const QSize renderExtent = normalizeNavigation
-        ? QSize(qMax(1, qRound(extent.width() * canvasScale)), qMax(1, qRound(extent.height() * canvasScale)))
-        : extent;
-    reader.setScaledSize(original.isValid() ? original.scaled(renderExtent, Qt::KeepAspectRatio) : renderExtent);
-    QImage result = reader.read().convertToFormat(QImage::Format_ARGB32_Premultiplied);
-    if (result.isNull())
+    if (size) *size = result.size();
+    return result;
+}
+
+ArtworkIconProvider::ArtworkIconProvider()
+    : QQuickImageProvider(Image, ForceAsynchronousImageLoading)
+{
+}
+
+QImage ArtworkIconProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
+{
+    const QString name = QUrl::fromPercentEncoding(id.toUtf8());
+    static const QRegularExpression safeName(QStringLiteral("^[A-Za-z0-9._+-]+\\.(?:svg|png)$"));
+    if (!safeName.match(name).hasMatch() || name.startsWith(QLatin1Char('.')))
         return {};
-    if (normalizeNavigation) {
-        QImage padded(extent, QImage::Format_ARGB32_Premultiplied);
-        padded.fill(Qt::transparent);
-        QPainter canvas(&padded);
-        canvas.drawImage((extent.width() - result.width()) / 2,
-                         (extent.height() - result.height()) / 2, result);
-        canvas.end();
-        result = std::move(padded);
+    const QString resource = QStringLiteral(":/qt/qml/Lurviko/App/assets/icons/") + name;
+    // An Image without sourceSize keeps the artwork's own size, as it did
+    // when it loaded the resource directly.
+    QSize extent = requestedSize;
+    if (extent.width() <= 0 || extent.height() <= 0) {
+        const QSize natural = QImageReader(resource).size();
+        if (!natural.isValid())
+            return {};
+        extent = requestedSize.width() > 0 ? natural.scaled(requestedSize.width(), INT_MAX, Qt::KeepAspectRatio)
+               : requestedSize.height() > 0 ? natural.scaled(INT_MAX, requestedSize.height(), Qt::KeepAspectRatio)
+               : natural;
     }
-    if (fontAwesome) {
-        // These glyphs are filled outlines, not SVG strokes. A fractional
-        // erosion of the alpha silhouette gently reduces their visual weight;
-        // no blur, larger texture or SVG mutation is involved. Keep solid
-        // interiors intact and apply this only to bundled Font Awesome UI art.
-        const QImage source = result;
-        const qreal amount = qBound(qreal(0.15), qMax(extent.width(), extent.height()) / 96.0, qreal(0.45));
-        for (int y = 0; y < result.height(); ++y) {
-            auto *target = reinterpret_cast<QRgb *>(result.scanLine(y));
-            const auto *row = reinterpret_cast<const QRgb *>(source.constScanLine(y));
-            const auto *above = y > 0 ? reinterpret_cast<const QRgb *>(source.constScanLine(y - 1)) : nullptr;
-            const auto *below = y + 1 < source.height() ? reinterpret_cast<const QRgb *>(source.constScanLine(y + 1)) : nullptr;
-            for (int x = 0; x < result.width(); ++x) {
-                const int alpha = qAlpha(row[x]);
-                int neighbor = qMin(alpha, qMin(above ? qAlpha(above[x]) : 0, below ? qAlpha(below[x]) : 0));
-                neighbor = qMin(neighbor, x > 0 ? qAlpha(row[x - 1]) : 0);
-                neighbor = qMin(neighbor, x + 1 < source.width() ? qAlpha(row[x + 1]) : 0);
-                target[x] = qRgba(0, 0, 0, alpha - qRound((alpha - neighbor) * amount));
-            }
-        }
+    extent = QSize(qBound(1, extent.width(), 1024), qBound(1, extent.height(), 1024));
+    static RenderedIconCache cache(24 * 1024);
+    const QString key = sizedKey(name, extent);
+    QImage result = cache.find(key);
+    if (result.isNull()) {
+        QImageReader reader(resource);
+        const QSize original = reader.size();
+        reader.setScaledSize(original.isValid() ? original.scaled(extent, Qt::KeepAspectRatio) : extent);
+        result = reader.read().convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        if (result.isNull())
+            return {};
+        cache.store(key, result);
     }
-    QPainter painter(&result);
-    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-    painter.fillRect(result.rect(), foreground);
-    painter.end();
     if (size) *size = result.size();
     return result;
 }
