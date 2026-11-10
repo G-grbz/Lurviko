@@ -12,7 +12,7 @@ Qt, KDE Frameworks, OpenSSL and optional helper programs are installed separatel
 
 ## Visual assets
 
-The former Font Awesome interface glyphs were replaced with Microsoft Fluent UI System Icons, which are distributed under the **MIT License**. The copyright and license notice is in [assets/LICENSE-FluentUI.txt](assets/LICENSE-FluentUI.txt) and is installed with the application. See the [upstream repository and license](https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE).
+The former Font Awesome interface glyphs were replaced with icons from the [Fluent icon theme](https://github.com/vinceliuice/Fluent-icon-theme) by Vince Liuice, distributed under the **GNU GPL v3**. The attribution and modification notice is in [assets/LICENSE-Fluent-icon-theme.txt](assets/LICENSE-Fluent-icon-theme.txt) and is installed with the application; the GPL v3 text is in [LICENSE](LICENSE). This attribution does not imply affiliation with the Fluent icon theme project.
 
 The 24 `assets/icons/symbolic/git.svg` and `menu-*.svg` action icons were
 replaced with user-provided Papirus-derived SVG artwork for the menu refresh.

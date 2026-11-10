@@ -436,7 +436,7 @@ else()
 endif()
 install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
 install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
-install(FILES assets/LICENSE-FluentUI.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
+install(FILES assets/LICENSE-Fluent-icon-theme.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)
 install(FILES tools/recover-vault.py DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/tools)
 install(FILES docs/vault-recovery.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/Lurviko)
 install(DIRECTORY tools/subtitle-ai/ DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/subtitle-ai

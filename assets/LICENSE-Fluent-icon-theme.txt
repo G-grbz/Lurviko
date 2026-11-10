@@ -1,0 +1,26 @@
+Fluent icon theme
+https://github.com/vinceliuice/Fluent-icon-theme
+
+Lurviko's interface glyphs are taken from the Fluent icon theme by
+Vince Liuice <vinceliuice@hotmail.com>. Some icons were renamed, resized or
+edited (for example to normalize their view box) for use in Lurviko, and are
+recolored at runtime.
+
+According to its AUTHORS file, the Fluent icon theme itself draws on:
+  - numix-icon-theme-circle  https://github.com/numixproject/numix-icon-theme-circle
+  - papirus-icon-theme       https://github.com/PapirusDevelopmentTeam/papirus-icon-theme
+  - paper-icon-theme         https://github.com/snwh/paper-icon-theme
+
+License: GNU General Public License, version 3 (GPL-3.0).
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 3.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+The full GPL-3.0 text is distributed with Lurviko as LICENSE and is available
+at https://www.gnu.org/licenses/gpl-3.0.txt. This attribution does not imply
+affiliation with the Fluent icon theme project.
