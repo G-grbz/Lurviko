@@ -96,6 +96,11 @@ with isolated_directory() as temporary:
     helpers.mkdir()
     shared_folder = root / "shared-folder"
     shared_folder.mkdir()
+    # CI containers run as root without a login session. Qt Multimedia then
+    # warns that XDG_RUNTIME_DIR is unset, which fails the warning check.
+    # Keep a real session's directory (Wayland runs need its socket).
+    runtime = root / "runtime"
+    runtime.mkdir(mode=0o700)
     fake_net = helpers / "net"
     fake_net.write_text('''#!/usr/bin/python3
 import os, sys
@@ -351,6 +356,7 @@ int main(int argc, char **argv) {
         LURVIKO_QML_GIT_FIXTURE=str(git_folder),
         XDG_CONFIG_HOME=str(root / "config"), XDG_DATA_HOME=str(root / "data"),
         XDG_CACHE_HOME=str(root / "cache"),
+        XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or str(runtime),
         PULSE_SERVER="unix:" + str(root / "no-pulse-server"))
     # Same public resource names as CMakeLists.txt: color/favorite.svg is
     # favorite-color.svg, and a symbolic twin of colour artwork gets -symbolic.
