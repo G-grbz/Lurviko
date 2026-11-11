@@ -17,7 +17,9 @@ class PackagingContracts(unittest.TestCase):
         self.assertIn('LURVIKO_SOURCE_DIR="${LURVIKO_EMBED_SOURCE_DIR}"', cmake)
     def test_staging_preserves_git_and_arch_behavior(self):
         arch = (ROOT / 'packaging/aur/lurviko/PKGBUILD').read_text()
-        self.assertIn('pkgver=1.6.0', arch)
+        cmake = (ROOT / 'CMakeLists.txt').read_text()
+        version = re.search(r'project\(Lurviko VERSION ([0-9.]+)', cmake).group(1)
+        self.assertIn(f'pkgver={version}\n', arch)
         self.assertIn('pkgrel=1', arch)
         self.assertRegex(arch, r"sha256sums=\('[0-9a-f]{64}'\)")
         native = (ROOT / 'packaging/native/CPack.cmake').read_text()
