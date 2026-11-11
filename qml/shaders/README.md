@@ -21,3 +21,14 @@ The source scene excludes the popup overlay to avoid feedback. Its crop follows
 both item hierarchies, including reparenting, translation and scale. The
 appearance integration tests check moved colored targets, transparent source
 content, and framebuffer alpha under OpenGL.
+
+# Folder preview cards
+
+`roundedthumb.frag` draws a folder-preview thumbnail in one pass: the soft drop
+shadow, the rounded mask and the `PreserveAspectCrop` crop of the decoded
+image. The previous version used two offscreen layers per card (blurred shadow
+and mask), which made grid scrolling CPU-bound. Regenerate after changes:
+
+```sh
+qsb --qt6 --qsbversion 64 -o qml/shaders/roundedthumb.frag.qsb qml/shaders/roundedthumb.frag
+```

@@ -52,6 +52,11 @@ class DirectoryModel : public QAbstractListModel
     Q_PROPERTY(qint64 storageTotalBytes READ storageTotalBytes NOTIFY storageInfoChanged)
     Q_PROPERTY(qint64 storageAvailableBytes READ storageAvailableBytes NOTIFY storageInfoChanged)
     Q_PROPERTY(bool heavyIoBusy READ heavyIoBusy WRITE setHeavyIoBusy NOTIFY heavyIoBusyChanged)
+    // A transfer is running but does not contend with this folder's disk:
+    // keep listing folder details and previews, but coalesce watcher
+    // refreshes over a longer window so a folder receiving thousands of
+    // files is not re-listed several times per second.
+    Q_PROPERTY(bool transferActive READ transferActive WRITE setTransferActive NOTIFY transferActiveChanged)
     Q_PROPERTY(bool folderPreviewsEnabled READ folderPreviewsEnabled WRITE setFolderPreviewsEnabled NOTIFY folderPreviewsEnabledChanged)
 
 public:
@@ -103,6 +108,7 @@ public:
     qint64 storageTotalBytes() const { return m_storageTotalBytes; }
     qint64 storageAvailableBytes() const { return m_storageAvailableBytes; }
     bool heavyIoBusy() const { return m_heavyIoBusy; }
+    bool transferActive() const { return m_transferActive; }
     bool folderPreviewsEnabled() const { return m_folderPreviewsEnabled; }
 
     bool gitEnabled() const { return m_gitEnabled; }
@@ -118,6 +124,7 @@ public:
     void setGoogleAccessToken(const QString &value);
     void setOneDriveAccessToken(const QString &value);
     void setHeavyIoBusy(bool value);
+    void setTransferActive(bool value);
     void setFolderPreviewsEnabled(bool value);
 
     Q_INVOKABLE void refresh();
@@ -127,6 +134,22 @@ public:
     Q_INVOKABLE QVariantList itemsForUrls(const QStringList &urls) const;
     Q_INVOKABLE QVariantList allItemUrls() const;
     Q_INVOKABLE int indexOfUrl(const QString &itemUrl) const;
+    // The given URLs that still have a row, in their original order. One pass
+    // over the model instead of indexOfUrl() per URL, which made large
+    // selections (select all on tens of thousands of results) quadratic.
+    Q_INVOKABLE QStringList presentUrls(const QStringList &urls) const;
+    // Like itemsForUrls() in view order, but only the fields selection-wide
+    // menu checks need (itemUrl, name, localPath, isDir, mimeType). Building the
+    // full item map for every row of a huge selection took about a second.
+    Q_INVOKABLE QVariantList selectionEntries(const QStringList &urls) const;
+    // Compact rows for the grouped category view, optionally filtered by a
+    // case-insensitive name substring. Unlike itemAt() it skips Git status and
+    // derived roles, and gives times as epoch milliseconds: a 22k-file
+    // category was spending seconds in per-row itemAt() calls and JS Dates.
+    Q_INVOKABLE QVariantList categoryEntries(const QString &nameFilter = QString()) const;
+    // {files, dirs, bytes} for the given URLs in one pass; bytes sums files
+    // only (folder contents are not counted here).
+    Q_INVOKABLE QVariantMap selectionSummary(const QStringList &urls) const;
     Q_INVOKABLE QVariantList pathCompletions(const QString &input) const;
     Q_INVOKABLE void requestVideoMetadata(int row);
     Q_INVOKABLE void googleCreateFolder(const QString &name);
@@ -166,6 +189,7 @@ signals:
     void searchChanged();
     void storageInfoChanged();
     void heavyIoBusyChanged();
+    void transferActiveChanged();
     void folderPreviewsEnabledChanged();
 
 private:
@@ -328,6 +352,7 @@ private:
     qint64 m_storageTotalBytes = 0;
     qint64 m_storageAvailableBytes = 0;
     bool m_heavyIoBusy = false;
+    bool m_transferActive = false;
     bool m_folderPreviewsEnabled = true;
     bool m_refreshDeferredByHeavyIo = false;
     QQueue<QString> m_videoProbeQueue;

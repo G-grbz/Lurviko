@@ -17,6 +17,9 @@ class DesktopAppearance : public QObject
     Q_PROPERTY(QColor menuBackground READ menuBackground NOTIFY changed)
     Q_PROPERTY(bool dark READ dark NOTIFY changed)
     Q_PROPERTY(QString styleName READ styleName NOTIFY changed)
+    // Whether Quick windows were created with an alpha channel. It is decided
+    // once at startup, so a translucent theme chosen later renders opaquely.
+    Q_PROPERTY(bool windowAlphaAvailable READ windowAlphaAvailable CONSTANT)
 public:
     explicit DesktopAppearance(QObject *parent = nullptr);
     bool enabled() const { return m_enabled; }
@@ -26,6 +29,7 @@ public:
     QColor menuBackground() const { return m_menuBackground; }
     bool dark() const;
     QString styleName() const { return m_styleName; }
+    static bool windowAlphaAvailable();
     Q_INVOKABLE void refresh();
 signals:
     void enabledChanged();

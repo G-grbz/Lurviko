@@ -644,6 +644,8 @@ Item {
                         return panel.lang.language === "tr" ? "Video dosyası artık mevcut değil." : "The video file no longer exists."
                     if (panel.state === "error")
                         return String(panel.metadata.message || "TMDB error")
+                    if (panel.state === "local")
+                        return ""
                     return panel.lang.language === "tr" ? "TMDB bilgileri hazırlanıyor…" : "Loading TMDB metadata…"
                 }
                 baseColor: panel.cardTextMuted

@@ -8,6 +8,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPlatformSurfaceEvent>
+#include <QQuickWindow>
 #include <QStyle>
 #include <QStyleOption>
 #include <KWindowEffects>
@@ -35,6 +36,11 @@ void DesktopAppearance::setEnabled(bool enabled)
     m_enabled = enabled;
     refresh();
     emit enabledChanged();
+}
+
+bool DesktopAppearance::windowAlphaAvailable()
+{
+    return QQuickWindow::hasDefaultAlphaBuffer();
 }
 
 bool DesktopAppearance::dark() const

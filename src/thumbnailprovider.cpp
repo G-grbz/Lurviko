@@ -72,10 +72,9 @@ struct ThumbnailMemoryCache {
     QMutex mutex;
     // QCache costs are KiB here. Keep final, view-sized images instead of the
     // larger 384/512 px source cache so repeated directory visits stay cheap.
-    // Scrolling back and forth re-requests every recycled delegate's preview;
-    // 32 MiB held only about 32 HiDPI grid previews, so most of a large folder
-    // was decoded, rescaled and rounded again on every pass.
-    QCache<QString, QImage> images{96 * 1024};
+    // Previews are requested at their on-screen size, so this holds about
+    // twice as many grid previews as the old 1.75x requests did.
+    QCache<QString, QImage> images{32 * 1024};
 };
 
 ThumbnailMemoryCache &thumbnailMemoryCache()

@@ -1,11 +1,15 @@
 import QtQuick
-import QtQuick.Effects
 import QtQuick.Window
 import Lurviko.App
 
+// Viewer glyph. Sources come from AppTheme.icon(name, colour), whose bundled
+// icon provider already renders the glyph in that colour, so no colourising
+// shader is needed (the old MultiEffect pass drew nothing on some renderers
+// and cost an effect per button).
 Item {
     id: root
     property url source
+    // Kept for API compatibility: pass the same colour to AppTheme.icon().
     property color tintColor: AppTheme.viewerText
     property real iconOpacity: 1.0
     readonly property real effectiveDpr: Math.max(1.0, Screen.devicePixelRatio)
@@ -18,7 +22,6 @@ Item {
     }
 
     Image {
-        id: sourceImage
         anchors.fill: parent
         source: root.source
         sourceSize.width: root.safeExtent(root.width)
@@ -28,15 +31,6 @@ Item {
         mipmap: false
         cache: true
         asynchronous: true
-        visible: false
-    }
-
-    MultiEffect {
-        anchors.fill: parent
-        source: sourceImage
-        colorization: 1.0
-        colorizationColor: root.tintColor
         opacity: root.iconOpacity
-        autoPaddingEnabled: false
     }
 }

@@ -208,12 +208,42 @@ ApplicationWindow {
         const page = stack.currentItem
         return page && page.notificationSources !== undefined ? page.notificationSources : []
     }
+    // App-wide owner of copy/move/delete jobs whose browser page went away
+    // (going to Discover destroys it). Listed last so page indices stay put.
+    FileOperations {
+        id: appOperations
+        objectName: "appOperations"
+        adoptsOrphanedOperations: true
+        kioProgressEnabled: AppTheme.kioProgressEnabled
+    }
+    readonly property var allOperationSources: root.notificationSources.concat([appOperations])
+    readonly property int adoptedActiveCount: {
+        let count = 0
+        for (const op of appOperations.operations) if (!op.finished) ++count
+        return count
+    }
+    // Set when the window was closed while jobs were still running: the
+    // process stays (window hidden, progress in Plasma) and quits when done.
+    property bool quitWhenOperationsFinish: false
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.quitWhenOperationsFinish
+        onTriggered: if (appOperations.activeOperationCountAll() === 0) Qt.quit()
+    }
+    onVisibleChanged: {
+        if (visible && root.quitWhenOperationsFinish) {
+            // Reopened from the launcher before the jobs ended.
+            root.quitWhenOperationsFinish = false
+            appOperations.setKeepRunningAfterLastWindow(false)
+        }
+    }
     readonly property var combinedOperations: {
         const combined = []
         // Native KIO progress owns the ordinary file-job notifications if enabled.
         if (!AppTheme.kioProgressEnabled) {
-            for (let index = 0; index < root.notificationSources.length; ++index) {
-                const source = root.notificationSources[index]
+            for (let index = 0; index < root.allOperationSources.length; ++index) {
+                const source = root.allOperationSources[index]
                 if (!source) continue
                 for (const op of source.operations) {
                     combined.push(Object.assign({}, op, {
@@ -467,6 +497,16 @@ ApplicationWindow {
         // Do not keep a hidden single-instance process alive after the main
         // window is closed. A future launch restores the opted-in session,
         // or starts from Discover when that preference is disabled.
+        // Exception: copy/move/delete jobs run inside this process and would
+        // be cut off. Hide the window, show them in the desktop's progress
+        // notifications, and quit when they are done.
+        if (appOperations.activeOperationCountAll() > 0) {
+            appOperations.setKeepRunningAfterLastWindow(true)
+            appOperations.handOverAllToSystemProgress()
+            root.quitWhenOperationsFinish = true
+            close.accepted = true
+            return
+        }
         close.accepted = true
         Qt.callLater(function() { Qt.quit() })
     }
@@ -751,12 +791,21 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.leftMargin: AppTheme.sidebarAutoHide ? -AppTheme.shellMargin : 0
+            // Pages without a path bar (Discover) let the workspace rise into the
+            // navigation row; the sidebar column stays below its buttons.
+            // A narrow sidebar (icon rail, auto-hide) would leave content under the buttons.
+            readonly property real chromeOverlap: browserChromeHost.visible && stack.currentItem
+                && stack.currentItem.chromeOverlap !== undefined
+                && shellLayout.x + workspaceShell.x >= stack.currentItem.chromeButtonsExtent
+                ? stack.currentItem.chromeOverlap : 0
+            Layout.topMargin: -chromeOverlap
             spacing: browserChromeHost.visible ? 0 : 4
 
             SidebarShell {
                 id: appSidebar
                 unifiedSurface: browserChromeHost.visible
                 discoverAlignY: root.homeClockY
+                Layout.topMargin: shellLayout.chromeOverlap
                 Layout.preferredWidth: implicitWidth
                 Layout.minimumWidth: implicitWidth
                 Layout.maximumWidth: implicitWidth
@@ -1236,7 +1285,7 @@ ApplicationWindow {
         anchors.fill: parent
         lang: root.appLang
         presentation: unifiedOperationPresentation
-        operationSources: root.notificationSources
+        operationSources: root.allOperationSources
         backdropSource: stack
         bottomMargin: root.browsingFiles ? 60 : 26
         onVaultDismissed: root.vaultCompletionVisible = false
@@ -1252,7 +1301,9 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         anchors.rightMargin: 26
         anchors.bottomMargin: 16
-        visible: !root.browsingFiles && unifiedOperationPresentation.activeCount > 0
+        // Browser pages show their own jobs in the status bar; jobs adopted
+        // from a closed page are only here, so show the badge for them too.
+        visible: unifiedOperationPresentation.activeCount > 0 && (!root.browsingFiles || root.adoptedActiveCount > 0)
         implicitWidth: 48; implicitHeight: 24
         leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
         text: String(unifiedOperationPresentation.activeCount)

@@ -20,6 +20,11 @@ QtObject {
         property int operationAutoHideSeconds: 8
         // Only relevant when automatically minimizing transfer progress.
         property bool operationShowOnCompletion: false
+        // Open media from ordinary folders in Lurviko's own viewers instead
+        // of the desktop's default application. Off by default.
+        property bool openImagesInternally: false
+        property bool openVideosInternally: false
+        property bool openMusicInternally: false
         property int sidebarIconSize: 19
         property int homeIconSize: 28
         property int systemSidebarIconSize: 22
@@ -241,6 +246,9 @@ QtObject {
     readonly property bool useQtTheme: settings.qtTheme
     readonly property var qtColors: desktopAppearance.colors
     readonly property bool dark: useQtTheme ? desktopAppearance.dark : settings.darkMode
+    // Windows only have an alpha channel when a translucent desktop theme was
+    // active at startup (see main.cpp). Otherwise paint the theme opaquely.
+    readonly property bool windowAlphaAvailable: desktopAppearance.windowAlphaAvailable
     readonly property bool translucentWindow: useQtTheme && background.a < 1
     readonly property color highlightedText: useQtTheme ? qtColors.highlightedText : "white"
     function mix(first, second, amount) {
@@ -267,6 +275,12 @@ QtObject {
     readonly property bool operationAutoHide: settings.operationAutoHide
     readonly property int operationAutoHideSeconds: Math.max(1, Math.min(300, settings.operationAutoHideSeconds))
     readonly property bool operationShowOnCompletion: settings.operationShowOnCompletion
+    readonly property bool openImagesInternally: settings.openImagesInternally
+    readonly property bool openVideosInternally: settings.openVideosInternally
+    readonly property bool openMusicInternally: settings.openMusicInternally
+    function setOpenImagesInternally(enabled) { settings.openImagesInternally = !!enabled }
+    function setOpenVideosInternally(enabled) { settings.openVideosInternally = !!enabled }
+    function setOpenMusicInternally(enabled) { settings.openMusicInternally = !!enabled }
     function setOperationAutoHide(enabled) { settings.operationAutoHide = !!enabled }
     function setOperationShowOnCompletion(enabled) { settings.operationShowOnCompletion = !!enabled }
     function setOperationAutoHideSeconds(seconds) {
@@ -359,7 +373,7 @@ QtObject {
     readonly property string designSystem: "Lurviko UI"
     readonly property int designSystemVersion: 2
 
-    readonly property color background: useQtTheme ? desktopAppearance.windowBackground : (dark ? "#080C16" : "#E9EDF4")
+    readonly property color background: useQtTheme ? (windowAlphaAvailable ? desktopAppearance.windowBackground : tint(desktopAppearance.windowBackground, 1)) : (dark ? "#080C16" : "#E9EDF4")
     readonly property color workspace: useQtTheme ? (translucentWindow ? "transparent" : qtColors.window) : (dark ? "#0B101D" : "#F5F7FB")
     readonly property color sidebar: useQtTheme ? (translucentWindow ? "transparent" : qtColors.window) : (dark ? "#101827" : "#FBFCFE")
     readonly property color commandBar: useQtTheme ? (translucentWindow ? Qt.rgba(qtColors.button.r, qtColors.button.g, qtColors.button.b, 0.08) : qtColors.window) : (dark ? "#111A2B" : "#FFFFFF")

@@ -86,7 +86,7 @@ Rectangle {
     readonly property real position: player.position
     readonly property real duration: player.duration
     readonly property real volume: root.rememberedVolume
-    readonly property bool muted: audioOutput.muted
+    property bool muted: false
     readonly property string playbackStatus: root.playing ? "Playing" : (root.paused ? "Paused" : "Stopped")
     readonly property string displayTitle: {
         const artist = String(trackMeta.artist || "").trim()
@@ -504,11 +504,11 @@ Rectangle {
 
     function setVolume(value) {
         rememberedVolume = Math.max(0, Math.min(1, Number(value || 0)))
-        audioOutput.muted = false
+        root.muted = false
     }
 
     function toggleMute() {
-        audioOutput.muted = !audioOutput.muted
+        root.muted = !root.muted
     }
 
     function stopPlayback() {
@@ -688,21 +688,46 @@ Rectangle {
         refreshCurrentFavorite()
     }
 
-    AudioOutput {
-        id: audioOutput
-        volume: root.rememberedVolume
+    // The first MediaPlayer initialises Qt Multimedia's FFmpeg backend, GPU
+    // decoders and the audio stack (~50 MB). The global player exists from
+    // startup, so it uses this idle stand-in until something is played.
+    readonly property var player: playerBackend.item ? playerBackend.item : idlePlayer
+
+    QtObject {
+        id: idlePlayer
+        readonly property int playbackState: MediaPlayer.StoppedState
+        readonly property int mediaStatus: MediaPlayer.NoMedia
+        readonly property real duration: 0
+        property real position: 0
+        property url source
+        function play() {
+            playerBackend.active = true
+            const backend = playerBackend.item
+            if (!backend)
+                return
+            backend.source = idlePlayer.source
+            if (idlePlayer.position > 0)
+                backend.position = idlePlayer.position
+            backend.play()
+        }
+        function pause() { }
+        function stop() { idlePlayer.position = 0 }
     }
 
-    MediaPlayer {
-        id: player
-        audioOutput: audioOutput
-        onPositionChanged: root.updateActiveLyric(position)
-        onMediaStatusChanged: {
-            if (mediaStatus === MediaPlayer.EndOfMedia) {
-                if (root.repeatMode === 2)
-                    root.loadCurrent(true)
-                else
-                    root.next(false)
+    Loader {
+        id: playerBackend
+        objectName: "musicPlayerBackend"
+        active: false
+        sourceComponent: MediaPlayer {
+            audioOutput: AudioOutput { volume: root.rememberedVolume; muted: root.muted }
+            onPositionChanged: root.updateActiveLyric(position)
+            onMediaStatusChanged: {
+                if (mediaStatus === MediaPlayer.EndOfMedia) {
+                    if (root.repeatMode === 2)
+                        root.loadCurrent(true)
+                    else
+                        root.next(false)
+                }
             }
         }
     }
@@ -1098,7 +1123,7 @@ Rectangle {
                             Behavior on color { ColorAnimation { duration: 110 } }
                         }
                         implicitWidth: 30; implicitHeight: 30
-                        icon.source: root.icon(audioOutput.muted || root.rememberedVolume <= 0.001
+                        icon.source: root.icon(root.muted || root.rememberedVolume <= 0.001
                                                ? "viewer-volume-muted.svg" : "viewer-volume.svg")
                         onClicked: root.toggleMute()
                         Accessible.name: root.lang.language === "tr" ? "Sesi aç / kapat" : "Mute / unmute"
@@ -1113,7 +1138,7 @@ Rectangle {
                         value: root.rememberedVolume
                         onMoved: {
                             root.rememberedVolume = value
-                            audioOutput.muted = false
+                            root.muted = false
                         }
                         background: Rectangle {
                             x: volumeSlider.leftPadding

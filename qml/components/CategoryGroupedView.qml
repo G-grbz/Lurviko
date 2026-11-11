@@ -88,10 +88,25 @@ Item {
         const source = files || []
         const byKey = ({})
         const result = []
+        // Files cluster on few days: reuse the day key for any time inside the
+        // last day seen instead of building a Date for each of 20k+ items.
+        let dayStart = 0
+        let dayEnd = -1
+        let dayKey = ""
         for (let i = 0; i < source.length; ++i) {
             const item = source[i]
             const ms = Number(item.groupDateMs || item.modifiedMs || 0)
-            const key = dateKey(ms)
+            if (!(ms >= dayStart && ms < dayEnd)) {
+                const d = new Date(ms)
+                dayKey = dateKey(ms)
+                if (isNaN(d.getTime())) {
+                    dayStart = 0; dayEnd = -1
+                } else {
+                    dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+                    dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime()
+                }
+            }
+            const key = dayKey
             if (byKey[key] === undefined) {
                 byKey[key] = result.length
                 result.push({ key: key, dateMs: ms, title: dateTitle(ms), items: [] })
@@ -185,7 +200,13 @@ Item {
         }
         rows = result
         modelRows = itemRows
-        while (rowModel.count < result.length) rowModel.append({ rowIndex: rowModel.count })
+        // One insert for all new rows: thousands of single appends each made
+        // the ListView process a separate insertion.
+        if (rowModel.count < result.length) {
+            const added = []
+            for (let i = rowModel.count; i < result.length; ++i) added.push({ rowIndex: i })
+            rowModel.append(added)
+        }
         if (rowModel.count > result.length) rowModel.remove(result.length, rowModel.count - result.length)
     }
 

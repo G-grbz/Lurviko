@@ -12,14 +12,8 @@ Qt, KDE Frameworks, OpenSSL and optional helper programs are installed separatel
 
 ## Visual assets
 
-The former Font Awesome interface glyphs were replaced with icons from the [Fluent icon theme](https://github.com/vinceliuice/Fluent-icon-theme) by Vince Liuice, distributed under the **GNU GPL v3**. The attribution and modification notice is in [assets/LICENSE-Fluent-icon-theme.txt](assets/LICENSE-Fluent-icon-theme.txt) and is installed with the application; the GPL v3 text is in [LICENSE](LICENSE). This attribution does not imply affiliation with the Fluent icon theme project.
+The monochrome interface glyphs in `assets/icons/symbolic` are [Microsoft Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons), distributed under the **MIT License**. Some were renamed and they are recolored at runtime. The copyright and license notice is in [assets/LICENSE-FluentUI.txt](assets/LICENSE-FluentUI.txt) and is installed with the application. This attribution does not imply affiliation with Microsoft.
 
-The 24 `assets/icons/symbolic/git.svg` and `menu-*.svg` action icons were
-replaced with user-provided Papirus-derived SVG artwork for the menu refresh.
-Papirus icon theme is distributed under the **GNU GPL v3**; see
-[Papirus upstream](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme)
-and the GPL v3 license text in [LICENSE](LICENSE). Icons retain their source
-metadata and are recolored at runtime using the existing alpha-mask renderer.
-This attribution does not imply affiliation with the Papirus project.
+Most of the coloured artwork (`assets/icons/color`, folder rasters and application branding) is Lurviko's own design. A few coloured files were adapted from KDE/freedesktop icon themes; their exact upstream theme and license have not been identified yet. Files whose embedded Inkscape document name is a theme or application icon name (for example `file.svg` from `x-office-document-template`, `trash.svg`/`trashfull.svg` from `user-trash`/`user-trash-full`, `music-note.svg` from `playmymusic` and `pdf.svg` from `masterpdfeditor`) are the likely candidates. Their embedded metadata is preserved.
 
-The `assets/icons/` directory contains the project's current artwork, including modified SVGs, application branding and cloud-provider marks. Provider trademarks remain the property of their owners. A root source-code license does not grant trademark rights or establish a new license for third-party artwork. Existing embedded metadata is preserved; upstream provenance for imported artwork has not been comprehensively documented. Contributors adding or replacing artwork should include the original source and license.
+The `assets/icons/` directory also contains cloud-provider marks. Provider trademarks remain the property of their owners. A root source-code license does not grant trademark rights or establish a new license for third-party artwork. Existing embedded metadata is preserved; upstream provenance for imported artwork has not been comprehensively documented. Contributors adding or replacing artwork should include the original source and license.

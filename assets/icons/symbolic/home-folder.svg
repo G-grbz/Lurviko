@@ -1,9 +1,40 @@
-<?xml version='1.0' encoding='utf-8'?>
-<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="2.952 3.452 18.095 18.095" width="24" height="24" color="#ffffff">
-  <defs>
-    <style id="current-color-scheme" type="text/css">.ColorScheme-Text {
-        color:#ffffff;
-      }</style>
-  </defs>
-  <path class="ColorScheme-Text" d="m12 5.0058c-0.12781 0-0.25558 0.04855-0.35352 0.14648l-7.0703 7.0723c-0.19587 0.19587-0.19587 0.51116 0 0.70703s0.51116 0.19587 0.70703 0l0.7168-0.7168v5.7852c0 1.108 0.892 2 2 2h8c1.108 0 2-0.892 2-2v-5.7852l0.7168 0.7168c0.19587 0.19587 0.51116 0.19587 0.70703 0 0.19587-0.19587 0.19587-0.51116 0-0.70703l-7.0703-7.0723c-0.09793-0.097934-0.22571-0.14648-0.35352-0.14648zm0 1.209 5 5v6.7852c0 0.554-0.446 1-1 1h-2v-3c0-1.108-0.892-2-2-2s-2 0.892-2 2v3h-2c-0.554 0-1-0.446-1-1v-6.7852z" fill="currentColor" />
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="24"
+   height="24"
+   viewBox="0 0 24 24"
+   fill="none"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="home-folder.svg"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="19"
+     inkscape:cx="12"
+     inkscape:cy="12"
+     inkscape:window-width="1536"
+     inkscape:window-height="799"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg1" />
+  <path
+     d="M11.5148 3.67815L4.76477 9.40542C4.59682 9.54792 4.5 9.75705 4.5 9.9773V19.25C4.5 19.3881 4.61193 19.5 4.75 19.5H7V14.25C7 13.2835 7.7835 12.5 8.75 12.5H15.25C16.2165 12.5 17 13.2835 17 14.25V19.5H19.25C19.3881 19.5 19.5 19.3881 19.5 19.25V9.9773C19.5 9.75705 19.4032 9.54792 19.2352 9.40542L12.4852 3.67815C12.2053 3.44066 11.7947 3.44066 11.5148 3.67815ZM8.5 17.5V19.5H15.5V17.5H8.5ZM15.5 16V14.25C15.5 14.1119 15.3881 14 15.25 14H8.75C8.61193 14 8.5 14.1119 8.5 14.25V16H15.5ZM4.75 21C3.7835 21 3 20.2165 3 19.25V9.9773C3 9.31653 3.29046 8.68916 3.7943 8.26166L10.5443 2.53438C11.384 1.82191 12.616 1.82191 13.4557 2.53439L20.2057 8.26166C20.7095 8.68916 21 9.31653 21 9.9773V19.25C21 20.2165 20.2165 21 19.25 21H4.75Z"
+     fill="#212121"
+     id="path1"
+     style="fill:#ffffff;fill-opacity:1" />
 </svg>

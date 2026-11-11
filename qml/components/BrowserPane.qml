@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import QtQuick.Effects
 import QtQml.Models
 import QtCore
 import Lurviko.Backend
@@ -170,6 +169,13 @@ Rectangle {
     property string selectedName: ""
     property bool selectedIsDir: false
     property var selectedSize: 0
+    // Transfers pause previews, folder counts and refreshes only for a folder
+    // on a disk they contend on (rotational or unknown). Copying 43k files
+    // on NVMe no longer freezes previews everywhere for the whole transfer.
+    readonly property bool transferIoBusy: {
+        const revision = fileOps.ioScopeRevision
+        return fileOps.ioBusy && fileOps.ioBusyAt(String(baseDirectory.location || ""))
+    }
     property var selectedModified: null
     property string selectedMimeType: ""
     property string selectedSuffix: ""
@@ -310,6 +316,9 @@ Rectangle {
     readonly property string categoryKey: root.isCategoryLocation
                                           ? directory.location.substring("category:/".length) : ""
     readonly property bool mediaGalleryCategory: root.categoryKey === "images" || root.categoryKey === "videos"
+    // Media categories always show artwork: the preview size limits are for
+    // browsing folders and do not apply to covers in Images, Music and Videos.
+    readonly property bool mediaCategoryPreviews: root.mediaGalleryCategory || root.categoryKey === "music"
     readonly property bool groupedCategory: root.isCategoryLocation && !root.mediaGalleryCategory
     readonly property bool categorySingleClickOpen: {
         if (AppTheme.singleClickOpen)
@@ -716,50 +725,49 @@ Rectangle {
     function categoryGroupedFilesForView(ignoreSearch) {
         if (!root.groupedCategory || !root.visible || directory.loading)
             return []
-        const result = []
-        for (let row = 0; row < directory.count; ++row) {
-            const entry = directory.itemAt(row)
-            if (!entry || !entry.itemUrl)
-                continue
-            if (!ignoreSearch && root.searchVisible && searchInput.text.trim().length) {
-                const query = searchInput.text.trim().toLowerCase()
-                if (String(entry.name || "").toLowerCase().indexOf(query) < 0)
-                    continue
-            }
-            let modifiedMs = 0
-            let createdMs = 0
-            if (entry.modified) {
-                const md = new Date(entry.modified)
-                if (!isNaN(md.getTime())) modifiedMs = md.getTime()
-            }
-            if (entry.created) {
-                const cd = new Date(entry.created)
-                if (!isNaN(cd.getTime())) createdMs = cd.getTime()
-            }
-            if (!createdMs) createdMs = modifiedMs
-            const iconName = root.iconForItem(!!entry.isDir, String(entry.suffix || ""),
-                                              String(entry.systemIconName || ""), String(entry.name || ""))
-            result.push({
-                modelIndex: row,
-                name: String(entry.name || ""),
+        const query = !ignoreSearch && root.searchVisible ? searchInput.text.trim() : ""
+        // One native call for all rows; per-row itemAt() and JS Date parsing
+        // took seconds for a 22k-file category. Rows are copied into plain JS
+        // objects: a native list stored in a var property is converted again
+        // on every read.
+        const entries = directory.categoryEntries(query)
+        const byCreated = directory.sortMode === "created"
+        const folderText = lang.language === "tr" ? "Klasör" : "Folder"
+        const result = new Array(entries.length)
+        // A file's icon depends on its extension(s) and system icon name only
+        // (the last two extensions cover .tar.gz style archives).
+        const fileIcons = ({})
+        for (let i = 0; i < entries.length; ++i) {
+            const entry = entries[i]
+            const isDir = !!entry.isDir
+            const name = String(entry.name || "")
+            const suffix = String(entry.suffix || "")
+            const mimeType = String(entry.mimeType || "")
+            const localPath = String(entry.localPath || "")
+            const size = Number(entry.size || 0)
+            const modifiedMs = Number(entry.modifiedMs || 0)
+            const createdMs = Number(entry.createdMs || 0)
+            const systemIconName = String(entry.systemIconName || "")
+            result[i] = {
+                modelIndex: Number(entry.modelIndex),
+                name: name,
                 itemUrl: String(entry.itemUrl || ""),
-                localPath: String(entry.localPath || ""),
-                isDir: !!entry.isDir,
-                size: Number(entry.size || 0),
-                suffix: String(entry.suffix || ""),
-                mimeType: String(entry.mimeType || ""),
-                systemIconName: String(entry.systemIconName || ""),
-                modifiedValue: entry.modified,
+                localPath: localPath,
+                isDir: isDir,
+                size: size,
+                suffix: suffix,
+                mimeType: mimeType,
+                systemIconName: systemIconName,
                 modifiedMs: modifiedMs,
                 createdMs: createdMs,
-                groupDateMs: directory.sortMode === "created" ? createdMs : modifiedMs,
-                iconSource: iconName,
+                groupDateMs: byCreated ? createdMs : modifiedMs,
+                iconSource: isDir ? root.iconForItem(true, suffix, systemIconName, name)
+                                  : root.cachedFileIcon(fileIcons, suffix, systemIconName, name),
                 hidden: !!entry.hidden,
-                thumbnailSource: !entry.isDir ? root.thumbSource(String(entry.localPath || ""), String(entry.suffix || ""), entry.modified, entry.size, entry.previewRevision, String(entry.mimeType || "")) : "",
-                metaText: entry.isDir
-                          ? (lang.language === "tr" ? "Klasör" : "Folder")
-                          : directory.formatBytes(Number(entry.size || 0))
-            })
+                thumbnailSource: !isDir ? root.thumbSource(localPath, suffix, modifiedMs, size,
+                                                           String(entry.previewRevision || ""), mimeType) : "",
+                metaText: isDir ? folderText : directory.formatBytes(size)
+            }
         }
         return result
     }
@@ -1198,6 +1206,17 @@ Rectangle {
                 || (mimeType || "").toLowerCase().indexOf("appimage") >= 0
     }
 
+    function cachedFileIcon(cache, suffix, systemIconName, itemName) {
+        const parts = itemName.toLowerCase().split(".")
+        const key = systemIconName + "|" + suffix + "|" + (parts.length > 2 ? parts[parts.length - 2] : "")
+        let icon = cache[key]
+        if (icon === undefined) {
+            icon = root.iconForItem(false, suffix, systemIconName, itemName)
+            cache[key] = icon
+        }
+        return icon
+    }
+
     function iconForItem(isDir, suffix, systemIconName, itemName, identity, mimeType) {
         const local = isDir ? AppTheme.localIconSource(systemIconName) : ""
         if (local.length)
@@ -1266,7 +1285,8 @@ Rectangle {
         // size limits for the system disk and other mounts. Reading revision
         // re-evaluates every binding that calls this when a setting changes.
         if (!localPath || PreviewSettings.revision < 0
-                || !PreviewSettings.allows(localPath, String(suffix || ""), String(mimeType || ""), Number(size || 0)))
+                || !PreviewSettings.allows(localPath, String(suffix || ""), String(mimeType || ""), Number(size || 0),
+                                           root.mediaCategoryPreviews))
             return ""
         let stamp = thumbnailRevision
         if (previewRevision)
@@ -1595,7 +1615,12 @@ Rectangle {
         selectedLinkType = item.linkType || ""
         selectedLinkTarget = item.linkTarget || ""
         primaryIndex = index
-        root.updateServiceMenuContext()
+        // KDE service actions are resolved for the whole selection; do that
+        // when the item menu opens (showContextMenu), not on every click.
+        if (itemContextMenu.visible)
+            root.updateServiceMenuContext()
+        else
+            serviceMenuModel.clear()
     }
 
     function buildSelectionLookup(urls) {
@@ -1630,11 +1655,6 @@ Rectangle {
         }
     }
 
-    function addUrlUnique(list, url) {
-        if (url && list.indexOf(url) < 0)
-            list.push(url)
-    }
-
     function selectIndex(index, modifiers) {
         dismissTextFocus()
         const item = directory.itemAt(index)
@@ -1646,13 +1666,18 @@ Rectangle {
         if (shift) {
             const anchor = selectionAnchorIndex >= 0 ? selectionAnchorIndex
                                                     : (primaryIndex >= 0 ? primaryIndex : index)
-            let next = ctrl ? selectedUrls.slice() : []
+            // Plain objects, not Set: QML's Set does a linear search per
+            // lookup, which made large selections quadratic (seconds at 20k).
+            const next = ctrl ? selectedUrls.slice() : []
+            const seen = ctrl ? Object.assign({}, selectedLookup) : ({})
             const first = Math.min(anchor, index)
             const last = Math.max(anchor, index)
             for (let i = first; i <= last; ++i) {
                 const row = directory.itemAt(i)
-                if (row && row.itemUrl)
-                    addUrlUnique(next, row.itemUrl)
+                if (row && row.itemUrl && seen[row.itemUrl] !== true) {
+                    seen[row.itemUrl] = true
+                    next.push(row.itemUrl)
+                }
             }
             setSelectedUrls(next, index, anchor)
             revealIndex(index)
@@ -1678,11 +1703,10 @@ Rectangle {
     function reconcileSelection() {
         if (!selectedUrls.length)
             return
-        let next = []
-        for (let i = 0; i < selectedUrls.length; ++i) {
-            if (directory.indexOfUrl(selectedUrls[i]) >= 0)
-                next.push(selectedUrls[i])
-        }
+        // One model pass; a per-URL indexOfUrl() lookup was quadratic and
+        // froze the window when tens of thousands of results were selected
+        // while a search was still adding rows.
+        const next = directory.presentUrls(selectedUrls)
         if (next.length !== selectedUrls.length) {
             const primary = selectedUrl.length ? directory.indexOfUrl(selectedUrl) : -1
             setSelectedUrls(next, primary, primary >= 0 ? primary : -1)
@@ -1703,31 +1727,66 @@ Rectangle {
         return categoryItemUrls(items)
     }
     function categoryItemUrls(items) {
-        const found = new Set()
-        for (const item of (items || [])) {
-            const url = String(item.itemUrl || item.url || "")
-            if (url.length) found.add(url)
+        const found = []
+        const seen = ({})
+        const source = items || []
+        for (let i = 0; i < source.length; ++i) {
+            const url = String(source[i].itemUrl || source[i].url || "")
+            if (url.length && seen[url] !== true) {
+                seen[url] = true
+                found.push(url)
+            }
         }
-        return Array.from(found)
+        return found
+    }
+    // Date-group headers ask this on every selection change. Groups of
+    // copied files can hold thousands of items, so rule out the common case
+    // (fewer selected than in the group) before collecting their URLs.
+    function categoryGroupSelected(items) {
+        const revision = root.selectionRevision
+        if (!items || !items.length || root.selectedCount < items.length)
+            return false
+        const lookup = root.selectedLookup
+        for (let i = 0; i < items.length; ++i) {
+            const url = String(items[i].itemUrl || items[i].url || "")
+            if (url.length && lookup[url] !== true)
+                return false
+        }
+        return true
     }
     function categoryUrlsSelected(urls) {
         const revision = root.selectionRevision
-        return urls.length > 0 && urls.every(function(url) { return root.selectedLookup[url] === true })
+        if (!urls.length || root.selectedCount < urls.length)
+            return false
+        const lookup = root.selectedLookup
+        for (let i = 0; i < urls.length; ++i)
+            if (lookup[urls[i]] !== true) return false
+        return true
     }
     function toggleCategoryUrls(urls) {
         if (!urls.length) return
-        const remove = categoryUrlsSelected(urls)
-        const next = new Set(root.selectedUrls)
-        const available = new Set(directory.allItemUrls())
-        for (const url of urls) {
-            if (remove) next.delete(url)
-            else if (available.has(url)) next.add(url)
+        let next
+        if (categoryUrlsSelected(urls)) {
+            const drop = ({})
+            for (let i = 0; i < urls.length; ++i) drop[urls[i]] = true
+            next = root.selectedUrls.filter(function(url) { return drop[url] !== true })
+        } else {
+            const lookup = root.selectedLookup
+            const present = directory.presentUrls(urls)
+            next = root.selectedUrls.slice()
+            const added = ({})
+            for (let i = 0; i < present.length; ++i) {
+                const url = present[i]
+                if (lookup[url] !== true && added[url] !== true) {
+                    added[url] = true
+                    next.push(url)
+                }
+            }
         }
-        setSelectedUrls(Array.from(next), -1, -1)
+        setSelectedUrls(next, -1, -1)
     }
     function categoryContextForUrls(urls, source, x, y) {
-        const available = new Set(directory.allItemUrls())
-        urls = urls.filter(function(url) { return available.has(url) })
+        urls = directory.presentUrls(urls)
         if (!urls.length) return
         if (!categoryUrlsSelected(urls)) setSelectedUrls(urls, -1, -1)
         if (root.selectedCount) root.showContextMenu(itemContextMenu, source, x, y)
@@ -1876,17 +1935,38 @@ Rectangle {
         return ordered.length === selectedUrls.length ? ordered : selectedUrls.slice()
     }
 
+    // One lookup per selection state: the item menu asks for this from
+    // several checks (open with, compress, share, folders) as it opens.
+    // Mutated in place (no change notification): the item menu's bindings
+    // read it while they are evaluated, so assigning a new value formed a
+    // binding loop.
+    readonly property var selectedItemsCache: ({ key: "", items: [] })
+    // Set while the item context menu is shown. Its submenus' selection-wide
+    // checks bind to this rather than to the menu's own visible property,
+    // which depends on their size and formed a binding loop.
+    property bool itemMenuLive: false
     function selectedItemsInViewOrder() {
         if (!selectedUrls.length)
             return []
         // Keep bindings aware of arriving rows, but marshal only selected
         // items into JavaScript instead of rebuilding every result's map.
         const count = directory.count
-        return count > 0 ? directory.itemsForUrls(selectedUrls) : []
+        if (count <= 0)
+            return []
+        const key = selectionRevision + "|" + count + "|" + directory.location
+        const cache = selectedItemsCache
+        if (cache.key === key)
+            return cache.items
+        const items = directory.selectionEntries(selectedUrls)
+        cache.key = key
+        cache.items = items
+        return items
     }
 
+    // KFileItemListProperties inspects every selected item synchronously.
+    readonly property int serviceMenuSelectionLimit: 2000
     function updateServiceMenuContext() {
-        if (root.selectedCount <= 0) {
+        if (root.selectedCount <= 0 || root.selectedCount > root.serviceMenuSelectionLimit) {
             serviceMenuModel.clear()
             return
         }
@@ -1943,14 +2023,19 @@ Rectangle {
         // model refresh.
         const urls = []
         const source = selectedUrls && selectedUrls.length ? selectedUrls : (selectedUrl.length ? [selectedUrl] : [])
+        // Resolve all rows in one model pass (not one linear lookup per URL).
+        const folders = ({})
+        const rows = source === selectedUrls ? selectedItemsInViewOrder() : directory.itemsForUrls(source)
+        for (let i = 0; i < rows.length; ++i) {
+            if (rows[i] && rows[i].isDir)
+                folders[String(rows[i].itemUrl)] = true
+        }
         for (let i = 0; i < source.length; ++i) {
             const url = source[i]
-            const index = directory.indexOfUrl(url)
-            const item = index >= 0 ? directory.itemAt(index) : null
             // A just-refreshed selection can temporarily outlive the matching
-            // model row. Do not disable Open With solely because itemAt() is
+            // model row. Do not disable Open With solely because the row is
             // momentarily unavailable; the selected URL is still authoritative.
-            if ((item && item.isDir) || root.isCloudUrl(url) || String(url).startsWith("admin:"))
+            if (folders[String(url)] === true || root.isCloudUrl(url) || String(url).startsWith("admin:"))
                 return []
             urls.push(url)
         }
@@ -2557,11 +2642,20 @@ Rectangle {
         }
 
         const ordinaryUrls = []
+        // Media handled by Lurviko's viewers (Settings → Operations), by kind,
+        // in view order.
+        const internal = ({ image: [], video: [], audio: [] })
+        const visualOrder = []
         for (let i = 0; i < items.length; ++i) {
             const item = items[i]
             if (!item || !item.itemUrl)
                 continue
-            if (item.isDir) {
+            const kind = !item.isDir && String(item.itemUrl).startsWith("file:")
+                ? root.internalMediaKind(item.name || "", item.mimeType || "") : ""
+            if (kind.length && (kind !== "audio" || root.musicPlayer)) {
+                internal[kind].push(item)
+                if (kind !== "audio" && visualOrder.indexOf(kind) < 0) visualOrder.push(kind)
+            } else if (item.isDir) {
                 root.requestNewTab(item.itemUrl)
             } else if (root.isCloudUrl(item.itemUrl)) {
                 root.cloudManagerFor(item.itemUrl).downloadAndOpen(item.itemUrl, item.name || "", item.mimeType || "")
@@ -2572,6 +2666,19 @@ Rectangle {
             } else {
                 ordinaryUrls.push(item.itemUrl)
             }
+        }
+        // One full-window viewer at a time: the kind selected first opens in
+        // Lurviko, any other visual kind keeps its default application.
+        for (let k = 0; k < visualOrder.length; ++k) {
+            const group = internal[visualOrder[k]]
+            const urls = group.map(function(item) { return String(item.itemUrl) })
+            if (k > 0 || !root.openMediaInternally(urls[0], group[0].name || "", group[0].mimeType || "", urls))
+                for (const url of urls) ordinaryUrls.push(url)
+        }
+        if (internal.audio.length) {
+            const songs = internal.audio
+            root.openMediaInternally(String(songs[0].itemUrl), songs[0].name || "", songs[0].mimeType || "",
+                                     songs.map(function(item) { return String(item.itemUrl) }))
         }
         if (ordinaryUrls.length > 0)
             openWithModel.openDefaults(ordinaryUrls)
@@ -3282,6 +3389,103 @@ Rectangle {
         millerNavigation.location = location
     }
 
+    // Which of Lurviko's viewers handles a file, if its switch is on.
+    function internalMediaKind(name, mimeType) {
+        const dot = String(name || "").lastIndexOf(".")
+        const suffix = dot >= 0 ? String(name).substring(dot + 1).toLowerCase() : ""
+        const kind = PreviewSettings.previewKind(suffix, String(mimeType || ""))
+        if ((kind === "images" || kind === "svg") && AppTheme.openImagesInternally) return "image"
+        if (kind === "video" && AppTheme.openVideosInternally) return "video"
+        if (kind === "audio" && AppTheme.openMusicInternally) return "audio"
+        return ""
+    }
+
+    // Opens a local media file in Lurviko's viewer together with the other
+    // files of the same kind in this view, in view order. Returns false when
+    // the default application should be used instead.
+    // For the Open menu entry: the viewer kind shared by every selected file,
+    // "mixed" when only some open in Lurviko, "" when none do.
+    function selectionInternalKind() {
+        const items = root.selectedItemsInViewOrder()
+        let kind = null
+        let some = false
+        for (let i = 0; i < items.length; ++i) {
+            const item = items[i]
+            const k = item && !item.isDir && String(item.itemUrl).startsWith("file:")
+                ? root.internalMediaKind(item.name || "", item.mimeType || "") : ""
+            if (k.length) some = true
+            if (kind === null) kind = k
+            else if (kind !== k) kind = "mixed"
+        }
+        return !some ? "" : (kind || "mixed")
+    }
+
+    // onlyUrls (optional): open just these files, e.g. a multi-selection.
+    function openMediaInternally(url, name, mimeType, onlyUrls) {
+        if (!String(url).startsWith("file:"))
+            return false
+        const kind = root.internalMediaKind(name, mimeType)
+        if (!kind.length)
+            return false
+        if (kind === "audio" && !root.musicPlayer)
+            return false
+        const entries = directory.categoryEntries("")
+        const only = onlyUrls ? root.buildSelectionLookup(onlyUrls) : null
+        const files = []
+        let index = -1
+        for (let i = 0; i < entries.length; ++i) {
+            const entry = entries[i]
+            if (only && only[entry.itemUrl] !== true)
+                continue
+            if (entry.isDir || root.internalMediaKind(entry.name, entry.mimeType) !== kind)
+                continue
+            if (entry.itemUrl === url)
+                index = files.length
+            files.push(root.internalMediaItem(entry))
+        }
+        if (index < 0) {
+            // Not listed in this view (e.g. opened from a path field): open alone.
+            const path = decodeURIComponent(String(url).replace(/^file:\/\//, ""))
+            files.push(root.internalMediaItem({ name: name, itemUrl: url, localPath: path, size: 0,
+                                                modifiedMs: 0, suffix: "", mimeType: mimeType || "",
+                                                previewRevision: "" }))
+            index = files.length - 1
+        }
+        if (kind === "audio") {
+            root.musicPlayer.openUrl(url, String(name || ""), files[index].thumbnailSource, files)
+            return true
+        }
+        const loader = kind === "image" ? internalPhotoLoader : internalVideoLoader
+        loader.active = true
+        if (!loader.item)
+            return false
+        loader.item.files = files
+        loader.item.openAt(index)
+        return true
+    }
+
+    function internalMediaItem(entry) {
+        const path = String(entry.localPath || "")
+        const size = Number(entry.size || 0)
+        const suffix = String(entry.suffix || "")
+        const mimeType = String(entry.mimeType || "")
+        // Covers and frames ignore the preview size limits, as in the media
+        // categories; the global and per-type preview switches still apply.
+        const thumbnailSource = path.length && PreviewSettings.allows(path, suffix, mimeType, size, true)
+                ? "image://gfilethumb/" + encodeURIComponent(path) + "|" + String(entry.previewRevision || "")
+                : ""
+        return {
+            name: String(entry.name || ""),
+            path: path,
+            url: String(entry.itemUrl || ""),
+            itemUrl: String(entry.itemUrl || ""),
+            size: size,
+            modifiedMs: Number(entry.modifiedMs || 0),
+            parentPath: path.substring(0, Math.max(1, path.lastIndexOf("/"))),
+            thumbnailSource: thumbnailSource
+        }
+    }
+
     function openItem(url, isDir, name, mimeType) {
         if (isDir) {
             root.navigateTo(url)
@@ -3291,6 +3495,8 @@ Rectangle {
             fileOps.runExecutable(url)
         } else if (url.startsWith("admin://")) {
             root.adminEditor.openUrl(url)
+        } else if (root.openMediaInternally(url, name || root.selectedName, mimeType || root.selectedMimeType)) {
+            // Opened in Lurviko's own viewer (Settings → Operations).
         } else {
             // Use the same KDE MIME association path as “Birlikte Aç”.
             // This makes application/json and other text formats honor their
@@ -3708,7 +3914,8 @@ Rectangle {
         gitEnabled: AppTheme.gitEnabled
         monitoringEnabled: root.visible
         id: baseDirectory
-        heavyIoBusy: fileOps.ioBusy
+        heavyIoBusy: root.transferIoBusy
+        transferActive: fileOps.ioBusy
         folderPreviewsEnabled: root.columnsMode ? false : root.folderPreviewsEnabled
         contentIndexSource: root.contentIndexModel
         googleAccessToken: root.googleDrive ? String(root.googleDrive.accessToken || "") : ""
@@ -3890,7 +4097,7 @@ Rectangle {
         id: directorySizeTimer
         interval: 350
         onTriggered: {
-            if (fileOps.ioBusy) { directorySizeTimer.restart(); return }
+            if (root.transferIoBusy) { directorySizeTimer.restart(); return }
             if (root.visible && root.currentLocationHasLocalSize && !directory.searchActive && !directory.loading) {
                 root.directorySizeNeedsRefresh = false
                 directoryProperties.inspectCached(directory.location)
@@ -4008,6 +4215,10 @@ Rectangle {
                 root.resetNavigationViewToTop()
         }
         function onCountChanged() { Qt.callLater(root.reconcileSelection) }
+        // Rows renamed or refreshed in place keep the count; drop the cached
+        // selection entries so menu checks see their current state.
+        function onDataChanged() { root.selectedItemsCache.key = "" }
+        function onModelReset() { root.selectedItemsCache.key = "" }
     }
 
     Connections {
@@ -4944,16 +5155,24 @@ Rectangle {
             GButton {
                 objectName: "categorySelectAll"
                 visible: root.categorySelectionAvailable
-                readonly property var scopeUrls: root.categorySelectionUrls()
+                // Collecting every URL in scope cost seconds for large
+                // categories whenever the list changed. Use the item count for
+                // the cheap states and gather URLs only when they can matter.
+                readonly property int scopeCount: root.categoryKey === "music"
+                    ? (musicLibraryView.viewItems ? musicLibraryView.viewItems.length : 0)
+                    : root.mediaGalleryCategory ? root.galleryFilesForView().length
+                    : root.groupedCategoryFiles.length
                 readonly property bool allSelected: {
                     const revision = root.selectionRevision
-                    return root.categoryUrlsSelected(scopeUrls)
+                    if (!visible || scopeCount === 0 || root.selectedCount < scopeCount)
+                        return false
+                    return root.categoryUrlsSelected(root.categorySelectionUrls())
                 }
                 text: lang.t(allSelected ? "deselect_all" : "select_all")
-                enabled: scopeUrls.length > 0
+                enabled: scopeCount > 0
                 implicitHeight: categorySelectionTools.controlHeight
                 topPadding: 3; bottomPadding: 3
-                onClicked: root.toggleCategoryUrls(scopeUrls)
+                onClicked: root.toggleCategoryUrls(root.categorySelectionUrls())
             }
             GText {
                 visible: root.categorySelectionAvailable
@@ -5278,7 +5497,7 @@ Rectangle {
                                     sourceSize.width: Math.max(160, Math.ceil(parent.width * 1.75))
                                     sourceSize.height: Math.max(160, Math.ceil(parent.height * 1.75))
                                     candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision, mimeType) : ""
-                                    paused: fileOps.ioBusy
+                                    paused: root.transferIoBusy
                                     fileIdentity: localPath
                                     fileSuffix: suffix
                                     fileModified: modified
@@ -5362,79 +5581,42 @@ Rectangle {
                                             z: index + 2
                                             transformOrigin: Item.Center
 
-                                            Item {
+                                            // One shader draws the shadow, the rounded mask and the
+                                            // aspect crop. Two offscreen layers per card (a blurred
+                                            // shadow and a mask) made folder grids CPU-bound to scroll.
+                                            DeferredThumbnail {
+                                                id: previewImage
                                                 anchors.fill: parent
+                                                // Software rendering has no shader effects: show
+                                                // the plain thumbnail there instead.
+                                                visible: GraphicsInfo.api === GraphicsInfo.Software
+                                                sourceSize.width: Math.max(192, Math.ceil(width * 2.4))
+                                                sourceSize.height: Math.max(192, Math.ceil(height * 2.4))
+                                                candidateSource: root.folderPreviewSource(folderPreviewPaths[index])
+                                                paused: root.transferIoBusy
+                                                fileIdentity: folderPreviewPaths[index]
+                                                fillMode: Image.PreserveAspectCrop
+                                                smooth: true
+                                                mipmap: true
+                                            }
 
-                                                Item {
-                                                    id: previewShadowLayer
-                                                    x: 0
-                                                    y: 3
-                                                    width: parent.width
-                                                    height: parent.height
-                                                    layer.enabled: true
-                                                    layer.smooth: true
-                                                    layer.effect: MultiEffect {
-                                                        blurEnabled: true
-                                                        blur: 0.85
-                                                        blurMax: 20
-                                                        autoPaddingEnabled: true
-                                                    }
-
-                                                    Rectangle {
-                                                        id: previewShadow
-                                                        anchors.fill: parent
-                                                        radius: Math.max(4, Math.min(width, height) * 0.12)
-                                                        color: Qt.rgba(0, 0, 0, 0.12)
-                                                        antialiasing: true
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    id: previewFrame
-                                                    anchors.fill: parent
-                                                    radius: Math.max(4, Math.min(width, height) * 0.12)
-                                                    color: "transparent"
-                                                    antialiasing: true
-
-                                                    Item {
-                                                        id: previewClip
-                                                        anchors.fill: parent
-                                                        layer.enabled: true
-                                                        layer.smooth: true
-                                                        layer.effect: MultiEffect {
-                                                            maskEnabled: true
-                                                            maskSource: previewMask
-                                                            maskThresholdMin: 0.01
-                                                            maskThresholdMax: 1.0
-                                                            maskSpreadAtMin: 0.0
-                                                            maskSpreadAtMax: 0.0
-                                                            autoPaddingEnabled: false
-                                                        }
-
-                                                        DeferredThumbnail {
-                                                            anchors.fill: parent
-                                                            sourceSize.width: Math.max(192, Math.ceil(width * 2.4))
-                                                            sourceSize.height: Math.max(192, Math.ceil(height * 2.4))
-                                                            candidateSource: root.folderPreviewSource(folderPreviewPaths[index])
-                                                            paused: fileOps.ioBusy
-                                                            fileIdentity: folderPreviewPaths[index]
-                                                            fillMode: Image.PreserveAspectCrop
-                                                            smooth: true
-                                                            mipmap: true
-                                                        }
-                                                    }
-
-                                                    Rectangle {
-                                                        id: previewMask
-                                                        width: previewClip.width
-                                                        height: previewClip.height
-                                                        radius: previewFrame.radius
-                                                        color: "white"
-                                                        visible: false
-                                                        antialiasing: true
-                                                        layer.enabled: true
-                                                    }
-                                                }
+                                            ShaderEffect {
+                                                readonly property real padding: 12
+                                                visible: GraphicsInfo.api !== GraphicsInfo.Software
+                                                x: -padding
+                                                y: -padding
+                                                width: parent.width + padding * 2
+                                                height: parent.height + padding * 2
+                                                property var source: previewImage
+                                                property size itemSize: Qt.size(width, height)
+                                                property size cardSize: Qt.size(parent.width, parent.height)
+                                                property size sourceImageSize: Qt.size(previewImage.implicitWidth, previewImage.implicitHeight)
+                                                property real cornerRadius: Math.max(4, Math.min(parent.width, parent.height) * 0.12)
+                                                property real shadowOffset: 3
+                                                property real shadowSoftness: 6
+                                                property real shadowAlpha: 0.12
+                                                property real hasImage: previewImage.status === Image.Ready ? 1 : 0
+                                                fragmentShader: "qrc:/qt/qml/Lurviko/App/qml/shaders/roundedthumb.frag.qsb"
                                             }
                                         }
                                     }
@@ -5949,7 +6131,7 @@ Rectangle {
                                     id: listPreview
                                     anchors.fill: parent
                                     candidateSource: !isDir ? root.thumbSource(localPath, suffix, modified, size, previewRevision, mimeType) : ""
-                                    paused: fileOps.ioBusy
+                                    paused: root.transferIoBusy
                                     fileIdentity: localPath
                                     fileSuffix: suffix
                                     fileModified: modified
@@ -6511,7 +6693,7 @@ Rectangle {
                                 selectionRevision: root.selectionRevision
                                 isSelected: function(url) { return root.isSelected(url) }
                                 selectionEnabled: true
-                                groupSelected: function(items) { return root.categoryUrlsSelected(root.categoryItemUrls(items)) }
+                                groupSelected: function(items) { return root.categoryGroupSelected(items) }
                                 onToggleItems: function(items) { root.toggleCategoryUrls(root.categoryItemUrls(items)) }
                                 contextHandler: function(item, source, x, y) {
                                     root.categoryContextForUrls([String(item.url || item.itemUrl)], source, x, y)
@@ -6758,7 +6940,7 @@ Rectangle {
                     selectionRevision: root.selectionRevision
                     isSelected: function(url) { return root.isSelected(url) }
                     selectionEnabled: true
-                    groupSelected: function(items) { return root.categoryUrlsSelected(root.categoryItemUrls(items)) }
+                    groupSelected: function(items) { return root.categoryGroupSelected(items) }
                     onToggleItems: function(items) { root.toggleCategoryUrls(root.categoryItemUrls(items)) }
                     inlineRenameUrl: root.inlineRenameUrl
                     onRenamePrepare: function(editor, itemName, itemIsDir) {
@@ -6876,9 +7058,9 @@ Rectangle {
         Rectangle {
             id: paneStatusBar
             objectName: "paneStatusBar"
-            visible: !directory.searchActive
-                || (root.navigationVisible && root.effectivePresentation
-                    && root.effectivePresentation.activeCount > 0)
+            // Also shown for search results: the selected name, multi-selection
+            // count and sizes are just as useful there.
+            visible: true
             Layout.fillWidth: true
             // Same height as the sidebar footer controls.
             Layout.preferredHeight: visible ? 32 : 0
@@ -6914,16 +7096,29 @@ Rectangle {
                     GToolTip {
                         visible: statusNameHover.hovered && root.selectedCount === 1
                                  && !(root.categoryKey === "videos" && root.dlnaViewActive)
-                        text: root.selectedName
+                        // Search results come from many folders: show where.
+                        text: directory.searchActive && root.selectedLocalPath.length
+                              ? root.selectedLocalPath : root.selectedName
                         delay: 400
                     }
                     HoverHandler { id: statusNameHover }
                 }
 
                 GText {
-                    visible: root.selectedCount === 1 && !root.selectedIsDir
-                             && !(root.categoryKey === "videos" && root.dlnaViewActive)
-                    text: directory.formatBytes(root.selectedSize)
+                    objectName: "statusSelectionSize"
+                    // Several items: total size of the selected files in one
+                    // model pass ("≥" when folders, whose contents are not
+                    // counted here, are part of the selection).
+                    readonly property var summary: {
+                        const revision = root.selectionRevision
+                        return root.selectedCount > 1 ? directory.selectionSummary(root.selectedUrls) : null
+                    }
+                    visible: !(root.categoryKey === "videos" && root.dlnaViewActive)
+                             && ((root.selectedCount === 1 && !root.selectedIsDir)
+                                 || (summary !== null && summary.files > 0))
+                    text: root.selectedCount === 1
+                          ? directory.formatBytes(root.selectedSize)
+                          : summary ? (summary.dirs > 0 ? "≥ " : "") + directory.formatBytes(summary.bytes) : ""
                     baseColor: AppTheme.textMuted
                     basePixelSize: 10
                 }
@@ -6994,7 +7189,9 @@ Rectangle {
                                                                ? root.galleryFilesForView().length
                                                                : (root.groupedCategory && root.searchVisible
                                                                   ? root.groupedCategoryFiles.length : directory.count))
-                        text: lang.language === "tr"
+                        text: directory.searchActive
+                              ? visibleCount + " " + (lang.language === "tr" ? "sonuç" : (visibleCount === 1 ? "result" : "results"))
+                              : lang.language === "tr"
                               ? visibleCount + " öğe"
                               : visibleCount + (visibleCount === 1 ? " item" : " items")
                         baseColor: AppTheme.textMuted
@@ -7640,6 +7837,10 @@ Rectangle {
             root.submenuActivationReady = false
             itemContextMenu.currentIndex = -1
         }
+        onAboutToShow: {
+            root.itemMenuLive = true
+            root.updateServiceMenuContext()
+        }
         onOpened: {
             root.submenuActivationReady = false
             itemGitMenu.close()
@@ -7664,6 +7865,7 @@ Rectangle {
             openWithMenu.close()
         }
         onClosed: {
+            root.itemMenuLive = false
             root.submenuActivationReady = false
             itemGitMenu.close()
             root.releaseGitMenuContext()
@@ -7687,6 +7889,10 @@ Rectangle {
         GMenuItem {
             objectName: "contextOpenDefaultAction"
             readonly property bool singleFile: root.selectedCount === 1 && !root.selectedIsDir
+            // Opening this file goes to Lurviko's own viewer (Settings → Operations).
+            readonly property string internalKind: singleFile
+                ? (root.selectedUrl.startsWith("file:") ? root.internalMediaKind(root.selectedName, root.selectedMimeType) : "")
+                : filesOnly && root.itemMenuLive ? root.selectionInternalKind() : ""
             // Several files and no folders: each still opens with its own
             // type's default application (openSelected -> openDefaults).
             readonly property bool filesOnly: root.selectedCount > 1 && root.openWithFileCount === root.selectedCount
@@ -7694,10 +7900,15 @@ Rectangle {
                 && openWithModel.defaultApplicationName.length > 0
             readonly property var applicationNames: openWithModel.defaultApplicationNames || []
             preserveIconColors: singleFile || sharedApplication
-            icon.source: singleFile || sharedApplication
+            icon.source: internalKind.length ? AppTheme.icon("logo.png")
+                : singleFile || sharedApplication
                 ? AppTheme.systemIcon(openWithModel.defaultApplicationIconName || root.selectedSystemIconName || "application-x-executable")
                 : AppTheme.icon("menu-open.svg")
-            text: sharedApplication
+            text: internalKind === "mixed" ? lang.t("open")
+                : internalKind === "image" ? (lang.language === "tr" ? "Lurviko görüntüleyicide aç" : "Open in Lurviko viewer")
+                : internalKind === "video" ? (lang.language === "tr" ? "Lurviko oynatıcıda aç" : "Play in Lurviko player")
+                : internalKind === "audio" ? (lang.language === "tr" ? "Lurviko mini oynatıcıda çal" : "Play in Lurviko mini player")
+                : sharedApplication
                 ? (lang.language === "tr" ? openWithModel.defaultApplicationName + " ile aç" : "Open with " + openWithModel.defaultApplicationName)
                 : filesOnly && applicationNames.length > 1
                 ? (lang.language === "tr" ? "Varsayılan uygulamalarla aç" : "Open with default applications")
@@ -7707,6 +7918,41 @@ Rectangle {
             visible: !root.isCategoryLocation || root.selectedCount <= 1
             enabled: root.selectedCount > 0
             onTriggered: root.openSelected()
+        }
+        GMenuItem {
+            // With Lurviko's viewer as the double-click action, the desktop's
+            // default application stays one click away.
+            objectName: "contextOpenExternalDefaultAction"
+            readonly property bool singleApplies: root.selectedCount === 1 && !root.selectedIsDir
+                && root.selectedUrl.startsWith("file:")
+                && root.internalMediaKind(root.selectedName, root.selectedMimeType).length > 0
+                && openWithModel.defaultApplicationName.length > 0
+            // Several files, no folders, at least one of which Lurviko's own
+            // viewer would take: offer the desktop defaults for all of them.
+            // openDefaults() launches each application once with its files.
+            readonly property bool filesOnly: root.selectedCount > 1 && root.openWithFileCount === root.selectedCount
+            readonly property var applicationNames: openWithModel.defaultApplicationNames || []
+            readonly property bool sharedApplication: openWithModel.defaultApplicationName.length > 0
+            readonly property bool multiApplies: filesOnly && root.itemMenuLive
+                && (sharedApplication || applicationNames.length > 0)
+                && root.selectionInternalKind().length > 0
+            // Same rule as the Open entry above: category pages keep batch
+            // selections to their own batch actions.
+            visible: singleApplies || (multiApplies && !root.isCategoryLocation)
+            preserveIconColors: singleApplies || sharedApplication
+            icon.source: singleApplies || sharedApplication
+                ? AppTheme.systemIcon(openWithModel.defaultApplicationIconName || root.selectedSystemIconName || "application-x-executable")
+                : AppTheme.icon("menu-open.svg")
+            text: singleApplies || sharedApplication
+                ? (lang.language === "tr" ? openWithModel.defaultApplicationName + " ile aç" : "Open with " + openWithModel.defaultApplicationName)
+                : (lang.language === "tr" ? "Varsayılan uygulamalarla aç" : "Open with default applications")
+                  + " (" + applicationNames.slice(0, 2).join(", ") + (applicationNames.length > 2 ? ", …" : "") + ")"
+            onTriggered: {
+                if (singleApplies)
+                    openWithModel.openDefault(root.selectedUrl, root.selectedMimeType)
+                else
+                    openWithModel.openDefaults(root.openWithSelectionUrls())
+            }
         }
 
         GMenuItem {
@@ -7754,7 +8000,7 @@ Rectangle {
         GMenuItem {
             objectName: "openFoldersInNewTabAction"
             icon.source: AppTheme.icon("plus.svg")
-            visible: root.selectedFolderUrls().length > 0
+            visible: root.itemMenuLive && root.selectedFolderUrls().length > 0
             text: lang.language === "tr" ? "Yeni sekmede aç" : "Open in New Tab"
             onTriggered: {
                 const folders = root.selectedFolderUrls()
@@ -7774,7 +8020,7 @@ Rectangle {
             // model. If local files are selected, Open With is always usable;
             // “More…” can populate/launch the complete chooser even when the
             // quick list is empty.
-            menuEntryVisible: root.canOpenSelectionWithSameApp()
+            menuEntryVisible: root.itemMenuLive && root.canOpenSelectionWithSameApp()
             enabled: menuEntryVisible
             onAboutToShow: root.prepareOpenWithSelection()
 
@@ -7936,8 +8182,11 @@ Rectangle {
             closePolicy: Popup.CloseOnEscape
             icon.name: "document-share"
             title: lang.language === "tr" ? "Paylaş" : "Share"
-            property var uploadUrls: root.localUploadSelectionUrls()
-            property bool hasDirectory: root.shareSelectionContainsDirectory()
+            // Selection-wide scans run only while the item menu is open (see
+            // itemMenuLive); as live bindings they re-ran on every selection
+            // change. Actions recompute the selection when triggered.
+            property var uploadUrls: root.itemMenuLive ? root.localUploadSelectionUrls() : []
+            property bool hasDirectory: root.itemMenuLive && root.shareSelectionContainsDirectory()
             enabled: uploadUrls.length > 0 && uploadUrls.length === root.selectedCount
                      && root.submenuActivationReady
 
@@ -7977,56 +8226,56 @@ Rectangle {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("google")
                 icon.source: AppTheme.icon("cloud-google.svg")
                 text: lang.language === "tr" ? "Google Drive'a gönder" : "Send to Google Drive"
-                onTriggered: root.googleDrive.uploadPaths(shareMenu.uploadUrls, "gdrive://root")
+                onTriggered: root.googleDrive.uploadPaths(root.localUploadSelectionUrls(), "gdrive://root")
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("onedrive")
                 icon.source: AppTheme.icon("cloud-onedrive.svg")
                 text: lang.language === "tr" ? "OneDrive'a gönder" : "Send to OneDrive"
-                onTriggered: root.oneDrive.uploadPaths(shareMenu.uploadUrls, "onedrive://root")
+                onTriggered: root.oneDrive.uploadPaths(root.localUploadSelectionUrls(), "onedrive://root")
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("dropbox")
                 icon.source: AppTheme.icon("cloud-dropbox.svg")
                 text: lang.language === "tr" ? "Dropbox'a gönder" : "Send to Dropbox"
-                onTriggered: root.sendSelectionToConfiguredCloud("dropbox", shareMenu.uploadUrls)
+                onTriggered: root.sendSelectionToConfiguredCloud("dropbox", root.localUploadSelectionUrls())
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("nextcloud")
                 icon.source: AppTheme.icon("cloud-nextcloud.svg")
                 text: lang.language === "tr" ? "Nextcloud'a gönder" : "Send to Nextcloud"
-                onTriggered: root.sendSelectionToConfiguredCloud("nextcloud", shareMenu.uploadUrls)
+                onTriggered: root.sendSelectionToConfiguredCloud("nextcloud", root.localUploadSelectionUrls())
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("owncloud")
                 icon.source: AppTheme.icon("cloud-owncloud.svg")
                 text: lang.language === "tr" ? "ownCloud'a gönder" : "Send to ownCloud"
-                onTriggered: root.sendSelectionToConfiguredCloud("owncloud", shareMenu.uploadUrls)
+                onTriggered: root.sendSelectionToConfiguredCloud("owncloud", root.localUploadSelectionUrls())
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("mega")
                 icon.source: AppTheme.icon("cloud-mega.svg")
                 text: lang.language === "tr" ? "MEGA'ya gönder" : "Send to MEGA"
-                onTriggered: root.sendSelectionToConfiguredCloud("mega", shareMenu.uploadUrls)
+                onTriggered: root.sendSelectionToConfiguredCloud("mega", root.localUploadSelectionUrls())
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("pcloud")
                 icon.source: AppTheme.icon("cloud-pcloud.svg")
                 text: lang.language === "tr" ? "pCloud'a gönder" : "Send to pCloud"
-                onTriggered: root.sendSelectionToConfiguredCloud("pcloud", shareMenu.uploadUrls)
+                onTriggered: root.sendSelectionToConfiguredCloud("pcloud", root.localUploadSelectionUrls())
             }
 
             GMenuItem {
                 visible: shareMenu.uploadUrls.length > 0 && root.cloudShareTargetAvailable("webdav")
                 icon.source: AppTheme.icon("cloud.svg")
                 text: lang.language === "tr" ? "WebDAV'a gönder" : "Send to WebDAV"
-                onTriggered: root.sendSelectionToConfiguredCloud("webdav", shareMenu.uploadUrls)
+                onTriggered: root.sendSelectionToConfiguredCloud("webdav", root.localUploadSelectionUrls())
             }
 
             GMenuSeparator {
@@ -8043,7 +8292,7 @@ Rectangle {
                     text: lang.language === "tr"
                           ? "KDE Connect ile " + modelData.name + "'e gönder"
                           : "Send to " + modelData.name + " with KDE Connect"
-                    onTriggered: fileOps.shareViaKdeConnect(shareMenu.uploadUrls, modelData.id)
+                    onTriggered: fileOps.shareViaKdeConnect(root.localUploadSelectionUrls(), modelData.id)
                 }
                 // Two vault actions and their separator precede the original
                 // nine cloud/separator slots in this menu.
@@ -8062,14 +8311,14 @@ Rectangle {
                 visible: fileOps.bluetoothAvailable && !shareMenu.hasDirectory
                 icon.name: "preferences-system-bluetooth"
                 text: lang.language === "tr" ? "Bluetooth ile gönder…" : "Send via Bluetooth…"
-                onTriggered: fileOps.shareViaBluetooth(shareMenu.uploadUrls)
+                onTriggered: fileOps.shareViaBluetooth(root.localUploadSelectionUrls())
             }
 
             GMenuItem {
                 visible: fileOps.emailShareAvailable && !shareMenu.hasDirectory
                 icon.name: "mail-send"
                 text: lang.language === "tr" ? "E-posta ile gönder…" : "Send via Email…"
-                onTriggered: fileOps.shareViaEmail(shareMenu.uploadUrls)
+                onTriggered: fileOps.shareViaEmail(root.localUploadSelectionUrls())
             }
 
             GMenuSeparator { visible: root.selectedCount === 1 }
@@ -8122,23 +8371,23 @@ Rectangle {
             closePolicy: Popup.CloseOnEscape
             icon.source: AppTheme.icon("archive.svg")
             title: lang.t("compress")
-            property var sourceUrls: root.compressionSelectionUrls()
+            property var sourceUrls: root.itemMenuLive ? root.compressionSelectionUrls() : []
             enabled: sourceUrls.length > 0
                      && sourceUrls.length === root.selectedCount
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Zip"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "zip") }
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "7z"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "7z") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Zip"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "zip") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "7z"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "7z") }
             GMenuItem {
                 objectName: "compressEncryptedAction"
                 icon.source: AppTheme.icon("lock.svg")
                 text: lang.t("compress_encrypted")
-                onTriggered: encryptedArchiveDialog.openFor(compressMenu.sourceUrls)
+                onTriggered: encryptedArchiveDialog.openFor(root.compressionSelectionUrls())
             }
             GMenuSeparator {}
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar") }
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.gz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.gz") }
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.bz2"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.bz2") }
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.xz"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.xz") }
-            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.zst"; onTriggered: fileOps.compressItems(compressMenu.sourceUrls, "tar.zst") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "tar") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.gz"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "tar.gz") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.bz2"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "tar.bz2") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.xz"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "tar.xz") }
+            GMenuItem { icon.source: AppTheme.icon("archive.svg"); text: "Tar.zst"; onTriggered: fileOps.compressItems(root.compressionSelectionUrls(), "tar.zst") }
         }
 
         GMenuSeparator { visible: root.selectedIsArchive }
@@ -10419,4 +10668,30 @@ Rectangle {
         bottomMargin: 42
     }
 
+    // Lurviko's viewers for ordinary folders (Settings → Operations). Created
+    // on first use and destroyed on close, so idle panes hold no media stack.
+    readonly property var internalPhotoViewer: internalPhotoLoader.item
+    readonly property var internalVideoViewer: internalVideoLoader.item
+    Loader {
+        id: internalPhotoLoader
+        active: false
+        sourceComponent: PhotoViewer {
+            objectName: "internalPhotoViewer"
+            lang: root.lang
+            hostWindow: root.hostWindow
+            onBrowseRequested: function(location) { root.navigateTo(location) }
+            onClosed: Qt.callLater(function() { internalPhotoLoader.active = false })
+        }
+    }
+    Loader {
+        id: internalVideoLoader
+        active: false
+        sourceComponent: VideoViewer {
+            objectName: "internalVideoViewer"
+            lang: root.lang
+            hostWindow: root.hostWindow
+            onBrowseRequested: function(location) { root.navigateTo(location) }
+            onClosed: Qt.callLater(function() { internalVideoLoader.active = false })
+        }
+    }
 }

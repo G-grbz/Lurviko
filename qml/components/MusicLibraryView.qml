@@ -48,11 +48,12 @@ Item {
     }
     function selectionTracks() {
         const tracks = []
-        const seen = new Set()
+        // A plain object: QML's Set searches linearly on every lookup.
+        const seen = ({})
         for (const entry of viewItems) {
             for (const track of (entry.tracks || [])) {
                 const url = String(track.itemUrl || "")
-                if (url && !seen.has(url)) { seen.add(url); tracks.push(track) }
+                if (url && seen[url] !== true) { seen[url] = true; tracks.push(track) }
             }
         }
         return tracks

@@ -39,6 +39,8 @@
 #include <algorithm>
 #include <utility>
 #include <signal.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <cerrno>
 #include <cstring>
 #include <sys/stat.h>
@@ -333,8 +335,116 @@ private:
     std::shared_ptr<std::atomic_bool> m_cancelScan;
 };
 
+namespace {
+QPointer<FileOperations> &orphanAdopter()
+{
+    static QPointer<FileOperations> adopter;
+    return adopter;
+}
+QSet<FileOperations *> &liveFileOperations()
+{
+    static QSet<FileOperations *> instances;
+    return instances;
+}
+}
+
+int FileOperations::activeOperationCountAll() const
+{
+    int count = 0;
+    for (FileOperations *instance : std::as_const(liveFileOperations()))
+        count += instance->activeOperationCount();
+    return count;
+}
+
+void FileOperations::setKeepRunningAfterLastWindow(bool keep)
+{
+    QGuiApplication::setQuitOnLastWindowClosed(!keep);
+}
+
+int FileOperations::handOverAllToSystemProgress()
+{
+    int count = 0;
+    for (FileOperations *instance : std::as_const(liveFileOperations()))
+        count += instance->handOverToSystemProgress();
+    return count;
+}
+
+bool FileOperations::adoptsOrphanedOperations() const
+{
+    return orphanAdopter().data() == this;
+}
+
+void FileOperations::setAdoptsOrphanedOperations(bool adopts)
+{
+    if (adopts == adoptsOrphanedOperations())
+        return;
+    if (adopts)
+        orphanAdopter() = this;
+    else
+        orphanAdopter().clear();
+    emit adoptsOrphanedOperationsChanged();
+}
+
+int FileOperations::activeOperationCount() const
+{
+    int count = 0;
+    for (const Operation &operation : m_operations)
+        if (!operation.finished)
+            ++count;
+    return count;
+}
+
+int FileOperations::handOverToSystemProgress()
+{
+    int count = 0;
+    for (const Operation &operation : std::as_const(m_operations)) {
+        if (operation.finished)
+            continue;
+        ++count;
+        if (operation.job && !(m_kioProgressEnabled && !operation.job->property("lurvikoIntegratedProgress").toBool()))
+            KIO::getJobTracker()->registerJob(operation.job);
+    }
+    return count;
+}
+
+void FileOperations::adoptOperation(const Operation &source)
+{
+    KJob *job = source.job.data();
+    if (!job)
+        return;
+    const int id = trackOperationJob(job, source.kind, source.detail, source.totalItems);
+    for (Operation &operation : m_operations) {
+        if (operation.id != id)
+            continue;
+        operation.percent = source.percent;
+        operation.processedBytes = source.processedBytes;
+        operation.totalBytes = source.totalBytes;
+        operation.processedFiles = source.processedFiles;
+        operation.totalFiles = source.totalFiles;
+        operation.processedDirectories = source.processedDirectories;
+        operation.totalDirectories = source.totalDirectories;
+        operation.processedItems = source.processedItems;
+        operation.speed = source.speed;
+        operation.paused = source.paused;
+        break;
+    }
+    // Directory-size updates and the completion message, as for own jobs.
+    finishJob(job, QString(), true);
+    emit operationsChanged();
+}
+
 FileOperations::~FileOperations()
 {
+    liveFileOperations().remove(this);
+    // Jobs are not owned by this object and keep running; hand the unfinished
+    // ones to the app-wide instance so their progress does not disappear.
+    if (auto *adopter = orphanAdopter().data(); adopter && adopter != this) {
+        // Only KIO jobs (copy/move/delete) run independently of this object.
+        // Archive jobs are its children and end with it, as before.
+        for (const Operation &operation : std::as_const(m_operations))
+            if (!operation.finished && operation.job && operation.job->parent() != this)
+                adopter->adoptOperation(operation);
+    }
     if (m_kdeConnectDiscovery && m_kdeConnectDiscovery->state() != QProcess::NotRunning) {
         m_kdeConnectDiscovery->disconnect(this);
         auto *process = m_kdeConnectDiscovery.data();
@@ -352,6 +462,7 @@ FileOperations::~FileOperations()
 FileOperations::FileOperations(QObject *parent)
     : QObject(parent)
 {
+    liveFileOperations().insert(this);
     connect(this, &FileOperations::ioBusyChanged, this, [this] {
         if (auto *sizes = DirectorySizeIndex::existing()) sizes->setIoBusy(this, ioBusy());
     });
@@ -737,6 +848,85 @@ void FileOperations::configureProgressJob(KJob *job, bool needsManualRegistratio
     }
 }
 
+namespace {
+
+// Device of a path, or of its nearest existing parent (a copy destination
+// usually does not exist yet). Returns false for paths that cannot be resolved.
+bool deviceForPath(const QString &path, quint64 &device)
+{
+    QString current = QDir::cleanPath(path);
+    while (!current.isEmpty()) {
+        struct stat info {};
+        if (::stat(QFile::encodeName(current).constData(), &info) == 0) {
+            device = quint64(info.st_dev);
+            return true;
+        }
+        const QString parent = QFileInfo(current).path();
+        if (parent == current)
+            break;
+        current = parent;
+    }
+    return false;
+}
+
+// Whether contending I/O on this device should pause previews and folder
+// scans: rotational disks, and devices whose type cannot be read (tmpfs,
+// btrfs subvolumes, FUSE, network) keep the conservative behaviour.
+bool deviceNeedsIoPause(quint64 device)
+{
+    static QHash<quint64, bool> cache;
+    const auto cached = cache.constFind(device);
+    if (cached != cache.cend())
+        return cached.value();
+    const dev_t value = dev_t(device);
+    const QString node = QStringLiteral("/sys/dev/block/%1:%2").arg(major(value)).arg(minor(value));
+    QFile direct(node + QStringLiteral("/queue/rotational"));
+    // Partitions have no queue/ of their own; use their parent disk's.
+    QFile parent(QFileInfo(QFileInfo(node).canonicalFilePath()).path() + QStringLiteral("/queue/rotational"));
+    QFile *source = direct.exists() ? &direct : &parent;
+    bool pause = true;
+    if (source->open(QIODevice::ReadOnly))
+        pause = source->readAll().trimmed() != "0";
+    cache.insert(device, pause);
+    return pause;
+}
+
+} // namespace
+
+void FileOperations::setOperationPaths(int id, const QStringList &localPaths)
+{
+    for (Operation &operation : m_operations) {
+        if (operation.id != id)
+            continue;
+        operation.heavyDevices.clear();
+        operation.heavyEverywhere = false;
+        for (const QString &path : localPaths) {
+            quint64 device = 0;
+            if (!deviceForPath(path, device))
+                operation.heavyEverywhere = true;
+            else if (deviceNeedsIoPause(device))
+                operation.heavyDevices.insert(device);
+        }
+        ++m_ioScopeRevision;
+        emit ioScopeChanged();
+        return;
+    }
+}
+
+bool FileOperations::ioBusyAt(const QString &location) const
+{
+    const QUrl url = QUrl::fromUserInput(location);
+    quint64 device = 0;
+    const bool known = url.isLocalFile() && deviceForPath(url.toLocalFile(), device);
+    for (const Operation &operation : m_operations) {
+        if (operation.finished || operation.kind == QStringLiteral("clipboard"))
+            continue;
+        if (operation.heavyEverywhere || !known || operation.heavyDevices.contains(device))
+            return true;
+    }
+    return false;
+}
+
 int FileOperations::startOperation(const QString &kind, const QString &detail, KJob *job, QProcess *process)
 {
     const bool wasBusy = ioBusy();
@@ -746,7 +936,35 @@ int FileOperations::startOperation(const QString &kind, const QString &detail, K
     operation.detail = detail;
     operation.job = job;
     operation.process = process;
+    // Which disks this job touches, read from the KIO job itself. Unknown jobs
+    // (and remote-only ones resolved below) keep the global pause.
+    QList<QUrl> urls;
+    if (auto *copy = qobject_cast<KIO::CopyJob *>(job)) {
+        urls = copy->srcUrls();
+        urls.push_back(copy->destUrl());
+    } else if (auto *fileCopy = qobject_cast<KIO::FileCopyJob *>(job)) {
+        urls = {fileCopy->srcUrl(), fileCopy->destUrl()};
+    } else if (auto *deletion = qobject_cast<KIO::DeleteJob *>(job)) {
+        urls = deletion->urls();
+    } else if (auto *simple = qobject_cast<KIO::SimpleJob *>(job)) {
+        urls = {simple->url()};
+    }
+    QStringList localPaths;
+    bool sawRemote = false;
+    for (const QUrl &url : std::as_const(urls)) {
+        if (url.isLocalFile())
+            localPaths.push_back(url.toLocalFile());
+        else
+            sawRemote = true;
+    }
+    operation.heavyEverywhere = urls.isEmpty();
     m_operations.push_back(operation);
+    if (!localPaths.isEmpty() || sawRemote)
+        setOperationPaths(operation.id, localPaths);
+    else {
+        ++m_ioScopeRevision;
+        emit ioScopeChanged();
+    }
     emit operationsChanged();
     if (wasBusy != ioBusy())
         emit ioBusyChanged();
@@ -855,6 +1073,8 @@ void FileOperations::finishOperation(int id, bool success, bool cancelled)
         // from the same operationsChanged notification without racing a later
         // timer start.
         startOperationDismissTimer(id);
+        ++m_ioScopeRevision;
+        emit ioScopeChanged();
         emit operationsChanged();
         if (wasBusy != ioBusy())
             emit ioBusyChanged();
@@ -1641,6 +1861,13 @@ bool FileOperations::pasteFromClipboard(const QString &destinationLocation)
     const bool cut = m_clipboardCutCached;
     m_activePasteKeys.insert(pasteKey);
 
+    // A cut is consumed by the paste, as in KIO::paste(). Clear it before the
+    // job starts: while the clipboard still lists the cut URLs, KIO rewrites
+    // the whole clipboard after every moved file (updateUrlInClipboard), which
+    // is quadratic and made large moves crawl at a few files per second.
+    if (cut)
+        QGuiApplication::clipboard()->clear();
+
     KIO::CopyJob *job = cut
         ? KIO::move(urls, destination)
         : KIO::copy(urls, destination);
@@ -1649,12 +1876,6 @@ bool FileOperations::pasteFromClipboard(const QString &destinationLocation)
     });
     KIO::FileUndoManager::self()->recordCopyJob(job);
     trackTransferJob(job, urls, destination, cut ? QStringLiteral("move") : QStringLiteral("copy"));
-    if (cut) {
-        connect(job, &KJob::result, this, [job]() {
-            if (!job->error())
-                QGuiApplication::clipboard()->clear();
-        });
-    }
     finishJob(job, cut ? QStringLiteral("Moved") : QStringLiteral("Pasted"));
     return true;
 }
@@ -2114,6 +2335,7 @@ void FileOperations::startArchiveCompression(const QStringList &sourceUrls, cons
     job->trackCompression(sourcePaths, output->path(), plannedArchivePath, encrypted);
     QPointer<ArchiveProgressJob> trackedJob(job);
     const int operationId = startOperation(QStringLiteral("compress"), detail, job, process);
+    setOperationPaths(operationId, {archiveRoot.absolutePath()});
     setOperationAmount(operationId, int(KJob::Items), qulonglong(sources.size()), true);
 
     connect(job, &KJob::result, this, [this, process, output, operationId](KJob *result) {
@@ -2332,6 +2554,7 @@ void FileOperations::runArchiveExtraction(const QString &archivePath,
                                        QFileInfo(archivePath).fileName(), this);
     QPointer<ArchiveProgressJob> trackedJob(job);
     const int operationId = startOperation(QStringLiteral("extract"), QFileInfo(archivePath).fileName(), job, process);
+    setOperationPaths(operationId, {archivePath, outputPath});
     connect(job, &KJob::result, this, [this, process, operationId](KJob *result) {
         if (result->error() == KJob::KilledJobError) {
             m_cancelledOperations.insert(operationId);

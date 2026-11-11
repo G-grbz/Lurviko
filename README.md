@@ -377,13 +377,7 @@ The **Build and tests** workflow compiles and checks installation on Arch Linux,
 
 The application keeps persistent data under the canonical `Lurviko` user data directory (normally `~/.local/share/Lurviko`). Configuration/cache locations also follow their Qt/XDG settings. Local settings, indexes, downloaded models, build outputs and credentials are not part of the source repository.
 
-### Upgrading from g-File
-
-Close the old application before launching Lurviko. The first launch migrates the previous `g-File` / `g-file` configuration, data and cache directories to **Lurviko**, including Qt's nested application directories. Indexes, music history, playlists, playback positions, subtitle models and encrypted vault files are retained. Conflicting old files are preserved under `Lurviko/migration-backup/` instead of overwriting existing Lurviko data. KWallet entries move to the Lurviko folder when the wallet is opened; vault encryption remains compatible.
-
 The executable is `lurviko` and the desktop entry is `lurviko.desktop`.
-Use Lurviko for pinned launchers and MIME associations; installation does not
-include a `g-file` command or desktop entry.
 
 ### Release notifications
 
@@ -394,6 +388,6 @@ Lurviko checks [GitHub releases](https://github.com/G-grbz/Lurviko/releases) asy
 The original Lurviko application source is licensed under **GNU GPL v3 or any later version** (`GPL-3.0-or-later`); see [LICENSE](LICENSE). Bundled tools retain their own existing notices. Third-party artwork, trademarks, libraries and downloaded models are subject to their respective terms; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 
-## Git version tags / Git sürüm etiketleri
+## Git version tags
 
 Git support is optional and disabled by default. Enable it in **View → Enable Git module** to show repository controls and status badges. Disable it to stop per-directory Git status queries. The Git dialog offers local/remote version checks, annotated tags, and safe push retries.

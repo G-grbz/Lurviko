@@ -190,7 +190,10 @@ public:
                 "OR substr(?,1,length(path)+1)=path||'/' OR substr(path,1,?)=?",
                 {path, path, path.size()+1, path+'/' });
         }
-        auto pending = sql("SELECT 1 FROM dirty_paths LIMIT 1 OFFSET 8192");
+        // Same budget as the in-memory hints (DirectorySizeIndex): reconciling
+        // tens of thousands of named directories is still far cheaper than a
+        // full verification walk of every cached tree.
+        auto pending = sql("SELECT 1 FROM dirty_paths LIMIT 1 OFFSET 65536");
         const bool overflow = pending.next();
         pending.finish();
         if (overflow) {
@@ -204,7 +207,7 @@ public:
                 parents.insert(QFileInfo(rows.value(0).toString()).absolutePath());
             rows.finish();
             sql("DELETE FROM dirty_paths");
-            if (parents.size() > 8192) {
+            if (parents.size() > 65536) {
                 sql("UPDATE roots SET needs_verify=2");
                 beginVerificationEpoch();
             } else

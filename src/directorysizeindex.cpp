@@ -97,14 +97,20 @@ struct DirectorySizeIndex::Private {
     // Persistent hint for a path no visible reader covers. Floods (a content
     // index rebuild, a large copy) collapse into their directories instead of
     // invalidating every cached root, which forced a full verification walk.
+    // A hint costs a stat and at most one directory listing; a full
+    // verification re-walks every cached tree (millions of entries for a home
+    // folder). Moving a few thousand search results spans that many
+    // directories, so the limits are far above the old 2048/4096.
+    static constexpr int kFileHints = 16384;
+    static constexpr int kDirectoryHints = 65536;
     void invalidate(const QString& path)
     {
-        if (invalidatedPaths.size() < 2048) {
+        if (invalidatedPaths.size() < kFileHints) {
             invalidatedPaths.insert(path);
             return;
         }
         const auto directory = QFileInfo(path).absolutePath();
-        if (invalidatedPaths.size() < 4096 || invalidatedPaths.contains(directory))
+        if (invalidatedPaths.size() < kDirectoryHints || invalidatedPaths.contains(directory))
             invalidatedPaths.insert(directory);
         else
             invalidateAll = true;
@@ -481,7 +487,7 @@ void DirectorySizeIndex::observeDirectory(const QString& value, bool forceReconc
         if (d->watches->names.contains(path))
             return;
     }
-    if (d->directories.size() < 4096)
+    if (d->directories.size() < 65536)
         d->directories.insert(path);
     else
         for (auto it = d->snapshots.cbegin(); it != d->snapshots.cend(); ++it)

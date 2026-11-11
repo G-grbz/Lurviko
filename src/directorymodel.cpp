@@ -333,7 +333,7 @@ DirectoryModel::DirectoryModel(QObject *parent)
             return;
         }
         if (!m_localRefreshTimer.isActive())
-            m_localRefreshTimer.start();
+            m_localRefreshTimer.start(m_transferActive ? 1500 : 320); // also sets the interval
     });
 
     // QFileSystemWatcher does not emit directoryChanged when an existing child
@@ -466,6 +466,42 @@ QVariantMap DirectoryModel::itemAt(int row) const
     return result;
 }
 
+QVariantList DirectoryModel::categoryEntries(const QString &nameFilter) const
+{
+    const QString filter = nameFilter.trimmed();
+    QVariantList items;
+    items.reserve(m_items.size());
+    for (int row = 0; row < m_items.size(); ++row) {
+        const Entry &e = m_items.at(row);
+        if (e.url.isEmpty())
+            continue;
+        if (!filter.isEmpty() && !e.name.contains(filter, Qt::CaseInsensitive))
+            continue;
+        const qint64 modifiedMs = e.modified.isValid() ? e.modified.toMSecsSinceEpoch() : 0;
+        const qint64 createdMs = e.created.isValid() ? e.created.toMSecsSinceEpoch() : 0;
+        QVariantMap item;
+        item.insert(QStringLiteral("modelIndex"), row);
+        item.insert(QStringLiteral("name"), e.name);
+        item.insert(QStringLiteral("itemUrl"), e.url.toString());
+        item.insert(QStringLiteral("localPath"), e.localPath);
+        item.insert(QStringLiteral("isDir"), e.isDir);
+        item.insert(QStringLiteral("size"), e.size);
+        item.insert(QStringLiteral("modifiedMs"), modifiedMs);
+        item.insert(QStringLiteral("createdMs"), createdMs ? createdMs : modifiedMs);
+        item.insert(QStringLiteral("suffix"), e.suffix);
+        item.insert(QStringLiteral("hidden"), e.hidden);
+        item.insert(QStringLiteral("mimeType"), e.mimeType);
+        item.insert(QStringLiteral("systemIconName"), e.systemIconName);
+        // Same default as PreviewRevisionRole, so preview URLs match the
+        // regular views and their caches.
+        item.insert(QStringLiteral("previewRevision"), e.previewRevision.isEmpty()
+                ? QString::number(e.modified.toMSecsSinceEpoch()) + QLatin1Char('-') + QString::number(e.size)
+                : e.previewRevision);
+        items.append(item);
+    }
+    return items;
+}
+
 QVariantList DirectoryModel::itemsForUrls(const QStringList &urls) const
 {
     QVariantList items;
@@ -484,6 +520,59 @@ QVariantList DirectoryModel::itemsForUrls(const QStringList &urls) const
             break;
     }
     return items;
+}
+
+QVariantList DirectoryModel::selectionEntries(const QStringList &urls) const
+{
+    QVariantList items;
+    if (urls.isEmpty())
+        return items;
+
+    QSet<QUrl> requested;
+    requested.reserve(urls.size());
+    for (const QString &url : urls)
+        requested.insert(QUrl(url));
+    items.reserve(qMin(requested.size(), m_items.size()));
+    for (const Entry &entry : m_items) {
+        if (!requested.remove(entry.url))
+            continue;
+        QVariantMap item;
+        item.insert(QStringLiteral("itemUrl"), entry.url.toString());
+        item.insert(QStringLiteral("name"), entry.name);
+        item.insert(QStringLiteral("localPath"), entry.localPath);
+        item.insert(QStringLiteral("isDir"), entry.isDir);
+        item.insert(QStringLiteral("mimeType"), entry.mimeType);
+        items.append(item);
+        if (requested.isEmpty())
+            break;
+    }
+    return items;
+}
+
+QVariantMap DirectoryModel::selectionSummary(const QStringList &urls) const
+{
+    qint64 files = 0;
+    qint64 dirs = 0;
+    qint64 bytes = 0;
+    if (!urls.isEmpty()) {
+        QSet<QUrl> requested;
+        requested.reserve(urls.size());
+        for (const QString &url : urls)
+            requested.insert(QUrl(url));
+        for (const Entry &entry : m_items) {
+            if (!requested.remove(entry.url))
+                continue;
+            if (entry.isDir) {
+                ++dirs;
+            } else {
+                ++files;
+                bytes += qMax<qint64>(0, qint64(entry.size));
+            }
+            if (requested.isEmpty())
+                break;
+        }
+    }
+    return {{QStringLiteral("files"), files}, {QStringLiteral("dirs"), dirs}, {QStringLiteral("bytes"), bytes}};
 }
 
 QVariantList DirectoryModel::allItemUrls() const
@@ -521,6 +610,38 @@ int DirectoryModel::indexOfUrl(const QString &itemUrl) const
             return i;
     }
     return -1;
+}
+
+QStringList DirectoryModel::presentUrls(const QStringList &urls) const
+{
+    QStringList present;
+    if (urls.isEmpty() || m_items.isEmpty())
+        return present;
+
+    // Same identity rules as indexOfUrl(): local files compare by cleaned
+    // path, everything else by its fully encoded URL.
+    const auto keyFor = [](const QUrl &url) {
+        return url.isLocalFile()
+            ? QStringLiteral("L") + QDir::cleanPath(url.toLocalFile())
+            : QStringLiteral("U") + url.toString(QUrl::FullyEncoded);
+    };
+    QSet<QString> rows;
+    rows.reserve(m_items.size());
+    for (const Entry &entry : m_items)
+        rows.insert(keyFor(entry.url));
+
+    present.reserve(urls.size());
+    for (const QString &value : urls) {
+        const QString trimmed = value.trimmed();
+        if (trimmed.isEmpty())
+            continue;
+        QUrl requested(trimmed);
+        if (!requested.isValid() || requested.scheme().isEmpty())
+            requested = QUrl::fromLocalFile(QDir::cleanPath(trimmed));
+        if (rows.contains(keyFor(requested)))
+            present.push_back(value);
+    }
+    return present;
 }
 
 QVariantList DirectoryModel::pathCompletions(const QString &input) const
@@ -827,6 +948,19 @@ QString DirectoryModel::displayLocation() const
     return m_location.isLocalFile() ? m_location.toLocalFile() : m_location.toDisplayString();
 }
 
+void DirectoryModel::setTransferActive(bool value)
+{
+    if (m_transferActive == value)
+        return;
+    m_transferActive = value;
+    // A watcher refresh coalesced at the slower in-transfer pace must not keep
+    // the finished result off screen: bring a pending refresh forward.
+    if (!m_transferActive && m_localRefreshTimer.isActive()
+            && m_localRefreshTimer.remainingTime() > 160)
+        m_localRefreshTimer.start(160);
+    emit transferActiveChanged();
+}
+
 void DirectoryModel::setHeavyIoBusy(bool value)
 {
     if (m_heavyIoBusy == value)
@@ -897,7 +1031,7 @@ void DirectoryModel::requestRefresh()
             m_refreshDeferredByHeavyIo = true;
             return;
         }
-        m_localRefreshTimer.start();
+        m_localRefreshTimer.start(320); // explicit: start(int) changes the interval
         return;
     }
     refreshInternal(true);
@@ -2168,7 +2302,7 @@ void DirectoryModel::refreshLocalFileMetadata()
     }
 
     if (needsDirectoryRefresh && !m_localRefreshTimer.isActive())
-        m_localRefreshTimer.start();
+        m_localRefreshTimer.start(320);
 }
 
 void DirectoryModel::cancelKioListing()

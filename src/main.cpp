@@ -325,13 +325,16 @@ int main(int argc, char *argv[])
     if (qEnvironmentVariableIsEmpty("QT_MEDIA_BACKEND"))
         qputenv("QT_MEDIA_BACKEND", QByteArrayLiteral("ffmpeg"));
 
-    // The FFmpeg backend can select a hardware decoder that produces audio
-    // but a black VideoOutput on some Linux/Wayland + NVIDIA combinations,
-    // especially for 4K AV1.  Prefer the reliable software-decoding path by
-    // default.  Users can still override this before launch when they want to
-    // opt back into a specific hardware backend (for example cuda).
+    // Decode on the GPU when VA-API (Intel/AMD, or NVIDIA through
+    // nvidia-vaapi-driver) or CUDA is available: software decoding of 4K HEVC
+    // costs roughly a full CPU core, hardware decoding a fraction of it.
+    // FFmpeg falls back to software for codecs the GPU cannot decode (e.g. AV1
+    // on older GPUs).  Decoded frames are still copied to system memory rather
+    // than shared as GPU textures: the zero-copy texture path is what produced
+    // audio with a black VideoOutput on some Wayland + NVIDIA setups.  Both
+    // variables can be overridden before launch; "," disables HW decoding.
     if (qEnvironmentVariableIsEmpty("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
-        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", QByteArrayLiteral(","));
+        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", QByteArrayLiteral("vaapi,cuda"));
     if (qEnvironmentVariableIsEmpty("QT_DISABLE_HW_TEXTURES_CONVERSION"))
         qputenv("QT_DISABLE_HW_TEXTURES_CONVERSION", QByteArrayLiteral("1"));
 
@@ -384,9 +387,22 @@ int main(int argc, char *argv[])
     // Native glyph rasterization is noticeably sharper for the small UI labels
     // used by Lurviko on fractional-scale Plasma desktops.
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
-    // Allocate alpha before creating Quick surfaces so the optional native
-    // theme can be enabled live. Opaque Lurviko themes still clear opaquely.
-    QQuickWindow::setDefaultAlphaBuffer(true);
+    // Allocate an alpha channel only for a translucent desktop theme. An
+    // alpha surface makes the compositor blend the whole window over the
+    // desktop on every frame even when every pixel is opaque: on a 4K Wayland
+    // screen that multiplied KWin's GPU load during scrolling (~4% -> ~25%).
+    // Switching to a translucent theme while running stays opaque until the
+    // next start (see DesktopAppearance::windowAlphaAvailable).
+    {
+        bool translucentDesktopTheme = false;
+        QSettings settings;
+        if (settings.value(QStringLiteral("Appearance/qtTheme"), false).toBool()) {
+            DesktopAppearance probe;
+            probe.setEnabled(true);
+            translucentDesktopTheme = probe.windowBackground().alpha() < 255;
+        }
+        QQuickWindow::setDefaultAlphaBuffer(translucentDesktopTheme);
+    }
     QQuickStyle::setStyle("Basic");
     // Lurviko is a normal desktop application: closing its last main window
     // must terminate the process rather than leaving the single-instance

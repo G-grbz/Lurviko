@@ -63,9 +63,15 @@ void OpenWithModel::setContextMany(const QStringList &itemUrls)
 {
     QStringList clean;
     clean.reserve(itemUrls.size());
+    QSet<QString> seen;
+    seen.reserve(itemUrls.size());
     for (const QString &url : itemUrls) {
-        if (!url.trimmed().isEmpty() && !clean.contains(url))
+        // A QSet keeps "select all" on tens of thousands of files linear;
+        // QStringList::contains() per item was quadratic.
+        if (!url.trimmed().isEmpty() && !seen.contains(url)) {
+            seen.insert(url);
             clean.push_back(url);
+        }
     }
 
     const QString first = clean.isEmpty() ? QString() : clean.constFirst();
@@ -112,8 +118,25 @@ void OpenWithModel::refresh()
             && m_mimeType != QStringLiteral("application/octet-stream")) {
         mimeTypes.push_back(m_mimeType.trimmed());
     } else {
+        // Resolve one MIME type per file extension instead of per file:
+        // mimeTypeForUrl() may read file contents, which for a large
+        // selection blocked the UI for tens of seconds. Files without an
+        // extension still need content sniffing; cap how many are read.
+        QSet<QString> resolvedSuffixes;
+        int sniffed = 0;
+        constexpr int maximumSniffed = 256;
         for (const QString &itemUrl : m_itemUrls) {
             const QUrl url = QUrl::fromUserInput(itemUrl);
+            const QString fileName = url.fileName();
+            const qsizetype dot = fileName.lastIndexOf(QLatin1Char('.'));
+            const QString suffix = dot > 0 ? fileName.mid(dot + 1).toLower() : QString();
+            if (!suffix.isEmpty()) {
+                if (resolvedSuffixes.contains(suffix))
+                    continue;
+                resolvedSuffixes.insert(suffix);
+            } else if (++sniffed > maximumSniffed) {
+                continue;
+            }
             const QString mime = db.mimeTypeForUrl(url).name();
             if (!mime.isEmpty() && !mimeTypes.contains(mime))
                 mimeTypes.push_back(mime);

@@ -32,7 +32,7 @@ GModalPopup {
         {id: "behavior", tr: "Davranış", en: "Behavior", trDesc: "Tıklama ve kaydırma davranışı", enDesc: "Clicking and scrolling", icon: "behavior.svg"},
         {id: "previews", tr: "Dosya önizlemeleri", en: "File previews", trDesc: "Önizlenecek türler ve boyut sınırları", enDesc: "Preview types and size limits", icon: "preview.svg"},
         {id: "tabs", tr: "Sekmeler ve oturum", en: "Tabs and session", trDesc: "Sekme açma ve oturumu sürdürme", enDesc: "Opening tabs and restoring the session", icon: "tab.svg"},
-        {id: "operations", tr: "İşlemler", en: "Operations", trDesc: "Kopyalama ve taşıma ilerlemesi", enDesc: "Copy and move progress", icon: "actions.svg"},
+        {id: "operations", tr: "İşlemler", en: "Operations", trDesc: "İlerleme ve medya açma", enDesc: "Progress and opening media", icon: "actions.svg"},
         {id: "confirmations", tr: "Onaylar", en: "Confirmations", trDesc: "Hangi işlemlerde onay istenecek", enDesc: "Which actions ask first", icon: "dialog.svg"},
         {id: "modules", tr: "Modüller", en: "Modules", trDesc: "İsteğe bağlı özellikler", enDesc: "Optional features", icon: "modules.svg"}
     ]
@@ -347,6 +347,41 @@ GModalPopup {
                 limitRow.committed(Math.round(entered))
             limitField.text = Qt.binding(function() { return String(limitRow.value) })
         }
+        // Arrow steps grow while held: 1 MiB, then 10 MiB, then 100 MiB.
+        // Only the field text changes during a hold; the value is saved once
+        // on release, as every save refreshes all visible previews.
+        property int stepDirection: 0
+        property int stepCount: 0
+        function step(direction) {
+            const current = Math.max(0, Math.round(Number(limitField.text) || 0))
+            const size = stepCount < 10 ? 1024 : stepCount < 30 ? 10240 : 102400
+            const next = direction > 0 ? Math.floor(current / size) * size + size
+                                       : Math.ceil(current / size) * size - size
+            limitField.text = String(Math.max(0, Math.min(2147483647, next)))
+            ++stepCount
+        }
+        function beginStep(direction) {
+            stepDirection = direction
+            stepCount = 0
+            step(direction)
+            stepRepeat.interval = 400
+            stepRepeat.restart()
+        }
+        function endStep() {
+            if (stepDirection === 0)
+                return
+            stepDirection = 0
+            stepRepeat.stop()
+            commit()
+        }
+        Timer {
+            id: stepRepeat
+            repeat: true
+            onTriggered: {
+                interval = 70
+                limitRow.step(limitRow.stepDirection)
+            }
+        }
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 12
@@ -376,6 +411,47 @@ GModalPopup {
                 Accessible.name: limitRow.text
                 onAccepted: limitRow.commit()
                 onEditingFinished: limitRow.commit()
+                Keys.onUpPressed: function(event) { limitRow.stepCount = 0; limitRow.step(1); limitRow.commit() }
+                Keys.onDownPressed: function(event) { limitRow.stepCount = 0; limitRow.step(-1); limitRow.commit() }
+            }
+            ColumnLayout {
+                Layout.preferredHeight: 34
+                spacing: 2
+                Repeater {
+                    model: [1, -1]
+                    delegate: GButton {
+                        required property int modelData
+                        objectName: limitField.objectName + (modelData > 0 ? "Up" : "Down")
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 16
+                        implicitWidth: 22; implicitHeight: 16
+                        // GButton gives icon-only buttons 8 px padding on every
+                        // side, which left no room for the icon at 22x16.
+                        padding: 0
+                        leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
+                        focusPolicy: Qt.NoFocus
+                        text: ""
+                        display: AbstractButton.IconOnly
+                        icon.source: AppTheme.icon(modelData > 0 ? "up.svg" : "down.svg")
+                        icon.width: 12; icon.height: 12
+                        enabled: limitRow.enabled && (modelData > 0 || Number(limitField.text) > 0)
+                        Accessible.name: modelData > 0 ? dialog.t("Artır", "Increase") : dialog.t("Azalt", "Decrease")
+                        onPressedChanged: {
+                            if (pressed)
+                                limitRow.beginStep(modelData)
+                            else
+                                limitRow.endStep()
+                        }
+                        // Disabled at 0 mid-hold: still save what was reached.
+                        onEnabledChanged: if (!enabled) limitRow.endStep()
+                        background: Rectangle {
+                            radius: 5
+                            color: parent.pressed ? AppTheme.surfaceHover
+                                 : parent.hovered && parent.enabled ? AppTheme.surfaceRaised : "transparent"
+                            border.color: parent.enabled ? AppTheme.border : "transparent"
+                        }
+                    }
+                }
             }
             GText { text: "KiB"; baseColor: AppTheme.textMuted; basePixelSize: 12 }
             GText {
@@ -907,6 +983,33 @@ GModalPopup {
                                         onToggled: AppTheme.setOperationShowOnCompletion(checked)
                                     }
                                 }
+                            }
+                            ToggleRow {
+                                objectName: "openImagesInternallySetting"
+                                switchName: "openImagesInternallySwitch"
+                                text: dialog.t("Resimleri Lurviko görüntüleyicide aç", "Open images in Lurviko's viewer")
+                                description: dialog.t("Klasördeki diğer resimlerle birlikte açılır. Kapalıyken varsayılan uygulama kullanılır.",
+                                                      "Opens with the folder's other images. When off, the default application is used.")
+                                checked: AppTheme.openImagesInternally
+                                onToggledTo: function(value) { AppTheme.setOpenImagesInternally(value) }
+                            }
+                            ToggleRow {
+                                objectName: "openVideosInternallySetting"
+                                switchName: "openVideosInternallySwitch"
+                                text: dialog.t("Videoları Lurviko oynatıcıda aç", "Play videos in Lurviko's player")
+                                description: dialog.t("Altyazı, ses kanalı ve kaldığı yerden devam desteğiyle. Kapalıyken varsayılan uygulama kullanılır.",
+                                                      "With subtitles, audio tracks and resume. When off, the default application is used.")
+                                checked: AppTheme.openVideosInternally
+                                onToggledTo: function(value) { AppTheme.setOpenVideosInternally(value) }
+                            }
+                            ToggleRow {
+                                objectName: "openMusicInternallySetting"
+                                switchName: "openMusicInternallySwitch"
+                                text: dialog.t("Müzikleri Lurviko mini oynatıcıda çal", "Play music in Lurviko's mini player")
+                                description: dialog.t("Klasördeki diğer şarkılar sıraya eklenir. Kapalıyken varsayılan uygulama kullanılır.",
+                                                      "The folder's other songs are queued. When off, the default application is used.")
+                                checked: AppTheme.openMusicInternally
+                                onToggledTo: function(value) { AppTheme.setOpenMusicInternally(value) }
                             }
                         }
 

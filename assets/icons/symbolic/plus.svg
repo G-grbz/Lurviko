@@ -1,11 +1,4 @@
 <?xml version='1.0' encoding='utf-8'?>
-<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" viewBox="2.545 3.545 17.91 17.91" width="24" height="24" color="#ffffff">
-  <defs id="defs3051">
-    <style type="text/css" id="current-color-scheme">
-      .ColorScheme-Text {
-        color:#ffffff;
-      }
-      </style>
-  </defs>
-  <path style="fill:currentColor;fill-opacity:1;stroke:none" d="M 11 5 L 11 12 L 4 12 L 4 13 L 11 13 L 11 20 L 12 20 L 12 13 L 19 13 L 19 12 L 12 12 L 12 5 L 11 5 z " class="ColorScheme-Text" />
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" color="#ffffff">
+  <path d="M12 3.25C12.4142 3.25 12.75 3.58579 12.75 4V11.25H20C20.4142 11.25 20.75 11.5858 20.75 12C20.75 12.4142 20.4142 12.75 20 12.75H12.75V20C12.75 20.4142 12.4142 20.75 12 20.75C11.5858 20.75 11.25 20.4142 11.25 20V12.75H4C3.58579 12.75 3.25 12.4142 3.25 12C3.25 11.5858 3.58579 11.25 4 11.25H11.25V4C11.25 3.58579 11.5858 3.25 12 3.25Z" fill="#ffffff" />
 </svg>

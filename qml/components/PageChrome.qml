@@ -21,6 +21,9 @@ ColumnLayout {
     property string newTabTip: ""
     readonly property real tabStripHeight: tabsBar.implicitHeight
     readonly property real headerHeight: tabsBar.implicitHeight + navigationBar.implicitHeight
+    readonly property real navigationHeight: navigationBar.implicitHeight
+    // Right edge of the navigation buttons, for pages that use the rest of the row.
+    readonly property real navigationButtonsExtent: navigationRow.anchors.leftMargin + navigationRow.implicitWidth
     // Main's full-page outline must leave the selected tab's bottom edge open.
     readonly property Item activeTabSurface: chromeTabSurface
     readonly property real activeTabScrollPosition: 0
@@ -107,6 +110,7 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: Math.max(42, AppTheme.typographySize("menu", 11) + 18)
         RowLayout {
+            id: navigationRow
             anchors.fill: parent
             anchors.leftMargin: 12
             anchors.rightMargin: 12

@@ -40,8 +40,11 @@ public:
 
     Q_INVOKABLE bool kindEnabled(const QString &kind) const;
     Q_INVOKABLE void setKindEnabled(const QString &kind, bool enabled);
+    // ignoreSizeLimit: media category pages (images, music, videos) exist to
+    // show artwork; covers and frames do not cost more for larger files.
     Q_INVOKABLE bool allows(const QString &localPath, const QString &suffix,
-                            const QString &mimeType, qint64 size) const;
+                            const QString &mimeType, qint64 size,
+                            bool ignoreSizeLimit = false) const;
     Q_INVOKABLE bool isExternalPath(const QString &localPath) const;
     Q_INVOKABLE QString previewKind(const QString &suffix, const QString &mimeType) const
     { return kindFor(suffix, mimeType); }
@@ -64,4 +67,8 @@ private:
     QSet<QString> m_disabledKinds;
     int m_revision = 0;
     mutable QHash<QString, bool> m_externalByDirectory;
+    // Mount points, longest first. QStorageInfo(path) re-reads the system
+    // mount table on every construction, which dominated large categories.
+    mutable QStringList m_mountRoots;
+    mutable qint64 m_mountRootsLoadedMs = 0;
 };

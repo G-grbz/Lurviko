@@ -16,11 +16,13 @@ inline bool releaseUnusedHeap()
 {
 #ifdef __GLIBC__
 #if __GLIBC_PREREQ(2, 33)
-    // SVG decoding and large file listings leave free pages in allocator
-    // arenas. Return those pages, retaining live objects and all image caches.
-    const auto info = ::mallinfo2();
-    if (info.fordblks >= 64u * 1024u * 1024u)
-        return ::malloc_trim(0) != 0;
+    // SVG decoding, large file listings and transfers leave free pages in
+    // allocator arenas. Return those pages, retaining live objects and all
+    // image caches. mallinfo2() only describes the main arena, while worker
+    // threads (thumbnails, KIO, directory scans) allocate from their own, so
+    // a free-space threshold on it skipped exactly the memory that piles up.
+    // The caller already limits this to idle periods, off the GUI thread.
+    return ::malloc_trim(0) != 0;
 #endif
 #endif
     return false;

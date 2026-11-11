@@ -1,5 +1,7 @@
 #include "previewsettings.h"
+#include "directorysizestore_p.h"
 
+#include <QDateTime>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMimeDatabase>
@@ -7,6 +9,7 @@
 #include <QMutexLocker>
 #include <QSettings>
 #include <QStorageInfo>
+#include <algorithm>
 
 namespace {
 
@@ -141,9 +144,34 @@ bool PreviewSettings::isExternalPath(const QString &localPath) const
     if (cached != m_externalByDirectory.cend())
         return cached.value();
 
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_mountRoots.isEmpty() || now - m_mountRootsLoadedMs > 5000) {
+        // The full kernel mount table: QStorageInfo::mountedVolumes() omits
+        // virtual filesystems that QStorageInfo(path) used to resolve to.
+        const QSet<QString> mounts = directorySizeMountBoundaries();
+        m_mountRoots = QStringList(mounts.cbegin(), mounts.cend());
+        m_mountRoots.append(QStringLiteral("/"));
+        std::sort(m_mountRoots.begin(), m_mountRoots.end(), [](const QString &a, const QString &b) {
+            return a.size() > b.size();
+        });
+        m_mountRootsLoadedMs = now;
+    }
+
+    // Symlinked folders belong to the mount they point into.
+    QString real = QFileInfo(directory).canonicalFilePath();
+    if (real.isEmpty())
+        real = directory;
+    QString root;
+    for (const QString &candidate : std::as_const(m_mountRoots)) {
+        if (candidate == QLatin1String("/") || real == candidate
+                || real.startsWith(candidate + QLatin1Char('/'))) {
+            root = candidate;
+            break;
+        }
+    }
+
     bool external = false;
-    const QStorageInfo storage(directory);
-    if (storage.isValid()) {
+    if (!root.isEmpty()) {
         // "/" and the internal mounts a system usually splits off count as
         // the system disk. Everything else (USB sticks, other disks under
         // /run/media or /mnt, network and FUSE mounts) uses the other limit.
@@ -152,16 +180,17 @@ bool PreviewSettings::isExternalPath(const QString &localPath) const
             QStringLiteral("/boot/efi"), QStringLiteral("/efi"), QStringLiteral("/usr"),
             QStringLiteral("/var"), QStringLiteral("/opt"), QStringLiteral("/srv"),
             QStringLiteral("/tmp"), QStringLiteral("/root")};
-        external = !systemMounts.contains(storage.rootPath());
+        external = !systemMounts.contains(root);
     }
-    if (m_externalByDirectory.size() > 4096)
+    if (m_externalByDirectory.size() > 32768)
         m_externalByDirectory.clear();
     m_externalByDirectory.insert(directory, external);
     return external;
 }
 
 bool PreviewSettings::allows(const QString &localPath, const QString &suffix,
-                             const QString &mimeType, qint64 size) const
+                             const QString &mimeType, qint64 size,
+                             bool ignoreSizeLimit) const
 {
     if (!m_enabled || localPath.isEmpty())
         return false;
@@ -170,6 +199,8 @@ bool PreviewSettings::allows(const QString &localPath, const QString &suffix,
         return false;
     if (size <= 0 && kind == QStringLiteral("text"))
         return false;
+    if (ignoreSizeLimit)
+        return true;
     const int limit = isExternalPath(localPath) ? m_externalMaxKiB : m_systemMaxKiB;
     return limit <= 0 || size <= qint64(limit) * 1024;
 }

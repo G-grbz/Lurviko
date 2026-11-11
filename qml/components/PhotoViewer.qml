@@ -48,10 +48,39 @@ Popup {
     closePolicy: Popup.NoAutoClose
 
     readonly property var currentItem: currentIndex >= 0 && currentIndex < files.length ? files[currentIndex] : null
-    readonly property real controlsOpacity: viewerFullScreen && !controlsVisible ? 0.0 : 1.0
+    // Controls fade after a short idle period in the window as well as in
+    // full screen; pointer motion, keys and clicks bring them back.
+    readonly property real controlsOpacity: controlsVisible ? 1.0 : 0.0
 
+    // Same resolver as the rest of the app (the glyphs live under
+    // assets/icons/symbolic; the old direct qrc path no longer existed).
     function viewerIcon(name) {
-        return "qrc:/qt/qml/Lurviko/App/assets/icons/" + name
+        return AppTheme.icon(name, AppTheme.viewerText)
+    }
+
+    // Render size for vector images, in logical pixels: Qt Quick itself
+    // renders scalable images at sourceSize × devicePixelRatio. Multiplying
+    // by the ratio here as well asked for ~9000 px at 3x scaling and Qt
+    // rejected the image (256 MB allocation limit), so it never appeared.
+    // The device-pixel long side is capped at 4096.
+    function vectorRenderSize(width, height) {
+        const dpr = Math.max(1, Screen.devicePixelRatio)
+        const w = Math.max(1, width)
+        const h = Math.max(1, height)
+        const scale = Math.min(1, 4096 / (Math.max(w, h) * dpr))
+        return Qt.size(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)))
+    }
+
+    readonly property bool imageFailed: pendingImageSlot < 0
+        && (showingImageA ? imageA.status : imageB.status) === Image.Error
+
+    // Natural pixel size of the photo on screen; empty for vector images,
+    // which are rendered at whatever size they are shown.
+    readonly property string currentDimensions: {
+        const image = showingImageA ? imageA : imageB
+        if (image.vector) return "SVG"
+        return image.status === Image.Ready && image.implicitWidth > 0
+                ? Math.round(image.implicitWidth) + "×" + Math.round(image.implicitHeight) : ""
     }
 
     function thumbSource(item) {
@@ -67,14 +96,11 @@ Popup {
         controlsSettleTimer.stop()
         controlsSettling = false
         controlsVisible = true
-        if (viewerFullScreen)
-            controlsHideTimer.restart()
-        else
-            controlsHideTimer.stop()
+        controlsHideTimer.restart()
     }
 
     function handleStagePointerMotion(sourceItem, x, y) {
-        if (!viewerFullScreen || !sourceItem)
+        if (!sourceItem)
             return
         const scenePoint = sourceItem.mapToItem(viewer.contentItem, x, y)
         if (lastPointerSceneX < 0 || lastPointerSceneY < 0) {
@@ -108,6 +134,13 @@ Popup {
         photoFlick.contentY = 0
     }
 
+    // The file at currentIndex, read directly. Handlers that run on
+    // currentIndexChanged can see the currentItem binding before it updates,
+    // which showed the previous photo (one step behind) under the new title.
+    function itemAtCurrentIndex() {
+        return currentIndex >= 0 && currentIndex < files.length ? files[currentIndex] : null
+    }
+
     function itemSource(item) {
         return item && item.url ? String(item.url) : ""
     }
@@ -117,7 +150,8 @@ Popup {
         imageBToA.stop()
         pendingImageSlot = -1
         pendingImageItem = null
-        const src = itemSource(currentItem)
+        const item = itemAtCurrentIndex()
+        const src = itemSource(item)
         showingImageA = true
         imageA.opacity = 1.0
         imageB.opacity = 0.0
@@ -125,12 +159,12 @@ Popup {
         imageB.source = ""
         backdropA.opacity = 0.58
         backdropB.opacity = 0.0
-        backdropA.source = currentItem ? thumbSource(currentItem) : ""
+        backdropA.source = item ? thumbSource(item) : ""
         backdropB.source = ""
     }
 
     function queueCurrentImageTransition() {
-        const item = currentItem
+        const item = itemAtCurrentIndex()
         const src = itemSource(item)
         if (!src) {
             syncCurrentImageImmediately()
@@ -184,10 +218,10 @@ Popup {
         if (status === Image.Ready) {
             startPendingImageTransition(slot)
         } else if (status === Image.Error) {
-            // Do not fade the currently visible image away when the next file
-            // cannot be decoded. Keep the good frame on screen.
-            pendingImageSlot = -1
-            pendingImageItem = null
+            // Still switch: keeping the previous picture under the new file's
+            // name looked like the viewer was stuck. The failed slot shows an
+            // explanation instead (imageFailed).
+            startPendingImageTransition(slot)
         }
     }
 
@@ -241,8 +275,7 @@ Popup {
         } else {
             viewerFullScreen = false
             viewerFullScreenWindow.hide()
-            controlsHideTimer.stop()
-            controlsVisible = true
+            revealControls()
         }
     }
 
@@ -287,14 +320,16 @@ Popup {
                 iconOpacity: control.enabled ? 0.96 : 0.42
             }
         }
-        background: GGlassPanel {
-            sourceItem: photoScene
+        // Solid face: hover and press only recolour the border. The old glass
+        // tint swapped an opaque fill for a translucent one on hover.
+        background: Rectangle {
             radius: 9
-            tintColor: control.down ? AppTheme.viewerGlassPressed
-                                     : (control.hovered ? AppTheme.viewerGlassHover
-                                                        : (control.emphasized ? AppTheme.viewerGlassEmphasis : AppTheme.viewerGlassSoft))
-            borderColor: control.hovered || control.emphasized ? AppTheme.accentBorder : AppTheme.viewerGlassBorderSoft
-            blurAmount: 0.46
+            color: control.emphasized ? AppTheme.accentSoft : AppTheme.viewerGlassSoft
+            border.width: 1
+            border.color: control.down || control.hovered ? AppTheme.accent
+                        : control.emphasized ? AppTheme.accentBorder : AppTheme.viewerGlassBorderSoft
+            antialiasing: true
+            Behavior on border.color { ColorAnimation { duration: 110 } }
         }
         GToolTip { text: control.toolTipText }
     }
@@ -344,12 +379,7 @@ Popup {
         controlsSettling = false
         lastPointerSceneX = -1
         lastPointerSceneY = -1
-        if (viewerFullScreen)
-            revealControls()
-        else {
-            controlsHideTimer.stop()
-            controlsVisible = true
-        }
+        revealControls()
     }
     onCurrentIndexChanged: if (visible) {
         queueCurrentImageTransition()
@@ -361,7 +391,7 @@ Popup {
         interval: 1800
         repeat: false
         onTriggered: {
-            if (!viewer.viewerFullScreen) return
+            if (!viewer.visible) return
             if (topToolbarHover.hovered || bottomToolbarHover.hovered || stripHover.hovered || infoHover.hovered
                     || previousButton.hovered || nextButton.hovered) {
                 restart()
@@ -430,6 +460,11 @@ Popup {
         Flickable {
             id: photoFlick
             anchors.fill: parent
+            // In the window the picture fits between the top bar and the
+            // thumbnail strip instead of running underneath them. Full screen
+            // keeps the whole screen (its controls fade out).
+            anchors.topMargin: viewer.viewerFullScreen ? 0 : 74
+            anchors.bottomMargin: viewer.viewerFullScreen ? 0 : 104
             clip: true
             interactive: viewer.zoom > 1.0
             contentWidth: Math.max(width, imageHolder.width)
@@ -445,9 +480,14 @@ Popup {
 
                 Image {
                     id: imageA
+                    objectName: "photoImageA"
                     anchors.centerIn: parent
                     width: Math.max(80, photoFlick.width * 0.965 * viewer.zoom)
                     height: Math.max(80, photoFlick.height * 0.94 * viewer.zoom)
+                    // Vector images are rendered at their on-screen size (and
+                    // again when zoomed); photos keep their full resolution.
+                    readonly property bool vector: /\.svgz?$/i.test(String(source))
+                    sourceSize: vector ? viewer.vectorRenderSize(width, height) : undefined
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: false
@@ -460,9 +500,14 @@ Popup {
 
                 Image {
                     id: imageB
+                    objectName: "photoImageB"
                     anchors.centerIn: parent
                     width: Math.max(80, photoFlick.width * 0.965 * viewer.zoom)
                     height: Math.max(80, photoFlick.height * 0.94 * viewer.zoom)
+                    // Vector images are rendered at their on-screen size (and
+                    // again when zoomed); photos keep their full resolution.
+                    readonly property bool vector: /\.svgz?$/i.test(String(source))
+                    sourceSize: vector ? viewer.vectorRenderSize(width, height) : undefined
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: false
@@ -510,8 +555,42 @@ Popup {
             anchors.fill: parent
             hoverEnabled: true
             acceptedButtons: Qt.NoButton
-            cursorShape: viewer.zoom > 1.0 ? Qt.OpenHandCursor : Qt.ArrowCursor
+            // The pointer hides with the controls and returns on any motion.
+            cursorShape: !viewer.controlsVisible ? Qt.BlankCursor
+                       : viewer.zoom > 1.0 ? Qt.OpenHandCursor : Qt.ArrowCursor
             onPositionChanged: function(mouse) { viewer.handleStagePointerMotion(motionTracker, mouse.x, mouse.y) }
+        }
+
+        Rectangle {
+            objectName: "photoErrorPanel"
+            anchors.centerIn: parent
+            visible: viewer.imageFailed
+            width: Math.min(parent.width - 48, errorColumn.implicitWidth + 40)
+            height: errorColumn.implicitHeight + 28
+            radius: 12
+            color: AppTheme.viewerGlass
+            border.width: 1
+            border.color: AppTheme.viewerGlassBorder
+            Column {
+                id: errorColumn
+                anchors.centerIn: parent
+                spacing: 4
+                GText {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: viewer.lang.language === "tr" ? "Bu görsel açılamadı" : "This image could not be opened"
+                    baseColor: AppTheme.viewerText
+                    basePixelSize: 13
+                    baseFontWeight: Font.DemiBold
+                }
+                GText {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(implicitWidth, 420)
+                    text: viewer.currentItem ? viewer.currentItem.name : ""
+                    baseColor: AppTheme.viewerTextMuted
+                    basePixelSize: 10
+                    elide: Text.ElideMiddle
+                }
+            }
         }
 
         GBusyIndicator {
@@ -567,7 +646,10 @@ Popup {
                         }
                         GText {
                             Layout.fillWidth: true
-                            text: viewer.currentItem ? viewer.formatSize(viewer.currentItem.size) + " · " + viewer.formatDate(viewer.currentItem.modifiedMs) : ""
+                            text: viewer.currentItem
+                                  ? [viewer.currentDimensions, viewer.formatSize(viewer.currentItem.size),
+                                     viewer.formatDate(viewer.currentItem.modifiedMs)].filter(function(part) { return part.length > 0 }).join(" · ")
+                                  : ""
                             baseColor: AppTheme.viewerTextMuted
                             basePixelSize: 9
                             elide: Text.ElideRight
@@ -633,7 +715,7 @@ Popup {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 48
                 height: 58
-                iconName: "viewer-prev.svg"
+                iconName: "nav-back.svg"
                 toolTipText: viewer.lang.language === "tr" ? "Önceki (←)" : "Previous (←)"
                 onClicked: viewer.previous()
             }
@@ -644,38 +726,9 @@ Popup {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 48
                 height: 58
-                iconName: "viewer-next.svg"
+                iconName: "nav-forward.svg"
                 toolTipText: viewer.lang.language === "tr" ? "Sonraki (→)" : "Next (→)"
                 onClicked: viewer.next()
-            }
-
-            GGlassPanel {
-                id: statusCard
-                sourceItem: photoScene
-                anchors.left: parent.left
-                anchors.bottom: stripPanel.top
-                anchors.leftMargin: 18
-                anchors.bottomMargin: 12
-                height: Math.max(36, statusRow.implicitHeight + 12)
-                width: statusRow.implicitWidth + 20
-                radius: 10
-                tintColor: AppTheme.viewerGlassSoft
-                borderColor: AppTheme.viewerGlassBorderSoft
-                Row {
-                    id: statusRow
-                    anchors.centerIn: parent
-                    spacing: 8
-                    GText { text: Math.round(viewer.zoom * 100) + "%"; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9 }
-                    Rectangle { width: 1; height: 12; color: AppTheme.viewerGlassBorderSoft }
-                    GText { text: viewer.currentIndex >= 0 ? (viewer.currentIndex + 1) + "/" + viewer.files.length : ""; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9 }
-                    Rectangle { width: 1; height: 12; color: AppTheme.viewerGlassBorderSoft; visible: (viewer.showingImageA ? imageA.sourceSize.width : imageB.sourceSize.width) > 0 }
-                    GText { text: (viewer.showingImageA ? imageA.sourceSize.width : imageB.sourceSize.width) > 0
-                                ? (viewer.showingImageA ? imageA.sourceSize.width + "×" + imageA.sourceSize.height
-                                                        : imageB.sourceSize.width + "×" + imageB.sourceSize.height)
-                                : ""; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9; visible: text.length > 0 }
-                    Rectangle { width: 1; height: 12; color: AppTheme.viewerGlassBorderSoft; visible: viewer.currentItem !== null }
-                    GText { text: viewer.currentItem ? viewer.formatSize(viewer.currentItem.size) : ""; baseColor: AppTheme.viewerTextMuted; basePixelSize: 9 }
-                }
             }
 
             GGlassPanel {
@@ -701,8 +754,6 @@ Popup {
                     }
                     ViewerIconButton { iconName: "viewer-zoom-in.svg"; toolTipText: viewer.lang.language === "tr" ? "Yakınlaştır" : "Zoom in"; onClicked: viewer.zoom = Math.min(5.0, viewer.zoom * 1.18) }
                     Rectangle { width: 1; height: 24; color: AppTheme.viewerGlassBorderSoft }
-                    ViewerIconButton { iconName: "viewer-prev.svg"; toolTipText: viewer.lang.language === "tr" ? "Önceki" : "Previous"; onClicked: viewer.previous() }
-                    ViewerIconButton { iconName: "viewer-next.svg"; toolTipText: viewer.lang.language === "tr" ? "Sonraki" : "Next"; onClicked: viewer.next() }
                     ViewerIconButton { iconName: viewer.slideshowRunning ? "viewer-pause.svg" : "viewer-play.svg"; toolTipText: viewer.lang.language === "tr" ? "Slayt gösterisi (Space)" : "Slideshow (Space)"; emphasized: viewer.slideshowRunning; onClicked: viewer.slideshowRunning = !viewer.slideshowRunning }
                 }
             }

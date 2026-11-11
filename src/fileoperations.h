@@ -26,7 +26,14 @@ class FileOperations : public QObject
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(bool shiftPressed READ shiftPressed NOTIFY shiftPressedChanged)
     Q_PROPERTY(bool kioProgressEnabled READ kioProgressEnabled WRITE setKioProgressEnabled NOTIFY kioProgressEnabledChanged)
+    // The app-wide instance takes over still-running jobs of a FileOperations
+    // that is destroyed (a browser page closed by going to Discover), so their
+    // progress stays visible and controllable.
+    Q_PROPERTY(bool adoptsOrphanedOperations READ adoptsOrphanedOperations WRITE setAdoptsOrphanedOperations NOTIFY adoptsOrphanedOperationsChanged)
     Q_PROPERTY(bool ioBusy READ ioBusy NOTIFY ioBusyChanged)
+    // Bumped whenever the set of disks touched by running operations changes,
+    // so QML bindings that call ioBusyAt() re-evaluate.
+    Q_PROPERTY(int ioScopeRevision READ ioScopeRevision NOTIFY ioScopeChanged)
     Q_PROPERTY(QVariantList operations READ operations NOTIFY operationsChanged)
     // Running copy/move jobs by local destination folder ({path, percent}),
     // independent of whether Plasma or Lurviko shows the progress cards.
@@ -46,7 +53,27 @@ public:
     bool canUndo() const;
     bool shiftPressed() const { return m_shiftPressed; }
     bool kioProgressEnabled() const { return m_kioProgressEnabled; }
+    bool adoptsOrphanedOperations() const;
+    void setAdoptsOrphanedOperations(bool adopts);
     bool ioBusy() const;
+    int ioScopeRevision() const { return m_ioScopeRevision; }
+    // True while a running operation reads or writes the disk holding
+    // `location` and that disk is rotational (or its type is unknown).
+    // Previews, folder counts and refreshes pause only there; on SSD/NVMe and
+    // on other disks they keep working during long transfers.
+    Q_INVOKABLE bool ioBusyAt(const QString &location) const;
+    // Number of jobs still running (finished entries excluded).
+    Q_INVOKABLE int activeOperationCount() const;
+    // Shows the remaining jobs in the desktop's progress notifications
+    // (KIO job tracker), for when the window closes before they finish.
+    Q_INVOKABLE int handOverToSystemProgress();
+    // Same, across every FileOperations of the process (all tabs and pages).
+    Q_INVOKABLE int activeOperationCountAll() const;
+    Q_INVOKABLE int handOverAllToSystemProgress();
+    // While jobs finish after the window closed, the process must outlive its
+    // last window (Qt would otherwise quit and abort the copy). The caller
+    // quits once activeOperationCountAll() reaches zero.
+    Q_INVOKABLE void setKeepRunningAfterLastWindow(bool keep);
     void setKioProgressEnabled(bool enabled);
     QVariantList operations() const;
     QVariantList transferTargets() const;
@@ -123,7 +150,9 @@ signals:
     void canUndoChanged();
     void shiftPressedChanged();
     void kioProgressEnabledChanged();
+    void adoptsOrphanedOperationsChanged();
     void ioBusyChanged();
+    void ioScopeChanged();
     void operationsChanged();
     void shareTargetsChanged();
     void operationFinished(bool success, const QString &message, bool refreshNeeded,
@@ -207,13 +236,20 @@ private:
         bool finished = false;
         bool success = false;
         bool cancelled = false;
+        // Disks this operation contends on (rotational or unknown type);
+        // heavyEverywhere when its paths are not known.
+        QSet<quint64> heavyDevices;
+        bool heavyEverywhere = false;
         QPointer<KJob> job;
         QPointer<QProcess> process;
     };
     QVector<Operation> m_operations;
+    void adoptOperation(const Operation &operation);
     QSet<int> m_cancelledOperations;
     QHash<int, QPointer<QTimer>> m_operationDismissTimers;
     int m_nextOperationId = 1;
+    int m_ioScopeRevision = 0;
+    void setOperationPaths(int id, const QStringList &localPaths);
     QVariantList m_kdeConnectDevices;
     bool m_kdeConnectAvailable = false;
     bool m_bluetoothAvailable = false;

@@ -88,6 +88,9 @@ Popup {
     // Gallery/DLNA views use this so the pause screen reuses data they already have.
     property var metadataForItem: null
     property var pauseMetadata: ({ state: "loading" })
+    // Lookups that found nothing (or failed) this session, by source path:
+    // pausing again shows that result instead of searching TMDB once more.
+    property var pauseLookupMisses: ({})
     property string pauseLookupSource: ""
     property real pendingResumePosition: -1
     property bool resumeAppliedForSource: false
@@ -167,7 +170,8 @@ Popup {
     // Keep small/medium sources at native size by default.  Stretching a
     // 720p clip across a large desktop makes it look much softer than it is.
     // The fit toggle lets the user explicitly allow upscaling.
-    property bool allowVideoUpscale: false
+    // false: fit the window (scaling up or down); true: native 1:1 pixels.
+    property bool nativeVideoScale: false
     // Vault previews use short-lived decrypted runtime files. Clear the media
     // source completely on close so reopening the same vault item creates a
     // fresh QMediaPlayer source instead of retaining a stopped/deleted URL.
@@ -208,8 +212,15 @@ Popup {
     })
     readonly property var frameMatchMediaPlayer: player
     readonly property real controlsOpacity: !controlsVisible ? 0.0 : 1.0
-    readonly property int sourceVideoWidth: Math.max(0, Math.round(videoOutput.sourceRect.width))
-    readonly property int sourceVideoHeight: Math.max(0, Math.round(videoOutput.sourceRect.height))
+    // Displayed size, rotation applied. sourceRect is the stored frame
+    // (1280×720 for a portrait phone video tagged "rotate 90"), so laying the
+    // viewport out from it stretched portrait videos into a landscape box.
+    property int displayVideoWidth: 0
+    property int displayVideoHeight: 0
+    readonly property int sourceVideoWidth: displayVideoWidth > 0 ? displayVideoWidth
+                                            : Math.max(0, Math.round(videoOutput.sourceRect.width))
+    readonly property int sourceVideoHeight: displayVideoHeight > 0 ? displayVideoHeight
+                                             : Math.max(0, Math.round(videoOutput.sourceRect.height))
     readonly property string sourceVideoResolution: sourceVideoWidth > 0 && sourceVideoHeight > 0
                                                     ? sourceVideoWidth + "×" + sourceVideoHeight : ""
 
@@ -800,14 +811,21 @@ Popup {
         }
 
         if (!metadataManager) {
+            // Opened from an ordinary folder: no TMDB lookup at all.
             pauseLookupSource = ""
-            pauseMetadata = ({ state: "loading", parsedTitle: String(currentItem.name || "") })
+            pauseMetadata = ({ state: "local", parsedTitle: String(currentItem.name || "") })
             return
         }
         const sourcePath = String(currentItem.tmdbSource || currentItem.path || currentItem.url || "")
         if (!sourcePath.length) {
             pauseLookupSource = ""
             pauseMetadata = ({ state: "error", parsedTitle: String(currentItem.name || "") })
+            return
+        }
+        const miss = pauseLookupMisses[sourcePath]
+        if (miss) {
+            pauseLookupSource = sourcePath
+            pauseMetadata = miss
             return
         }
         const language = String(metadataManager.preferredLanguage || "tr")
@@ -834,6 +852,12 @@ Popup {
         }
         pauseLookupSource = String(result && result.sourcePath ? result.sourcePath : sourcePath)
         pauseMetadata = result || ({ state: "loading", parsedTitle: String(currentItem.name || "") })
+        rememberPauseMiss(sourcePath, pauseMetadata)
+    }
+    function rememberPauseMiss(sourcePath, metadata) {
+        const state = String(metadata && metadata.state || "")
+        if (state === "unmatched" || state === "error" || state === "needs_token" || state === "missing_file")
+            pauseLookupMisses[String(sourcePath)] = metadata
     }
 
     function resumeKeyFor(item) {
@@ -1207,14 +1231,15 @@ Popup {
                 iconOpacity: control.enabled ? 0.96 : 0.42
             }
         }
-        background: GGlassPanel { nativeBlurEnabled: false;
-            sourceItem: videoScene
+        // Solid face: hover and press only recolour the border.
+        background: Rectangle {
             radius: 9
-            tintColor: control.down ? videoTheme.viewerGlassPressed
-                                     : (control.hovered ? videoTheme.viewerGlassHover
-                                                        : (control.emphasized ? videoTheme.viewerGlassEmphasis : videoTheme.viewerGlassSoft))
-            borderColor: control.hovered || control.emphasized ? videoTheme.accentBorder : videoTheme.viewerGlassBorderSoft
-            blurAmount: 0.46
+            color: control.emphasized ? videoTheme.accentSoft : videoTheme.viewerGlassSoft
+            border.width: 1
+            border.color: control.down || control.hovered ? videoTheme.accent
+                        : control.emphasized ? videoTheme.accentBorder : videoTheme.viewerGlassBorderSoft
+            antialiasing: true
+            Behavior on border.color { ColorAnimation { duration: 110 } }
         }
         GToolTip { colorTheme: videoTheme; text: control.toolTipText }
     }
@@ -1242,14 +1267,15 @@ Popup {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
-        background: GGlassPanel { nativeBlurEnabled: false;
-            sourceItem: videoScene
+        // Solid face: hover and press only recolour the border.
+        background: Rectangle {
             radius: 9
-            tintColor: textControl.down ? videoTheme.viewerGlassPressed
-                                         : (textControl.hovered ? videoTheme.viewerGlassHover
-                                                                : (textControl.emphasized ? videoTheme.viewerGlassEmphasis : videoTheme.viewerGlassSoft))
-            borderColor: textControl.hovered || textControl.emphasized ? videoTheme.accentBorder : videoTheme.viewerGlassBorderSoft
-            blurAmount: 0.46
+            color: textControl.emphasized ? videoTheme.accentSoft : videoTheme.viewerGlassSoft
+            border.width: 1
+            border.color: textControl.down || textControl.hovered ? videoTheme.accent
+                        : textControl.emphasized ? videoTheme.accentBorder : videoTheme.viewerGlassBorderSoft
+            antialiasing: true
+            Behavior on border.color { ColorAnimation { duration: 110 } }
         }
         GToolTip { colorTheme: videoTheme; text: textControl.toolTipText }
     }
@@ -1421,6 +1447,8 @@ Popup {
         }
     }
     onCurrentIndexChanged: {
+        displayVideoWidth = 0
+        displayVideoHeight = 0
         firstVideoFrameReady = false
         subtitleAiOpenAfterSources = false
         subtitleAiExistingSources = []
@@ -1443,13 +1471,17 @@ Popup {
         enabled: viewer.metadataManager !== null
         function onMetadataReady(filePath, metadata) {
             if (!viewer.currentItem) return
-            if (String(filePath || "") === String(viewer.pauseLookupSource || ""))
+            if (String(filePath || "") === String(viewer.pauseLookupSource || "")) {
                 viewer.pauseMetadata = viewer.withEpisodeDetails(metadata, viewer.currentItem)
+                viewer.rememberPauseMiss(filePath, viewer.pauseMetadata)
+            }
         }
         function onMetadataFailed(filePath, message) {
             if (!viewer.currentItem) return
-            if (String(filePath || "") === String(viewer.pauseLookupSource || ""))
+            if (String(filePath || "") === String(viewer.pauseLookupSource || "")) {
                 viewer.pauseMetadata = ({ state: "error", parsedTitle: String(viewer.currentItem.name || ""), message: message })
+                viewer.rememberPauseMiss(filePath, viewer.pauseMetadata)
+            }
         }
     }
 
@@ -1545,6 +1577,8 @@ Popup {
         Item {
             id: videoScene
             anchors.fill: parent
+            // Native 1:1 can be larger than the window; keep it inside.
+            clip: true
 
             Rectangle { anchors.fill: parent; color: videoTheme.viewerBackground }
 
@@ -1558,9 +1592,7 @@ Popup {
             readonly property real fitScale: nativeKnown
                                                ? Math.min(parent.width / nativeWidth, parent.height / nativeHeight)
                                                : 1.0
-            readonly property real renderScale: nativeKnown
-                                                  ? (viewer.allowVideoUpscale ? fitScale : Math.min(1.0, fitScale))
-                                                  : 1.0
+            readonly property real renderScale: nativeKnown ? (viewer.nativeVideoScale ? 1.0 : fitScale) : 1.0
 
             width: nativeKnown ? Math.max(1, nativeWidth * renderScale) : parent.width
             height: nativeKnown ? Math.max(1, nativeHeight * renderScale) : parent.height
@@ -1569,16 +1601,20 @@ Popup {
                 id: videoOutput
                 objectName: "videoOutput"
                 anchors.fill: parent
-                // The viewport already has the exact source aspect ratio, so
-                // no secondary stretch pass is needed here.
-                fillMode: VideoOutput.Stretch
+                // The viewport has the displayed aspect ratio; aspect fit keeps
+                // the picture undistorted even before the first frame is known.
+                fillMode: VideoOutput.PreserveAspectFit
             }
 
             Connections {
                 target: videoOutput.videoSink
                 function onVideoFrameChanged() {
-                    if (videoOutput.videoSink.videoSize.width > 0 && videoOutput.videoSink.videoSize.height > 0)
+                    const size = videoOutput.videoSink.videoSize
+                    if (size.width > 0 && size.height > 0) {
                         viewer.firstVideoFrameReady = true
+                        viewer.displayVideoWidth = size.width
+                        viewer.displayVideoHeight = size.height
+                    }
                 }
                 function onSubtitleTextChanged(text) {
                     // Flush late native cues as well as disabling the track;
@@ -1963,11 +1999,12 @@ Popup {
                     spacing: 6
                     ViewerIconButton {
                         iconName: "viewer-fit.svg"
-                        emphasized: viewer.allowVideoUpscale
+                        objectName: "videoScaleModeButton"
+                        emphasized: viewer.nativeVideoScale
                         toolTipText: viewer.lang.language === "tr"
-                                     ? (viewer.allowVideoUpscale ? "Doğal boyut / kalite" : "Ekrana büyüt")
-                                     : (viewer.allowVideoUpscale ? "Native size / quality" : "Scale to screen")
-                        onClicked: viewer.allowVideoUpscale = !viewer.allowVideoUpscale
+                                     ? (viewer.nativeVideoScale ? "Ekrana sığdır" : "Doğal boyut (1:1)")
+                                     : (viewer.nativeVideoScale ? "Fit to window" : "Native size (1:1)")
+                        onClicked: viewer.nativeVideoScale = !viewer.nativeVideoScale
                     }
                     ViewerIconButton { visible: viewer.currentItem && String(viewer.currentItem.parentPath || "").length > 0; iconName: "viewer-folder.svg"; toolTipText: viewer.lang.language === "tr" ? "Konumu aç" : "Open location"; onClicked: if (viewer.currentItem) { const p = viewer.currentItem.parentPath; viewer.close(); viewer.browseRequested(p) } }
                     ViewerIconButton { iconName: "viewer-external.svg"; toolTipText: viewer.lang.language === "tr" ? "Harici aç" : "Open externally"; onClicked: if (viewer.currentItem) videoOpenWith.openDefault(viewer.currentItem.url, "") }
@@ -2553,9 +2590,9 @@ Popup {
                     }
                     background: Rectangle {
                         radius: 8
-                        color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassHover)
+                        color: videoTheme.viewerGlassSoft
                         border.width: 1
-                        border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassHover
+                        border.color: parent.hovered || parent.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft
                     }
                     onClicked: viewer.openSubtitleAiGenerateDialog()
                 }
@@ -2578,9 +2615,9 @@ Popup {
                     }
                     background: Rectangle {
                         radius: 8
-                        color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassHover)
+                        color: videoTheme.viewerGlassSoft
                         border.width: 1
-                        border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassHover
+                        border.color: parent.hovered || parent.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft
                     }
                     onClicked: viewer.openSubtitleAiTranslateDialog()
                 }
@@ -2634,8 +2671,8 @@ Popup {
                         basePixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        radius: 8; color: parent.down ? videoTheme.viewerGlassBorderSoft : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft)
-                        border.width: 1; border.color: parent.hovered ? videoTheme.viewerGlassBorder : videoTheme.viewerGlassBorderSoft
+                        radius: 8; color: videoTheme.viewerGlassSoft
+                        border.width: 1; border.color: parent.hovered || parent.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft
                     }
                     onClicked: subtitleStyleFontPicker.close()
                 }
@@ -2743,9 +2780,9 @@ Popup {
                     }
                     background: Rectangle {
                         radius: 8
-                        color: parent.highlighted ? videoTheme.viewerGlassEmphasis : (parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft))
+                        color: parent.highlighted ? videoTheme.accentSoft : videoTheme.viewerGlassSoft
                         border.width: 1
-                        border.color: parent.highlighted ? videoTheme.accent : (parent.hovered ? videoTheme.viewerGlassBorder : videoTheme.viewerGlassBorderSoft)
+                        border.color: parent.highlighted || parent.hovered || parent.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft
                     }
                     onClicked: {
                         viewer.subtitleStyleFontCurrent = String(modelData)
@@ -2793,7 +2830,7 @@ Popup {
                 GButton { colorTheme: videoTheme;
                     implicitWidth: 34; implicitHeight: 30; padding: 0; text: "×"; flat: true
                     contentItem: GText { text: parent.text; baseColor: parent.hovered ? videoTheme.viewerText : videoTheme.viewerTextMuted; basePixelSize: 18; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                    background: Rectangle { radius: 8; color: parent.down ? videoTheme.viewerGlassBorderSoft : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.viewerGlassBorder : videoTheme.viewerGlassBorderSoft }
+                    background: Rectangle { radius: 8; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered || parent.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft }
                     onClicked: subtitleStylePopup.close()
                 }
             }
@@ -2874,14 +2911,14 @@ Popup {
                                 Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.subtitleColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
                                 GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                             }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleColor("subtitle", subtitleStyleManager.subtitleColor)
                         }
                         GButton { colorTheme: videoTheme;
                             Layout.fillWidth: true; implicitHeight: 42
                             text: subtitleStyleManager.subtitleFontFamily + " · " + subtitleStyleManager.subtitleFontSize + " px"
                             contentItem: GText { text: parent.text; baseColor: videoTheme.viewerText; baseFontFamily: subtitleStyleManager.subtitleFontFamily; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("subtitle", subtitleStyleManager.subtitleFontFamily)
                         }
                     }
@@ -2900,7 +2937,7 @@ Popup {
                             Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.backgroundColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
                             GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                         }
-                        background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                        background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                         onClicked: viewer.openSubtitleStyleColor("background", subtitleStyleManager.backgroundColor)
                     }
                     RowLayout {
@@ -2938,13 +2975,13 @@ Popup {
                                 Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.sdhColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
                                 GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                             }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleColor("sdh", subtitleStyleManager.sdhColor)
                         }
                         GButton { colorTheme: videoTheme;
                             Layout.fillWidth: true; implicitHeight: 42; text: subtitleStyleManager.sdhFontFamily + " · " + subtitleStyleManager.sdhFontSize + " px"
                             contentItem: GText { text: parent.text; baseColor: videoTheme.viewerText; baseFontFamily: subtitleStyleManager.sdhFontFamily; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("sdh", subtitleStyleManager.sdhFontFamily)
                         }
                     }
@@ -2964,13 +3001,13 @@ Popup {
                                 Rectangle { Layout.preferredWidth: 20; Layout.preferredHeight: 20; radius: 5; color: subtitleStyleManager.forcedColor; border.width: 1; border.color: videoTheme.viewerGlassBorder }
                                 GText { Layout.fillWidth: true; text: parent.parent.text; baseColor: videoTheme.viewerText; basePixelSize: 11; verticalAlignment: Text.AlignVCenter }
                             }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleColor("forced", subtitleStyleManager.forcedColor)
                         }
                         GButton { colorTheme: videoTheme;
                             Layout.fillWidth: true; implicitHeight: 42; text: subtitleStyleManager.forcedFontFamily + " · " + subtitleStyleManager.forcedFontSize + " px"
                             contentItem: GText { text: parent.text; baseColor: videoTheme.viewerText; baseFontFamily: subtitleStyleManager.forcedFontFamily; basePixelSize: 11; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered ? videoTheme.accent : videoTheme.viewerGlassBorder }
                             onClicked: viewer.openSubtitleStyleFont("forced", subtitleStyleManager.forcedFontFamily)
                         }
                     }
@@ -2993,7 +3030,7 @@ Popup {
                         GButton { colorTheme: videoTheme;
                             text: viewer.lang.language === "tr" ? "Varsayılana dön" : "Reset defaults"
                             contentItem: GText { text: parent.text; baseColor: videoTheme.viewerTextMuted; basePixelSize: 10; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                            background: Rectangle { radius: 9; color: parent.down ? videoTheme.viewerGlassPressed : (parent.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft); border.width: 1; border.color: videoTheme.viewerGlassBorderSoft }
+                            background: Rectangle { radius: 9; color: videoTheme.viewerGlassSoft; border.width: 1; border.color: parent.hovered || parent.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft }
                             onClicked: subtitleStyleManager.resetDefaults()
                         }
                     }
@@ -3066,9 +3103,9 @@ Popup {
                         }
                         background: Rectangle {
                             radius: 8
-                            color: subtitleAiMinimizeButton.down ? videoTheme.viewerGlassBorderSoft : (subtitleAiMinimizeButton.hovered ? videoTheme.viewerGlassHover : videoTheme.viewerGlassSoft)
+                            color: videoTheme.viewerGlassSoft
                             border.width: 1
-                            border.color: subtitleAiMinimizeButton.hovered ? videoTheme.viewerGlassBorder : videoTheme.viewerGlassBorderSoft
+                            border.color: subtitleAiMinimizeButton.hovered || subtitleAiMinimizeButton.down ? videoTheme.accent : videoTheme.viewerGlassBorderSoft
                         }
                         onClicked: viewer.minimizeSubtitleAiPanel()
                         ToolTip.visible: hovered

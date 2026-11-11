@@ -1208,6 +1208,54 @@ private slots:
         QCOMPARE(result.snapshots.value(root).totals.bytes, 20);
         QCOMPARE(result.fileStats, 10); // only the unfinished "todo" subtree
     }
+    // Moving thousands of search results touches thousands of directories at
+    // once. Those hints must stay per-directory: escalating to a full
+    // verification re-walked every cached tree (millions of entries) on the
+    // next launches.
+    void wideOperationsDoNotForceFullVerification()
+    {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/files", database = temp.path() + "/cache/index.sqlite";
+        const int folders = 5000;
+        QStringList paths;
+        for (int i = 0; i < folders; ++i) {
+            const auto file = root + "/d" + QString::number(i) + "/f";
+            write(file, 1);
+            paths << file;
+        }
+        {
+            DirectorySizeIndex index(database);
+            QObject reader;
+            index.retain(&reader, root);
+            index.request(root);
+            QVERIFY(wait(index, root, folders, 60000));
+            index.release(&reader);
+            write(root + "/d1234/f", 5);
+            QSignalSpy work(&index, &DirectorySizeIndex::workCompleted);
+            index.observePaths(paths);
+            QVERIFY(work.wait(30000));
+        }
+        const auto connection = QStringLiteral("wide-operation-fixture");
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection);
+            db.setDatabaseName(database);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.prepare("SELECT needs_verify FROM roots WHERE path=?"));
+            q.addBindValue(root);
+            QVERIFY(q.exec() && q.next());
+            QVERIFY2(q.value(0).toInt() < 2, "A wide operation forced a full verification walk");
+            q.finish();
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(connection);
+        // The hints alone still bring the changed directory up to date.
+        DirectorySizeIndex index(database);
+        QObject reader;
+        index.retain(&reader, root);
+        index.request(root);
+        QVERIFY(wait(index, root, folders + 4, 60000));
+    }
     void legacyFullVerificationFlagsDoNotWalkTrees()
     {
         QTemporaryDir temp;

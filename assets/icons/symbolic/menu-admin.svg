@@ -1,13 +1,4 @@
 <?xml version='1.0' encoding='utf-8'?>
-<svg data-lurviko-normalized="0.84" xmlns="http://www.w3.org/2000/svg" viewBox="2.476 2.476 19.048 19.048" width="24" height="24" color="#ffffff">
-  <defs id="defs3051">
-    <style type="text/css" id="current-color-scheme">
-      .ColorScheme-Text {
-        color:#ffffff;
-      }
-      </style>
-  </defs>
-  <g transform="translate(1,1)">
-    <path style="fill:currentColor;fill-opacity:1;stroke:none" d="M 11 3 C 6.568 3 3 6.568 3 11 C 3 15.432 6.568 19 11 19 C 15.432 19 19 15.432 19 11 C 19 6.568 15.432 3 11 3 z M 11 4 C 14.878 4 18 7.122 18 11 C 18 14.878 14.878 18 11 18 C 7.122 18 4 14.878 4 11 C 4 7.122 7.122 4 11 4 z M 11 6 A 2.0000021 2.0000014 0 0 0 9 8 L 9 10 L 7 10 L 7 15 L 15 15 L 15 10 L 13 10 L 13 8 A 2.0000021 2.0000014 0 0 0 11 6 z M 11 7 A 1 1 0 0 1 12 8 L 12 10 L 10 10 L 10 8 A 1 1 0 0 1 11 7 z M 8 11 L 9 11 L 10 11 L 12 11 L 13 11 L 14 11 L 14 14 L 8 14 L 8 11 z " class="ColorScheme-Text" />
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" color="#ffffff">
+  <path d="M3 5.75C3 5.33579 3.33579 5 3.75 5C6.41341 5 9.00797 4.05652 11.55 2.15C11.8167 1.95 12.1833 1.95 12.45 2.15C14.992 4.05652 17.5866 5 20.25 5C20.6642 5 21 5.33579 21 5.75V11C21 16.0012 18.0424 19.6757 12.2749 21.9478C12.0982 22.0174 11.9018 22.0174 11.7251 21.9478C5.95756 19.6757 3 16.0012 3 11V5.75ZM4.5 6.47793V11C4.5 15.2556 6.95337 18.3789 12 20.4419C17.0466 18.3789 19.5 15.2556 19.5 11V6.47793C16.9227 6.32585 14.4192 5.38829 12 3.67782C9.58084 5.38829 7.07735 6.32585 4.5 6.47793Z" fill="#ffffff" />
 </svg>

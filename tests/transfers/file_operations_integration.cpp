@@ -109,6 +109,28 @@ int main(int argc,char **argv) {
     require(!ops.cancelOperation(cancelId),"completed operation cannot cancel again");
     auto *lost=new ControlledJob; const int lostId=FileOperationsTestAccess::track(ops,lost); finished=false; delete lost;
     require(finished&&!success&&state(lostId).value("finished").toBool(),"job destroyed without result fails instead of hanging or assuming success");
+    {
+        // Going to Discover destroys the browser page and its FileOperations
+        // while KIO jobs keep running: the app-wide instance takes them over.
+        FileOperations app; app.setAdoptsOrphanedOperations(true);
+        bool adoptedFinished=false, adoptedSuccess=false;
+        QObject::connect(&app,&FileOperations::operationFinished,[&](bool ok,const QString&,bool,bool){adoptedFinished=true;adoptedSuccess=ok;});
+        ControlledJob orphan;
+        auto *page=new FileOperations;
+        FileOperationsTestAccess::track(*page,&orphan); orphan.progress();
+        require(app.activeOperationCountAll()>=1,"running jobs are counted across all instances");
+        delete page;
+        require(app.operations().size()==1,"app-wide instance adopts the running job of a destroyed page");
+        const auto adopted=app.operations().first().toMap();
+        require(!adopted.value("finished").toBool()&&adopted.value("processedBytes").toInt()==2000,"adopted job keeps its progress");
+        const int adoptedId=adopted.value("id").toInt();
+        require(app.toggleOperationPause(adoptedId)&&app.toggleOperationPause(adoptedId),"adopted job stays controllable");
+        require(app.activeOperationCount()==1,"adopted job counts as active");
+        orphan.complete(0);
+        require(adoptedFinished&&adoptedSuccess&&app.operations().first().toMap().value("finished").toBool(),"adopted job completes in the app-wide instance");
+        require(app.activeOperationCount()==0,"completed adopted job is no longer active");
+        app.setAdoptsOrphanedOperations(false);
+    }
     // Actual local KIO paths use the same tracker as remote jobs.
     QDir().mkpath(root+"/source"); QDir().mkpath(root+"/destination"); QDir().mkpath(root+"/moved");
     const QString source=root+"/source/item.txt", destination=root+"/destination"; write(source,"source data");

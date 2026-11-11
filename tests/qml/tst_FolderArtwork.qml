@@ -740,6 +740,12 @@ Item {
                     PreviewSettings.externalMaxKiB = 10
                     verify(!PreviewSettings.allows("/dev/photo.png", "png", "image/png", 11 * 1024))
                     verify(PreviewSettings.allows("/dev/photo.png", "png", "image/png", 10 * 1024))
+                    // Media category pages ignore the size limits, not the switches.
+                    verify(PreviewSettings.allows("/dev/song.mp3", "mp3", "audio/mpeg", 50 * 1024 * 1024, true))
+                    verify(!PreviewSettings.allows("/dev/song.mp3", "mp3", "audio/mpeg", 50 * 1024 * 1024))
+                    PreviewSettings.setKindEnabled("images", false)
+                    verify(!PreviewSettings.allows("/dev/photo.png", "png", "image/png", 1024, true))
+                    PreviewSettings.setKindEnabled("images", true)
                     verify(!PreviewSettings.allows("/tmp/empty", "", "application/octet-stream", 0),
                            "Empty files have nothing to preview")
                 } finally {
@@ -768,6 +774,38 @@ Item {
                     keyClick(Qt.Key_1); keyClick(Qt.Key_0); keyClick(Qt.Key_2); keyClick(Qt.Key_4)
                     keyClick(Qt.Key_Return)
                     compare(PreviewSettings.systemMaxKiB, 1024)
+
+                    // Arrows: a click steps 1 MiB and saves once on release.
+                    const up = findChild(dialog.contentItem, "systemPreviewLimitFieldUp")
+                    const down = findChild(dialog.contentItem, "systemPreviewLimitFieldDown")
+                    verify(up !== null && down !== null)
+                    // The arrow glyphs must have room: icon-button padding once
+                    // left a 22x16 button with a 0 px tall icon area.
+                    verify(up.availableWidth >= up.icon.width && up.availableHeight >= up.icon.height,
+                           "up arrow icon fits")
+                    verify(down.availableWidth >= down.icon.width && down.availableHeight >= down.icon.height,
+                           "down arrow icon fits")
+                    verify(String(up.icon.source).endsWith("up.svg") && String(down.icon.source).endsWith("down.svg"))
+                    mouseClick(up, up.width / 2, up.height / 2)
+                    compare(PreviewSettings.systemMaxKiB, 2048)
+                    mouseClick(down, down.width / 2, down.height / 2)
+                    mouseClick(down, down.width / 2, down.height / 2)
+                    compare(PreviewSettings.systemMaxKiB, 0)
+                    compare(field.text, "0")
+                    verify(!down.enabled, "0 means unlimited; it cannot go lower")
+                    // Holding repeats and accelerates; the value is saved on release.
+                    mousePress(up, up.width / 2, up.height / 2)
+                    tryVerify(function() { return Number(field.text) >= 10 * 1024 }, 3000)
+                    compare(PreviewSettings.systemMaxKiB, 0, "Not saved while held")
+                    mouseRelease(up, up.width / 2, up.height / 2)
+                    const held = Number(field.text)
+                    compare(PreviewSettings.systemMaxKiB, held)
+                    compare(held % 1024, 0)
+                    // Keyboard arrows in the field step and save as well.
+                    mouseClick(field, field.width / 2, field.height / 2)
+                    keyClick(Qt.Key_Down)
+                    compare(PreviewSettings.systemMaxKiB, held - 1024)
+
                     const scroll = findChild(dialog.contentItem, "settingsScroll")
                     scroll.contentY = Math.min(scroll.contentHeight - scroll.height,
                                                textSwitch.mapToItem(scroll.contentItem, 0, 0).y - scroll.height / 2)

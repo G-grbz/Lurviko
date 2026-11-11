@@ -298,8 +298,13 @@ ApplicationWindow {
     // Compare the glyph identity, not the URL's encoded color parameters.
     // Native MIME/application icons must instead retain their exact URL.
     const auto checkIcon = [&](QObject *entry, const QString &source) {
-        auto glyph = findView(qobject_cast<QQuickItem *>(entry), "menuActionIcon");
-        require(glyph && glyph->isVisible(), "context icon is visible beside its action");
+        // The menu can still be laying out its entries on a slow CI runner;
+        // wait for the glyph instead of sampling a single frame.
+        QQuickItem *glyph = nullptr;
+        require(until([&] {
+                    glyph = findView(qobject_cast<QQuickItem *>(entry), "menuActionIcon");
+                    return glyph && glyph->isVisible();
+                }), "context icon is visible beside its action");
         const QUrl actual = glyph->property("source").toUrl();
         if (source.startsWith("image://bundledicon/")) {
             const QString leaf = source.section('/', -1).section('|', 0, 0)
@@ -395,9 +400,20 @@ ApplicationWindow {
     evaluatePane("showContextMenu(itemContextMenu, root, 110, 115)");
     pause(260);
     require(evaluatePane("openWithModel.quickApps.some(app => app.name === 'Lurviko Menu Fixture')").toBool(), "Open With includes the installed desktop-file fixture");
-    auto appEntry = item(pane, paneContext,
-        "(function(){for(let i=0;i<openWithMenu.count;++i){const e=openWithMenu.itemAt(i);if(e.text.indexOf('Lurviko Menu Fixture')===0) return e;}return null;})()");
+    // Opening the submenu refreshes Open With (onAboutToShow), which can
+    // recreate the Instantiator's entries. Look the entry up only once the
+    // submenu is open; an entry found before that may already be detached.
     evaluatePane("openWithMenu.open()"); pause(220);
+    const char *appEntryLookup =
+        "(function(){for(let i=0;i<openWithMenu.count;++i){const e=openWithMenu.itemAt(i);if(e && e.text !== undefined && e.text.indexOf('Lurviko Menu Fixture')===0 && e.visible) return e;}return null;})()";
+    // Under load the first open() can be dropped while the parent menu is
+    // still settling; reopen until the submenu is actually shown.
+    require(until([&] {
+                if (!evaluatePane("openWithMenu.visible").toBool())
+                    evaluatePane("openWithMenu.open()");
+                return evaluatePane(appEntryLookup).value<QObject *>() != nullptr;
+            }), "Open With lists the installed desktop-file fixture once the submenu is open");
+    auto appEntry = item(pane, paneContext, appEntryLookup);
     checkIcon(appEntry, evaluatePane("AppTheme.systemIcon('accessories-text-editor')").toString());
     evaluatePane("openWithMenu.close(); applicationServiceMenu.open()"); pause(220);
     auto servicesModel = qobject_cast<ServiceMenuModel *>(item(pane, paneContext, "serviceMenuModel"));

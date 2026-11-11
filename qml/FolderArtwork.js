@@ -43,7 +43,8 @@ var vocabulary = {
 for (var type in vocabulary)
     for (var i = 0; i < vocabulary[type].length; ++i) typeWords[vocabulary[type][i]] = type
 
-var cache = new Map()
+// A null-prototype object: QML's Map searches linearly on every lookup.
+var cache = Object.create(null)
 var cacheKeys = []
 var cacheSlot = 0
 var cacheLimit = 512
@@ -57,7 +58,7 @@ function normalized(name) {
 
 function iconName(name) {
     var cacheKey = String(name || "")
-    if (cache.has(cacheKey)) return cache.get(cacheKey)
+    if (cacheKey in cache) return cache[cacheKey]
     var text = normalized(name)
     var words = text.split(/[^a-z0-9]+/).filter(function(word) { return word.length > 0 })
     var compact = words.join("")
@@ -105,10 +106,10 @@ function iconName(name) {
     var result = color + "-" + kind + ".svg"
     if (cacheKeys.length < cacheLimit) cacheKeys.push(cacheKey)
     else {
-        cache.delete(cacheKeys[cacheSlot])
+        delete cache[cacheKeys[cacheSlot]]
         cacheKeys[cacheSlot] = cacheKey
         cacheSlot = (cacheSlot + 1) % cacheLimit
     }
-    cache.set(cacheKey, result)
+    cache[cacheKey] = result
     return result
 }

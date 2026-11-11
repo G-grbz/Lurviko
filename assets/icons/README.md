@@ -36,4 +36,4 @@ source tree are updated to their grouped paths. Unrelated custom files are kept.
 
 After replacing artwork, run `./update-icons.sh` from the repository and restart
 Lurviko. The script refreshes files in all three folders, rebuilds and installs.
-Third-party attribution is in `assets/LICENSE-Fluent-icon-theme.txt` and `THIRD_PARTY.md`.
+Third-party attribution is in `assets/LICENSE-FluentUI.txt` and `THIRD_PARTY.md`.

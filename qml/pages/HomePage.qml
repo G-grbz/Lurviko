@@ -33,6 +33,11 @@ Item {
     property Item headerHost: null
     readonly property real tabStripHeight: homeHeader.tabStripHeight
     readonly property real headerHeight: homeHeader.headerHeight
+    // The shared navigation row only holds buttons above the sidebar here (no
+    // path bar or search), so Discover content starts beside them instead of
+    // below an empty strip. Main.qml raises the workspace column by this much.
+    readonly property real chromeOverlap: homeHeader.navigationHeight
+    readonly property real chromeButtonsExtent: homeHeader.navigationButtonsExtent
     readonly property Item activeTabSurface: homeHeader.activeTabSurface
     readonly property real activeTabScrollPosition: 0
     readonly property bool activeTabAdministrator: false
