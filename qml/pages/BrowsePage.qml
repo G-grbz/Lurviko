@@ -631,6 +631,9 @@ Item {
         switchToTab(tabs.length - 1)
     }
 
+    // Toolbar opener of the clipboard history (created by the command Repeater).
+    property Item clipboardHistoryButton: null
+
     function showToast(message) {
         toastLabel.text = page.lang.localizeMessage(message)
         toast.open()
@@ -656,6 +659,8 @@ Item {
         // This avoids overlapping enter/exit transitions after rapid switching.
         if (wheelSpeedPopup !== menu && wheelSpeedPopup.visible)
             wheelSpeedPopup.close()
+        if (clipboardHistoryPopup !== menu && clipboardHistoryPopup.visible)
+            clipboardHistoryPopup.close()
         if (hiddenFilesMenu !== menu && hiddenFilesMenu.visible)
             hiddenFilesMenu.requestClose()
         if (toolbarViewMenu !== menu && toolbarViewMenu.visible)
@@ -679,6 +684,7 @@ Item {
             { button: hiddenFilesButton, menu: hiddenFilesMenu },
             { button: viewButton, menu: toolbarViewMenu },
             { button: wheelSpeedButton, menu: wheelSpeedPopup },
+            { button: page.clipboardHistoryButton, menu: clipboardHistoryPopup },
             { button: directoryMenuButton, menu: directoryPopup },
             { button: active ? active.recentLocationsOpener : null, menu: recentPopup }
         ]
@@ -884,6 +890,10 @@ Item {
         popup: wheelSpeedPopup; opener: wheelSpeedButton
         onOutsideClickReleased: function(p) { page.recoverToolbarClick(p, wheelSpeedPopup) }
     }
+    GPopupDismissHandler {
+        popup: clipboardHistoryPopup; opener: page.clipboardHistoryButton
+        onOutsideClickReleased: function(p) { page.recoverToolbarClick(p, clipboardHistoryPopup) }
+    }
     Connections {
         target: page.activePane
         function onMenuOutsideClickReleased(position, sourcePopup) {
@@ -1049,6 +1059,177 @@ Item {
             text: lang.language === "tr" ? "Tüm ayarlar…" : "All settings…"
             icon.source: AppTheme.icon("settings.svg")
             onTriggered: settingsDialog.open()
+        }
+    }
+
+    // Copy/Cut history (ClipboardHistory). Picking an entry puts it back on
+    // the clipboard, so the next Paste uses it; a Cut entry stays a Cut.
+    Popup {
+        id: clipboardHistoryPopup
+        objectName: "clipboardHistoryPopup"
+        parent: page
+        property bool interactionOpen: false
+        readonly property bool turkish: page.lang.language === "tr"
+        function tr(turkishText, englishText) { return turkish ? turkishText : englishText }
+        function timeText(ms) {
+            const time = new Date(ms)
+            const now = new Date()
+            return time.toDateString() === now.toDateString()
+                ? Qt.formatTime(time, "HH:mm") : Qt.formatDateTime(time, "dd.MM HH:mm")
+        }
+        function itemsText(entry) {
+            const names = entry.names.join(", ")
+            const more = entry.count > entry.names.length ? ", …" : ""
+            return (entry.count === 1 ? "" : tr(entry.count + " öğe · ", entry.count + " items · ")) + names + more
+        }
+        function choose(entry) {
+            // Read before restoring: the entries list reorders right away.
+            const cut = entry.cut
+            if (!ClipboardHistory.restore(entry.id))
+                return
+            close()
+            page.showToast(cut
+                ? tr("Taşımak için panoya alındı", "Ready to move")
+                : tr("Panoya alındı", "Copied to clipboard"))
+        }
+        onAboutToShow: { interactionOpen = true; ClipboardHistory.refresh() }
+        onAboutToHide: interactionOpen = false
+        implicitWidth: 420
+        implicitHeight: Math.min(460, historyHeader.implicitHeight + 14 * 2 + 8
+                                 + (historyList.count > 0 ? historyList.contentHeight : emptyHistory.implicitHeight))
+        padding: 14
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+
+        background: GPopupSurface { popup: clipboardHistoryPopup }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+            RowLayout {
+                id: historyHeader
+                Layout.fillWidth: true
+                GText {
+                    Layout.fillWidth: true
+                    text: clipboardHistoryPopup.tr("Pano geçmişi", "Clipboard history")
+                    baseColor: AppTheme.text
+                    basePixelSize: 12
+                    baseBold: true
+                }
+                GButton {
+                    objectName: "clipboardHistoryClear"
+                    flat: true
+                    text: clipboardHistoryPopup.tr("Temizle", "Clear")
+                    basePixelSize: 11
+                    implicitHeight: 26
+                    topPadding: 2; bottomPadding: 2; leftPadding: 10; rightPadding: 10
+                    enabled: historyList.count > 0
+                    onClicked: ClipboardHistory.clear()
+                }
+            }
+            GText {
+                id: emptyHistory
+                visible: historyList.count === 0
+                Layout.fillWidth: true
+                text: clipboardHistoryPopup.tr("Henüz kopyalanan ya da kesilen dosya yok.",
+                                               "No copied or cut files yet.")
+                baseColor: AppTheme.textMuted
+                basePixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+            ListView {
+                id: historyList
+                objectName: "clipboardHistoryList"
+                visible: count > 0
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 4
+                boundsBehavior: Flickable.StopAtBounds
+                model: ClipboardHistory.entries
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: Rectangle {
+                    id: historyRow
+                    required property var modelData
+                    objectName: "clipboardHistoryEntry"
+                    width: ListView.view.width
+                    implicitHeight: rowLayout.implicitHeight + 14
+                    radius: 9
+                    color: rowMouse.containsMouse ? AppTheme.surfaceHover
+                         : modelData.current ? AppTheme.accentSoft : "transparent"
+                    border.width: modelData.current ? 1 : 0
+                    border.color: AppTheme.accentBorder
+                    MouseArea {
+                        id: rowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: clipboardHistoryPopup.choose(historyRow.modelData)
+                    }
+                    RowLayout {
+                        id: rowLayout
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 6
+                        spacing: 10
+                        CrispIcon {
+                            Layout.preferredWidth: 16
+                            Layout.preferredHeight: 16
+                            source: AppTheme.icon(historyRow.modelData.cut ? "edit-cut.svg" : "edit-copy.svg")
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                GText {
+                                    Layout.fillWidth: true
+                                    text: clipboardHistoryPopup.itemsText(historyRow.modelData)
+                                    baseColor: AppTheme.text
+                                    basePixelSize: 12
+                                    elide: Text.ElideRight
+                                }
+                                // A Cut entry moves its files when pasted.
+                                Rectangle {
+                                    visible: historyRow.modelData.cut
+                                    implicitWidth: cutLabel.implicitWidth + 10
+                                    implicitHeight: cutLabel.implicitHeight + 2
+                                    radius: 6
+                                    color: AppTheme.accentSoft
+                                    GText {
+                                        id: cutLabel
+                                        anchors.centerIn: parent
+                                        text: clipboardHistoryPopup.tr("Taşınacak", "Move")
+                                        baseColor: AppTheme.accent
+                                        basePixelSize: 10
+                                        baseBold: true
+                                    }
+                                }
+                            }
+                            GText {
+                                Layout.fillWidth: true
+                                text: historyRow.modelData.location
+                                      + (historyRow.modelData.mixed ? clipboardHistoryPopup.tr("  · çeşitli klasörler", "  · several folders") : "")
+                                      + "  ·  " + clipboardHistoryPopup.timeText(historyRow.modelData.timestamp)
+                                baseColor: AppTheme.textMuted
+                                basePixelSize: 11
+                                elide: Text.ElideMiddle
+                            }
+                        }
+                        GToolButton {
+                            objectName: "clipboardHistoryRemove"
+                            implicitWidth: 26; implicitHeight: 26
+                            leftPadding: 5; rightPadding: 5; topPadding: 5; bottomPadding: 5
+                            icon.source: AppTheme.icon("close-ui.svg")
+                            icon.width: 12; icon.height: 12
+                            Accessible.name: clipboardHistoryPopup.tr("Geçmişten kaldır", "Remove from history")
+                            onClicked: ClipboardHistory.remove(historyRow.modelData.id)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1623,22 +1804,38 @@ Item {
                         {key: "paste", icon: "edit-paste.svg", label: lang.t("paste")},
                         {key: "rename", icon: "edit-rename.svg", label: lang.t("rename")},
                         {key: "trash", icon: "delete.svg", label: lang.t("trash")},
+                        {key: "clipboard_history", icon: "clipboard.svg",
+                         label: lang.language === "tr" ? "Pano geçmişi" : "Clipboard history"},
                         {key: "properties", icon: "properties.svg", label: lang.t("properties")}
                     ]
                     delegate: GToolButton {
+                        id: commandButton
                         required property var modelData
+                        readonly property bool historyButton: modelData.key === "clipboard_history"
                         objectName: "command_" + modelData.key
-                        visible: !((commandControls.compactLevel >= 2 && (modelData.key === "rename" || modelData.key === "properties"))
+                        visible: !((commandControls.compactLevel >= 2 && (modelData.key === "rename" || modelData.key === "properties"
+                                                                          || historyButton))
                                    || (commandControls.compactLevel >= 3 && (modelData.key === "cut" || modelData.key === "copy")))
                         implicitWidth: 34; implicitHeight: commandControls.controlHeight
                         Layout.minimumWidth: implicitWidth
                         icon.source: AppTheme.icon(modelData.icon)
                         icon.width: 16; icon.height: 16
-                        enabled: modelData.key === "paste" ? page.activePane.canPasteHere
+                        enabled: historyButton ? ClipboardHistory.count > 0
+                                 : modelData.key === "paste" ? page.activePane.canPasteHere
                                  : page.activePane.selectedCount > 0
                         Accessible.name: modelData.label
-                        GToolTip { text: parent.modelData.label + page.activePane.shortcutSuffix(parent.modelData.key) }
-                        onClicked: page.runShortcutAction(modelData.key)
+                        GToolTip {
+                            text: parent.historyButton ? parent.modelData.label
+                                  : parent.modelData.label + page.activePane.shortcutSuffix(parent.modelData.key)
+                        }
+                        Component.onCompleted: if (historyButton) page.clipboardHistoryButton = commandButton
+                        onPressed: if (historyButton) page.prepareToolbarMenu(clipboardHistoryPopup)
+                        onClicked: {
+                            if (historyButton)
+                                page.openToolbarMenu(clipboardHistoryPopup, commandButton)
+                            else
+                                page.runShortcutAction(modelData.key)
+                        }
                     }
                 }
                 Item {

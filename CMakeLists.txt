@@ -153,6 +153,8 @@ qt_add_executable(lurviko
     src/cloudauthmanager.h
     src/previewsettings.cpp
     src/previewsettings.h
+    src/clipboardhistory.cpp
+    src/clipboardhistory.h
     src/storagehousekeeping.cpp
     src/storagehousekeeping.h
     src/thumbnailprovider.cpp

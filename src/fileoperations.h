@@ -186,6 +186,8 @@ private:
     void setOperationPaused(int id, bool paused);
     void finishOperation(int id, bool success, bool cancelled = false);
     void startOperationDismissTimer(int id);
+    // Removes this instance's clipboard-preparation cards, finished or not.
+    void dropClipboardOperations();
     void configureProgressJob(class KJob *job, bool needsManualRegistration = false);
     void refreshClipboardCache();
     void startArchiveCompression(const QStringList &sourceUrls, const QString &format, const QString &password);

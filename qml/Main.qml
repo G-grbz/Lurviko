@@ -217,11 +217,6 @@ ApplicationWindow {
         kioProgressEnabled: AppTheme.kioProgressEnabled
     }
     readonly property var allOperationSources: root.notificationSources.concat([appOperations])
-    readonly property int adoptedActiveCount: {
-        let count = 0
-        for (const op of appOperations.operations) if (!op.finished) ++count
-        return count
-    }
     // Set when the window was closed while jobs were still running: the
     // process stays (window hidden, progress in Plasma) and quits when done.
     property bool quitWhenOperationsFinish: false
@@ -1301,15 +1296,16 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         anchors.rightMargin: 26
         anchors.bottomMargin: 16
-        // Browser pages show their own jobs in the status bar; jobs adopted
-        // from a closed page are only here, so show the badge for them too.
-        visible: unifiedOperationPresentation.activeCount > 0 && (!root.browsingFiles || root.adoptedActiveCount > 0)
+        // Browser pages show the same shared presentation in their status bar,
+        // jobs adopted from a closed page included; a second badge here
+        // duplicated it after returning from Discover to a folder.
+        visible: unifiedOperationPresentation.activeCount > 0 && !root.browsingFiles
         implicitWidth: 48; implicitHeight: 24
         leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
         text: String(unifiedOperationPresentation.activeCount)
         basePixelSize: 10
         icon.width: 13; icon.height: 13
-        icon.source: AppTheme.icon(unifiedOperationPresentation.minimized ? "music-queue.svg" : "music-minimize.svg")
+        icon.source: AppTheme.icon(unifiedOperationPresentation.minimized ? "paste-queue.svg" : "music-minimize.svg")
         primary: unifiedOperationPresentation.minimized
         onClicked: unifiedOperationPresentation.toggle()
         GToolTip {

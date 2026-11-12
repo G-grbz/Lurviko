@@ -396,7 +396,8 @@ Item {
                 const savedIcons = AppTheme.useSystemIcons
                 try {
                     const artwork = {cut: "edit-cut.svg", copy: "edit-copy.svg", paste: "edit-paste.svg",
-                        rename: "edit-rename.svg", trash: "delete.svg", properties: "properties.svg"}
+                        rename: "edit-rename.svg", trash: "delete.svg",
+                        clipboard_history: "clipboard.svg", properties: "properties.svg"}
                     for (const mode of [false, true]) {
                         AppTheme.setSystemIcons(mode)
                         for (const key in artwork) {
@@ -408,6 +409,47 @@ Item {
                             verify(String(findChild(page, "browserRefreshButton").icon.source).indexOf("refresh.svg") >= 0)
                     }
                 } finally { AppTheme.setSystemIcons(savedIcons) }
+            }
+            function test_clipboard_history_button_and_popup() {
+                ClipboardHistory.clear()
+                const history = findChild(page, "command_clipboard_history")
+                const trash = findChild(page, "command_trash")
+                const properties = findChild(page, "command_properties")
+                verify(history !== null && history.visible)
+                // Placed between Trash and Properties, not beside Paste.
+                const left = history.mapToItem(page, 0, 0).x
+                verify(left > trash.mapToItem(page, 0, 0).x, "after Trash")
+                verify(left < properties.mapToItem(page, 0, 0).x, "before Properties")
+                verify(!history.enabled, "nothing to show yet")
+
+                const pane = page.activePane
+                tryVerify(function() { return !pane.directory.loading && pane.directory.count > 1 })
+                const entries = pane.directory.categoryEntries("")
+                pane.setSelectedUrls([entries[0].itemUrl, entries[1].itemUrl], 0, 0)
+                pane.copySelection()
+                tryVerify(function() { return ClipboardHistory.count === 1 }, 5000)
+                pane.setSelectedUrls([entries[0].itemUrl], 0, 0)
+                pane.cutSelection()
+                tryVerify(function() { return ClipboardHistory.count === 2 }, 5000)
+                tryCompare(history, "enabled", true)
+
+                const popup = findChild(page, "clipboardHistoryPopup")
+                mouseClick(history, history.width / 2, history.height / 2)
+                tryCompare(popup, "opened", true)
+                const list = findChild(popup.contentItem, "clipboardHistoryList")
+                tryCompare(list, "count", 2)
+                // Older Copy of two items: picking it makes Paste use it again.
+                // Entries are a live list: read the values before it reorders.
+                const copyId = ClipboardHistory.entries[1].id
+                compare(ClipboardHistory.entries[1].count, 2)
+                verify(!ClipboardHistory.entries[1].cut)
+                popup.choose(ClipboardHistory.entries[1])
+                tryCompare(popup, "visible", false)
+                tryVerify(function() { return !pane.fileOperations.clipboardCut && pane.fileOperations.clipboardUrls().length === 2 }, 5000)
+                compare(ClipboardHistory.entries[0].id, copyId)
+                compare(ClipboardHistory.count, 2)
+                ClipboardHistory.clear()
+                tryCompare(history, "enabled", false)
             }
             function test_discover_has_no_browser_header() {
                 window.showingBrowser = false

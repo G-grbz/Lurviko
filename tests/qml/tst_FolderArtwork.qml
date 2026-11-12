@@ -546,6 +546,8 @@ Item {
                     mouseClick(minimize, minimize.width / 2, minimize.height / 2)
                     tryCompare(cards, "visible", false)
                     verify(toggle.visible)
+                    verify(String(toggle.icon.source).indexOf("paste-queue.svg") >= 0,
+                           "minimized transfers use the paste queue glyph: " + toggle.icon.source)
                     mouseClick(toggle, toggle.width / 2, toggle.height / 2)
                     tryCompare(cards, "visible", true)
                     mouseClick(toggle, toggle.width / 2, toggle.height / 2)

@@ -1120,6 +1120,24 @@ void FileOperations::setOperationDismissPaused(int id, bool paused)
     startOperationDismissTimer(id);
 }
 
+void FileOperations::dropClipboardOperations()
+{
+    bool changed = false;
+    for (qsizetype index = m_operations.size() - 1; index >= 0; --index) {
+        if (m_operations.at(index).kind != QStringLiteral("clipboard"))
+            continue;
+        const int id = m_operations.at(index).id;
+        if (QTimer *timer = m_operationDismissTimers.take(id)) {
+            timer->stop();
+            timer->deleteLater();
+        }
+        m_operations.removeAt(index);
+        changed = true;
+    }
+    if (changed)
+        emit operationsChanged();
+}
+
 void FileOperations::dismissOperation(int id)
 {
     if (QTimer *timer = m_operationDismissTimers.take(id)) {
@@ -1748,8 +1766,11 @@ void FileOperations::copyToClipboard(const QStringList &sourceUrls, bool cut)
         return;
     }
 
-    if (m_clipboardPrepareActive && m_clipboardPrepareOperationId > 0)
-        finishOperation(m_clipboardPrepareOperationId, false);
+    // The clipboard holds only the latest Copy/Cut, so only its card matters.
+    // Drop earlier clipboard cards in every tab and pane instead of stacking
+    // them; one still being prepared is superseded, not shown as failed.
+    for (FileOperations *instance : std::as_const(liveFileOperations()))
+        instance->dropClipboardOperations();
 
     const int generation = ++m_clipboardGeneration;
     m_clipboardPrepareActive = true;

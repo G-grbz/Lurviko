@@ -7249,7 +7249,7 @@ Rectangle {
                     basePixelSize: 10
                     icon.width: 13; icon.height: 13
                     icon.source: AppTheme.icon(root.effectivePresentation && root.effectivePresentation.minimized
-                                               ? "music-queue.svg" : "music-minimize.svg")
+                                               ? "paste-queue.svg" : "music-minimize.svg")
                     primary: root.effectivePresentation && root.effectivePresentation.minimized
                     onClicked: if (root.effectivePresentation) root.effectivePresentation.toggle()
                     GToolTip {
@@ -8110,7 +8110,7 @@ Rectangle {
         GMenu {
             id: copyActionsMenu
             closePolicy: Popup.CloseOnEscape
-            icon.source: AppTheme.icon("clone.svg")
+            icon.source: AppTheme.icon("copy-actions.svg")
             title: lang.language === "tr" ? "Kopyalama Eylemleri" : "Copy Actions"
             enabled: root.selectedCount > 0 && root.submenuActivationReady
 

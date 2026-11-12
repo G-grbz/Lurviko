@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusVirtualObject>
@@ -15,6 +16,7 @@
 #include <functional>
 #include <unistd.h>
 #include "fileoperations.h"
+#include "clipboardhistory.h"
 #include "directorysizeindex.h"
 #include "archiveinspectionjob.h"
 #include "archiveoutput.h"
@@ -227,5 +229,102 @@ int main(int argc,char **argv) {
     require(ticks>10&&!state(inspectionId).value("finished").toBool(),"slow archive inspection never blocks GUI event loop");
     require(ops.cancelOperation(inspectionId)&&state(inspectionId).value("cancelled").toBool(),"inspection can be cancelled before any extraction write");
     pause(200); require(read(source)=="source data","inspection cancellation never writes to source/destination");
-    std::fprintf(stderr,"PASS: asynchronous KIO copy/move/duplicate/trash/restore/delete, skip/overwrite, errors, cancellation, counters, exclusive archive output and responsive inspection\n");
+    {
+        // The clipboard holds only the latest Copy/Cut: a new one replaces the
+        // previous card (in any pane) instead of stacking a second toast, and a
+        // superseded in-flight preparation is never shown as failed.
+        auto clipboardCards=[](const FileOperations &instance) {
+            QVariantList cards;
+            for(const auto &v:instance.operations()) if(v.toMap().value("kind").toString()=="clipboard") cards.push_back(v);
+            return cards; };
+        FileOperations otherPane; otherPane.setKioProgressEnabled(false);
+        ops.copyToClipboard({url(root+"/clip-a.txt")},false);
+        require(until([&]{ const auto c=clipboardCards(ops); return c.size()==1&&c.first().toMap().value("finished").toBool(); }),"first copy shows one clipboard card");
+        ops.copyToClipboard({url(root+"/clip-b.txt")},true);
+        require(until([&]{ const auto c=clipboardCards(ops); return c.size()==1&&c.first().toMap().value("finished").toBool(); }),"second cut replaces the first card");
+        require(clipboardCards(ops).first().toMap().value("success").toBool(),"replacement card reports success");
+        // Two requests back to back: the first is still being prepared.
+        ops.copyToClipboard({url(root+"/clip-c.txt")},false);
+        ops.copyToClipboard({url(root+"/clip-d.txt")},false);
+        require(clipboardCards(ops).size()==1,"a superseded preparation leaves no extra card");
+        require(until([&]{ const auto c=clipboardCards(ops); return c.size()==1&&c.first().toMap().value("finished").toBool(); }),"latest preparation finishes");
+        require(clipboardCards(ops).first().toMap().value("success").toBool(),"superseded preparation is not shown as failed");
+        require(ops.clipboardUrls()==QStringList{url(root+"/clip-d.txt")},"clipboard holds the latest selection");
+        otherPane.copyToClipboard({url(root+"/clip-e.txt")},false);
+        require(until([&]{ const auto c=clipboardCards(otherPane); return c.size()==1&&c.first().toMap().value("finished").toBool(); }),"other pane shows its copy");
+        require(clipboardCards(ops).isEmpty(),"a copy in another pane replaces this pane's clipboard card");
+    }
+    {
+        // Clipboard history: one entry per Copy/Cut, recorded from the system
+        // clipboard; deleted items drop out; restoring keeps Copy vs Cut.
+        ClipboardHistory &history=*ClipboardHistory::instance();
+        history.clear();
+        const int savedLimit=history.maxEntries();
+        auto top=[&]{ return history.entries().value(0).toMap(); };
+        const QString dir=root+"/history"; require(QDir().mkpath(dir+"/sub"),"history fixture folder");
+        for(const char *name:{"a.txt","b.txt","c.txt"}) write(dir+"/"+name,"x");
+        write(dir+"/sub/d.txt","x");
+        const QStringList three={url(dir+"/a.txt"),url(dir+"/b.txt"),url(dir+"/c.txt")};
+        ops.copyToClipboard(three,false);
+        require(until([&]{ return history.count()==1&&top().value("count").toInt()==3; }),"a Copy of three files is one history entry");
+        require(!top().value("cut").toBool()&&top().value("current").toBool(),"entry is a current Copy");
+        const QString shownDir=dir.startsWith(QDir::homePath()+"/")?"~"+dir.mid(QDir::homePath().size()):dir;
+        require(top().value("location").toString()==shownDir&&!top().value("mixed").toBool(),"entry shows where it was copied from, with ~ for home");
+        ops.copyToClipboard({url(dir+"/a.txt")},true);
+        require(until([&]{ return history.count()==2&&top().value("cut").toBool(); }),"a Cut is a separate entry");
+        ops.copyToClipboard({url(dir+"/a.txt"),url(dir+"/sub/d.txt")},false);
+        require(until([&]{ return history.count()==3&&top().value("mixed").toBool(); }),"items from several folders are marked");
+        ops.copyToClipboard(three,false);
+        require(until([&]{ return history.count()==3&&top().value("count").toInt()==3; }),"copying the same selection again moves its entry to the top");
+        // Restoring an older entry makes Paste use it, as Copy or as Cut.
+        int cutId=0; for(const auto &v:history.entries()) if(v.toMap().value("cut").toBool()) cutId=v.toMap().value("id").toInt();
+        require(cutId>0&&history.restore(cutId),"restore a Cut entry");
+        require(until([&]{ return ops.clipboardCut()&&ops.clipboardUrls()==QStringList{url(dir+"/a.txt")}; }),"restored Cut is on the clipboard as a Cut");
+        require(top().value("id").toInt()==cutId&&history.count()==3,"restored entry moves to the top without duplicating");
+        // Deleted files drop out; an entry with nothing left is removed.
+        require(QFile::remove(dir+"/b.txt"),"delete one copied file");
+        history.refresh();
+        require(until([&]{ for(const auto &v:history.entries()) if(!v.toMap().value("cut").toBool()&&!v.toMap().value("mixed").toBool()) return v.toMap().value("count").toInt()==2; return false; }),"a deleted file drops out of its entry");
+        require(QFile::remove(dir+"/a.txt"),"delete the cut file");
+        history.refresh();
+        require(until([&]{ for(const auto &v:history.entries()) if(v.toMap().value("cut").toBool()) return false; return !history.validating(); }),"an entry whose files are all gone is removed");
+        require(QDir(dir).removeRecursively(),"delete the source folder");
+        history.refresh();
+        require(until([&]{ return history.count()==0; }),"deleting the folder removes its entries");
+        // Remote and web URLs are not recorded; the size limit applies.
+        history.record({"smb://server/share/file.txt","gdrive:/file","https://example.com/page"},false);
+        require(history.count()==0,"remote and web URLs are not recorded");
+        history.setMaxEntries(5);
+        for(int i=0;i<7;++i) history.record({url(root+QString("/limit-%1.txt").arg(i))},false);
+        require(history.count()==5&&top().value("names").toStringList()==QStringList{"limit-6.txt"},"oldest entries drop beyond the limit");
+        history.setMaxEntries(1); require(history.maxEntries()==5,"limit is at least 5");
+        // Optional persistence: kept on disk (owner-only) only with
+        // clearOnExit off, restored by the next instance, removed when on.
+        require(history.clearOnExit(),"history is cleared on exit by default");
+        const QString saved=ClipboardHistory::storagePath();
+        QFile::remove(saved);
+        history.setClearOnExit(false);
+        history.record({url(root+"/kept.txt")},true);
+        require(until([&]{ return QFile::exists(saved)&&read(saved).contains("kept.txt"); }),"history is saved when kept");
+        require(QFileInfo(saved).permissions()==(QFileDevice::ReadOwner|QFileDevice::WriteOwner|QFileDevice::ReadUser|QFileDevice::WriteUser),
+                "saved history is readable by its owner only");
+        {
+            // Whatever is on the clipboard at startup is the newest entry; the
+            // saved ones follow in their saved order.
+            auto names=[](const QVariantList &entries) {
+                QStringList list; for(const auto &v:entries) list.push_back(v.toMap().value("names").toStringList().join(",")+(v.toMap().value("cut").toBool()?"[cut]":""));
+                return list; };
+            const QStringList expected=names(history.entries());
+            ClipboardHistory restored;
+            require(until([&]{ return names(restored.entries()).contains("kept.txt[cut]"); }),"next start restores the saved history");
+            const QStringList got=names(restored.entries());
+            const qsizetype start=got.indexOf("kept.txt[cut]");
+            require(got.mid(start)==expected.mid(0,got.size()-start),"restored entries keep their order and Cut");
+        }
+        history.setClearOnExit(true);
+        require(!QFile::exists(saved),"turning clearing back on removes the saved history");
+        history.setMaxEntries(savedLimit);
+        history.clear();
+    }
+    std::fprintf(stderr,"PASS: asynchronous KIO copy/move/duplicate/trash/restore/delete, skip/overwrite, errors, cancellation, counters, exclusive archive output, responsive inspection, a single clipboard card and clipboard history\n");
 }

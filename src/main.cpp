@@ -56,6 +56,7 @@
 #include "keyboardshortcutmanager.h"
 #include "cloudauthmanager.h"
 #include "previewsettings.h"
+#include "clipboardhistory.h"
 #include "storagehousekeeping.h"
 #include "thumbnailprovider.h"
 #include "bundlediconprovider.h"
@@ -453,6 +454,8 @@ int main(int argc, char *argv[])
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new DiskImageManager; });
 
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PreviewSettings", PreviewSettings::instance());
+    // App-wide: every browser page shows the same Copy/Cut history.
+    qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "ClipboardHistory", ClipboardHistory::instance());
     PlaybackResumeManager playbackResumeManager;
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PlaybackResumeManager", &playbackResumeManager);
     VideoPlayerInputManager videoPlayerInputManager;

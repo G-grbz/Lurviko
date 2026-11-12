@@ -1011,6 +1011,61 @@ GModalPopup {
                                 checked: AppTheme.openMusicInternally
                                 onToggledTo: function(value) { AppTheme.setOpenMusicInternally(value) }
                             }
+                            Item {
+                                objectName: "clipboardHistoryLimitSetting"
+                                property bool searchHidden: false
+                                property string searchKeywords: "pano clipboard geçmiş history kopyala copy kes cut"
+                                visible: !searchHidden
+                                Layout.fillWidth: true
+                                implicitHeight: Math.max(56, historyLabels.implicitHeight + 18)
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 12
+                                    anchors.rightMargin: 10
+                                    spacing: 12
+                                    ColumnLayout {
+                                        id: historyLabels
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        GText {
+                                            Layout.fillWidth: true
+                                            text: dialog.t("Pano geçmişinde tutulacak kayıt", "Clipboard history entries")
+                                            baseColor: AppTheme.text
+                                            basePixelSize: 13
+                                            wrapMode: Text.WordWrap
+                                        }
+                                        GText {
+                                            Layout.fillWidth: true
+                                            text: dialog.t("Her kopyala/kes tek kayıttır. Silinen dosyalar kayıttan çıkarılır.",
+                                                           "Each Copy/Cut is one entry. Deleted files drop out.")
+                                            baseColor: AppTheme.textMuted
+                                            basePixelSize: 11
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                    GSpinBox {
+                                        objectName: "clipboardHistoryLimitField"
+                                        from: 5
+                                        to: 100
+                                        stepSize: 5
+                                        editable: true
+                                        value: ClipboardHistory.maxEntries
+                                        onValueModified: ClipboardHistory.maxEntries = value
+                                        Layout.preferredWidth: 112
+                                        Accessible.name: dialog.t("Pano geçmişinde tutulacak kayıt", "Clipboard history entries")
+                                    }
+                                }
+                            }
+                            ToggleRow {
+                                objectName: "clipboardHistoryClearOnExitSetting"
+                                switchName: "clipboardHistoryClearOnExitSwitch"
+                                searchKeywords: "pano clipboard geçmiş history"
+                                text: dialog.t("Lurviko kapanınca pano geçmişini sil", "Clear clipboard history when Lurviko exits")
+                                description: dialog.t("Kapalıyken geçmiş, kopyalanan dosyaların yollarıyla birlikte diske kaydedilir ve sonraki açılışta geri gelir.",
+                                                      "When off, the history (with the paths of copied files) is saved to disk and restored next time.")
+                                checked: ClipboardHistory.clearOnExit
+                                onToggledTo: function(value) { ClipboardHistory.clearOnExit = value }
+                            }
                         }
 
                         // -- Confirmations --
