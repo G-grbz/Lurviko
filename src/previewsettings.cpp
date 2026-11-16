@@ -1,5 +1,6 @@
 #include "previewsettings.h"
 #include "directorysizestore_p.h"
+#include "thumbnailcache.h"
 
 #include <QDateTime>
 #include <QFileInfo>
@@ -19,7 +20,20 @@ const QStringList &allKinds()
         QStringLiteral("images"), QStringLiteral("svg"), QStringLiteral("video"),
         QStringLiteral("audio"), QStringLiteral("pdf"), QStringLiteral("print"),
         QStringLiteral("office"), QStringLiteral("ebooks"), QStringLiteral("comics"),
-        QStringLiteral("fonts"), QStringLiteral("text"), QStringLiteral("appimage")};
+        QStringLiteral("fonts"), QStringLiteral("text"), QStringLiteral("appimage"),
+        QStringLiteral("apk"), QStringLiteral("windows"), QStringLiteral("desktop"),
+        QStringLiteral("models")};
+    return kinds;
+}
+
+// Kinds added after the original set start switched off: they parse
+// third-party packages and executables, so users opt in from Settings.
+// Their state is stored as an opt-in list, independent of "disabledKinds".
+const QSet<QString> &optInKinds()
+{
+    static const QSet<QString> kinds = {
+        QStringLiteral("apk"), QStringLiteral("windows"), QStringLiteral("desktop"),
+        QStringLiteral("models")};
     return kinds;
 }
 
@@ -63,6 +77,8 @@ PreviewSettings::PreviewSettings(QObject *parent)
     m_externalMaxKiB = qMax(0, settings.value(QStringLiteral("externalMaxKiB"), 0).toInt());
     const QStringList disabled = settings.value(QStringLiteral("disabledKinds")).toStringList();
     m_disabledKinds = QSet<QString>(disabled.cbegin(), disabled.cend());
+    const QStringList enabled = settings.value(QStringLiteral("enabledKinds")).toStringList();
+    m_enabledOptInKinds = QSet<QString>(enabled.cbegin(), enabled.cend());
 }
 
 PreviewSettings *PreviewSettings::instance()
@@ -81,6 +97,9 @@ void PreviewSettings::save()
     QStringList disabled(m_disabledKinds.cbegin(), m_disabledKinds.cend());
     disabled.sort();
     settings.setValue(QStringLiteral("disabledKinds"), disabled);
+    QStringList enabled(m_enabledOptInKinds.cbegin(), m_enabledOptInKinds.cend());
+    enabled.sort();
+    settings.setValue(QStringLiteral("enabledKinds"), enabled);
 }
 
 void PreviewSettings::bump()
@@ -123,17 +142,30 @@ QStringList PreviewSettings::kinds() const
 
 bool PreviewSettings::kindEnabled(const QString &kind) const
 {
+    if (optInKinds().contains(kind))
+        return m_enabledOptInKinds.contains(kind);
     return !m_disabledKinds.contains(kind);
+}
+
+bool PreviewSettings::kindEnabledByDefault(const QString &kind) const
+{
+    return allKinds().contains(kind) && !optInKinds().contains(kind);
 }
 
 void PreviewSettings::setKindEnabled(const QString &kind, bool enabled)
 {
     if (!allKinds().contains(kind) || kindEnabled(kind) == enabled)
         return;
-    if (enabled)
+    if (optInKinds().contains(kind)) {
+        if (enabled)
+            m_enabledOptInKinds.insert(kind);
+        else
+            m_enabledOptInKinds.remove(kind);
+    } else if (enabled) {
         m_disabledKinds.remove(kind);
-    else
+    } else {
         m_disabledKinds.insert(kind);
+    }
     bump();
 }
 
@@ -194,6 +226,10 @@ bool PreviewSettings::allows(const QString &localPath, const QString &suffix,
 {
     if (!m_enabled || localPath.isEmpty())
         return false;
+    // Files inside a thumbnail repository are never previewed: each preview
+    // would be written into the folder being shown and re-trigger its listing.
+    if (ThumbnailCache::isInsideRepository(localPath))
+        return false;
     const QString kind = kindFor(suffix, mimeType);
     if (kind.isEmpty() || !kindEnabled(kind))
         return false;
@@ -235,9 +271,25 @@ QString PreviewSettings::kindFor(const QString &suffixValue, const QString &mime
         "tta", "weba", "tak"};
     static const QSet<QString> print = {"ps", "eps", "epsf", "epsi", "djvu", "djv"};
     static const QSet<QString> office = {
-        "odt", "ods", "odp", "odg", "odf", "ott", "ots", "otp", "otg", "fodt",
-        "docx", "docm", "dotx", "xlsx", "xlsm", "xltx", "pptx", "pptm", "potx", "ppsx"};
+        "odt", "ods", "odp", "odg", "odf", "odm", "ott", "ots", "otp", "otg", "fodt",
+        "sxw", "sxc", "sxi", "sxd",
+        "docx", "docm", "dotx", "dotm", "xlsx", "xlsm", "xltx", "xltm",
+        "pptx", "pptm", "potx", "potm", "ppsx", "ppsm", "pages", "numbers"};
     static const QSet<QString> fonts = {"ttf", "otf", "ttc", "otc", "woff", "woff2"};
+    static const QSet<QString> ebooks = {"epub", "fb2", "fbz", "mobi", "azw", "azw3", "prc"};
+    static const QSet<QString> ebookMimes = {
+        "application/epub+zip", "application/x-fictionbook+xml", "application/x-zip-compressed-fb2",
+        "application/x-mobipocket-ebook", "application/vnd.amazon.mobi8-ebook"};
+    static const QSet<QString> comics = {"cbz", "cbr", "cb7", "cbt"};
+    static const QSet<QString> comicMimes = {
+        "application/vnd.comicbook+zip", "application/vnd.comicbook-rar",
+        "application/x-cbr", "application/x-cb7", "application/x-cbt"};
+    static const QSet<QString> android = {"apk", "xapk", "apks", "apkm"};
+    static const QSet<QString> windows = {"exe", "dll", "cpl", "scr", "ocx"};
+    static const QSet<QString> windowsMimes = {
+        "application/x-ms-dos-executable", "application/x-msdownload", "application/x-ms-ne-executable",
+        "application/vnd.microsoft.portable-executable", "application/x-dosexec"};
+    static const QSet<QString> models = {"blend", "blend1", "3mf"};
 
     QString kind;
     if (suffix == QStringLiteral("svg") || suffix == QStringLiteral("svgz")
@@ -250,11 +302,20 @@ QString PreviewSettings::kindFor(const QString &suffixValue, const QString &mime
         kind = QStringLiteral("print");
     } else if (suffix == QStringLiteral("appimage") || mime.contains(QStringLiteral("appimage"))) {
         kind = QStringLiteral("appimage");
+    } else if (android.contains(suffix) || mime == QStringLiteral("application/vnd.android.package-archive")) {
+        kind = QStringLiteral("apk");
+    } else if (windows.contains(suffix) || windowsMimes.contains(mime)) {
+        kind = QStringLiteral("windows");
+    } else if (suffix == QStringLiteral("desktop") || mime == QStringLiteral("application/x-desktop")) {
+        kind = QStringLiteral("desktop");
+    } else if (models.contains(suffix) || mime == QStringLiteral("application/x-blender")
+               || mime == QStringLiteral("model/3mf")) {
+        kind = QStringLiteral("models");
     } else if (office.contains(suffix)) {
         kind = QStringLiteral("office");
-    } else if (suffix == QStringLiteral("epub") || mime == QStringLiteral("application/epub+zip")) {
+    } else if (ebooks.contains(suffix) || ebookMimes.contains(mime)) {
         kind = QStringLiteral("ebooks");
-    } else if (suffix == QStringLiteral("cbz") || mime == QStringLiteral("application/vnd.comicbook+zip")) {
+    } else if (comics.contains(suffix) || comicMimes.contains(mime)) {
         kind = QStringLiteral("comics");
     } else if (fonts.contains(suffix) || mime.startsWith(QStringLiteral("font/"))
                || mime == QStringLiteral("application/x-font-ttf")
@@ -275,8 +336,8 @@ QString PreviewSettings::kindFor(const QString &suffixValue, const QString &mime
 
     if (kind.isEmpty()) {
         if (needsContentSniffing(mime)) {
-            // Extension-less or unknown names (".gitignore", "README",
-            // "claude"…) are confirmed as text from their content later.
+            // Extension-less or unknown names (".gitignore", "README",)
+            // are confirmed as text from their content later.
             kind = QStringLiteral("text");
         } else {
             static const QMimeDatabase database;

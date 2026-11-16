@@ -21,6 +21,7 @@ class GitOperations : public QObject {
     Q_PROPERTY(QVariantMap tagInfo READ tagInfo NOTIFY detailsChanged)
     Q_PROPERTY(QVariantList operationSteps READ operationSteps NOTIFY changed)
     Q_PROPERTY(QString detailText READ detailText NOTIFY detailsChanged)
+    Q_PROPERTY(QString patchPreview READ patchPreview NOTIFY detailsChanged)
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString progress READ progress NOTIFY changed)
     Q_PROPERTY(QString lastCommit READ lastCommit NOTIFY changed)
@@ -39,6 +40,7 @@ public:
     QVariantMap tagInfo() const;
     QVariantList operationSteps() const;
     QString detailText() const;
+    QString patchPreview() const;
     QString error() const;
     QString progress() const;
     QString lastCommit() const;
@@ -58,6 +60,10 @@ public:
     Q_INVOKABLE void createTag(const QString& name, bool pushRemote = false);
     Q_INVOKABLE void pushTag(const QString& name);
     Q_INVOKABLE void setUpstream(const QString& remoteRef);
+    Q_INVOKABLE void exportPatch(const QUrl& target);
+    Q_INVOKABLE void checkPatch(const QUrl& file, bool index = false, bool threeWay = false);
+    Q_INVOKABLE void applyPatch(const QUrl& file, bool index = false, bool threeWay = false);
+    Q_INVOKABLE void clearPatchPreview();
     Q_INVOKABLE void openRemote();
     Q_INVOKABLE void cancel();
     static QUrl remoteWebUrl(const QString& remote);

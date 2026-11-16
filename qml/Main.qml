@@ -928,8 +928,14 @@ ApplicationWindow {
             // Read the outline's actual x/y explicitly so its geometry updates
             // on collapse, expand and restored compact startup without a tab click.
             const scroll = tabScrollPosition
+            // Nor does it track the tab's own slot: a new tab's delegate is
+            // created at x=0 and placed by its Row one polish later. Without
+            // this read the outline stayed on the first tab after "switch to
+            // newly opened tab" until the strip happened to scroll.
+            const slot = activeTab.parent
+            const placement = slot ? slot.x + slot.y : 0
             const scenePosition = activeTab.mapToItem(root.contentItem, 0, 0)
-            return Qt.point(scenePosition.x - activePageOutline.x + scroll * 0,
+            return Qt.point(scenePosition.x - activePageOutline.x + scroll * 0 + placement * 0,
                             scenePosition.y - activePageOutline.y)
         }
         readonly property real tabLeft: tabOrigin.x

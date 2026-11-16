@@ -30,6 +30,8 @@ class SourceUninstallTests(unittest.TestCase):
             '"${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" VERBATIM)\n'
             'install(FILES lurviko DESTINATION bin)\n'
             'install(FILES lurviko DESTINATION share/Lurviko/subtitle-ai RENAME worker.py)\n'
+            'install(FILES lurviko DESTINATION share/dbus-1/services '
+            'RENAME org.freedesktop.impl.portal.desktop.lurviko.service)\n'
         )
         result = self.run_cmake("-S", self.source, "-B", self.build)
         self.assertEqual(result.returncode, 0, result.stdout)
@@ -37,6 +39,9 @@ class SourceUninstallTests(unittest.TestCase):
     def run_cmake(self, *args, destdir=None):
         env = os.environ.copy()
         env.pop("DESTDIR", None)
+        # Never touch the real user's portal configuration.
+        env["XDG_CONFIG_HOME"] = str(self.base / "config")
+        env["LURVIKO_UNINSTALL_NO_PORTAL_RESTART"] = "1"
         if destdir is not None:
             env["DESTDIR"] = str(destdir)
         return subprocess.run(
@@ -69,6 +74,34 @@ class SourceUninstallTests(unittest.TestCase):
         self.assertEqual(personal.read_bytes(), b"encrypted personal content")
         self.assertEqual(unrelated.read_text(), "keep")
         self.assertEqual(self.uninstall().returncode, 0)
+
+    def test_uninstall_drops_lurviko_from_portal_choice(self):
+        portals = self.base / "config/xdg-desktop-portal"
+        portals.mkdir(parents=True)
+        created = portals / "kde-portals.conf"
+        created.write_text("# Created by Lurviko (Settings).\n[preferred]\n"
+                           "org.freedesktop.impl.portal.FileChooser=lurviko;kde\n")
+        owned = portals / "portals.conf"
+        owned.write_text("[preferred]\ndefault=kde\norg.freedesktop.impl.portal.FileChooser=lurviko;gtk\n"
+                         "org.freedesktop.impl.portal.Settings=kde\n")
+        env_script = self.base / "config/plasma-workspace/env/lurviko-file-dialogs.sh"
+        env_script.parent.mkdir(parents=True)
+        env_script.write_text("# Created by Lurviko (Settings).\nexport PLASMA_INTEGRATION_USE_PORTAL=1\n")
+        foreign_script = env_script.with_name("other.sh")
+        foreign_script.write_text("export X=1\n")
+        self.install()
+        result = self.uninstall()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(created.exists())
+        self.assertFalse(env_script.exists())
+        self.assertTrue(foreign_script.exists())
+        self.assertEqual(owned.read_text(), "[preferred]\ndefault=kde\n"
+                         "org.freedesktop.impl.portal.FileChooser=gtk\norg.freedesktop.impl.portal.Settings=kde\n")
+        only = "[preferred]\ndefault=kde\norg.freedesktop.impl.portal.FileChooser=lurviko\nx=1\n"
+        owned.write_text(only)
+        self.install()
+        self.assertEqual(self.uninstall().returncode, 0)
+        self.assertEqual(owned.read_text(), "[preferred]\ndefault=kde\nx=1\n")
 
     def test_destdir_does_not_touch_unstaged_paths_or_foreign_alias(self):
         unstaged = self.prefix / "bin/lurviko"

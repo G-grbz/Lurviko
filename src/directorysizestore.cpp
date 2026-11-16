@@ -980,6 +980,14 @@ public:
             s.complete = false;
             s.state = "unavailable";
             s.error = "Location is unavailable or its mounted filesystem changed.";
+        } else if (::access(QFile::encodeName(s.canonicalPath).constData(), R_OK | X_OK) != 0) {
+            // admin:///root is sized as the local /root, which this
+            // (unprivileged) process cannot list. That is a final answer, not
+            // a partial scan to retry: "cached" without totals kept the
+            // footer at an animated "…" and every request rescanned it.
+            s.complete = false;
+            s.state = "denied";
+            s.error = "Permission denied.";
         } else if (!s.complete)
             s.error = "Some directory contents could not be read.";
         s.checkedAt = QDateTime::currentDateTimeUtc();

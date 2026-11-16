@@ -6,6 +6,7 @@
 class ThumbnailProvider : public QQuickAsyncImageProvider
 {
 public:
+    ThumbnailProvider();
     // Shared with MPRIS: publish the same persisted artwork as file previews.
     static QString cachedFilePath(const QString &path);
     // Directory holding the persisted previews (PNG and ".miss" markers).

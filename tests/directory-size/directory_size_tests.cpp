@@ -11,6 +11,7 @@
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QScopeGuard>
 #include <QThread>
 #include <sys/stat.h>
 #include <sys/resource.h>
@@ -794,6 +795,42 @@ private slots:
         // still exists on disk must keep its contribution to the total.
         index.observePaths({ root + "/nested/peer" });
         QVERIFY(wait(index, root, 34));
+    }
+    void unreadableRootSettles()
+    {
+        // admin:///root is sized as the local /root, which an unprivileged
+        // process cannot list. The request must settle in a final state
+        // instead of rescanning (an endlessly animated "…" in the footer).
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/locked";
+        write(root + "/secret", 11);
+        QVERIFY(QFile::setPermissions(root, QFileDevice::Permissions()));
+        DirectorySizeIndex index(temp.path() + "/cache/index.sqlite");
+        index.retain(this, root);
+        index.setWatchedDirectories(this, {root});
+        int changes = 0;
+        connect(&index, &DirectorySizeIndex::snapshotChanged, this,
+                [&](const QString& path) { if (path == root) ++changes; });
+        index.request(root);
+        QTRY_VERIFY_WITH_TIMEOUT(!index.busy() && !index.snapshot(root).calculating, 10000);
+        const int settled = changes;
+        // What the footer does on every refresh/visibility change.
+        for (int i = 0; i < 5; ++i) {
+            index.request(root);
+            QTest::qWait(300);
+        }
+        const auto s = index.snapshot(root);
+        const auto restore = qScopeGuard([&] {
+            QFile::setPermissions(root, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+        });
+        QVERIFY(!s.calculating);
+        QCOMPARE(s.state, QString("denied"));
+        QVERIFY(!s.complete && !s.available);
+        QCOMPARE(changes, settled); // repeated footer requests do not rescan
+        index.request(root, true);  // an explicit refresh still re-checks
+        QTRY_VERIFY_WITH_TIMEOUT(!index.busy() && !index.snapshot(root).calculating, 10000);
+        QVERIFY(changes > settled);
+        QCOMPARE(index.snapshot(root).state, QString("denied"));
     }
     void unavailableRootAndRecovery()
     {

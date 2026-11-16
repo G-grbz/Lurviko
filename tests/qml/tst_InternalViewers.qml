@@ -160,6 +160,83 @@ Item {
                 tryVerify(function() { return photoViewer() === null }, 2000)
             }
 
+            function test_photo_fills_stage_and_zooms_around_a_fixed_point() {
+                AppTheme.setOpenImagesInternally(true)
+                const location = fixtures()
+                pane.navigateTo(location)
+                tryVerify(function() { return !pane.directory.loading && pane.directory.count === 2 }, 5000)
+                let landscape = null
+                for (const entry of pane.directory.categoryEntries("")) if (entry.name === "landscape.svg") landscape = entry
+                verify(pane.openMediaInternally(landscape.itemUrl, landscape.name, "image/svg+xml"))
+                const photo = photoViewer()
+                tryCompare(photo, "visible", true)
+                const flick = findChild(photo.contentItem, "photoFlick")
+                tryVerify(function() { return photo.pendingImageSlot < 0 && photo.displayWidth > 0 }, 3000)
+                // Fit uses the whole stage: one side touches the stage edges.
+                compare(flick.height, photo.contentItem.height)
+                verify(Math.abs(photo.displayWidth - flick.width) < 2 || Math.abs(photo.displayHeight - flick.height) < 2,
+                       photo.displayWidth + "x" + photo.displayHeight + " in " + flick.width + "x" + flick.height)
+                verify(!photo.zoomedIn)
+                verify(!findChild(photo.contentItem, "photoNavigator").visible)
+
+                // The picture point in the stage centre stays there.
+                function centreFraction() {
+                    return Qt.point((flick.contentX + flick.width / 2 - (flick.contentWidth - photo.displayWidth) / 2) / photo.displayWidth,
+                                    (flick.contentY + flick.height / 2 - (flick.contentHeight - photo.displayHeight) / 2) / photo.displayHeight)
+                }
+                for (let i = 0; i < 6; ++i) photo.zoomBy(1.15)
+                verify(photo.zoomedIn)
+                fuzzyCompare(centreFraction().x, 0.5, 0.01)
+                fuzzyCompare(centreFraction().y, 0.5, 0.01)
+                const navigator = findChild(photo.contentItem, "photoNavigator")
+                tryCompare(navigator, "visible", true)
+
+                // Zooming at a point keeps that picture point under it.
+                const px = flick.width * 0.25, py = flick.height * 0.3
+                const before = Qt.point((flick.contentX + px - (flick.contentWidth - photo.displayWidth) / 2) / photo.displayWidth,
+                                        (flick.contentY + py - (flick.contentHeight - photo.displayHeight) / 2) / photo.displayHeight)
+                photo.zoomBy(1.5, px, py)
+                fuzzyCompare((flick.contentX + px - (flick.contentWidth - photo.displayWidth) / 2) / photo.displayWidth, before.x, 0.01)
+                fuzzyCompare((flick.contentY + py - (flick.contentHeight - photo.displayHeight) / 2) / photo.displayHeight, before.y, 0.01)
+
+                // Up to 2000%, held buttons repeat.
+                photo.setZoom(100)
+                compare(photo.zoom, 20)
+                verify(findChild(photo.contentItem, "photoZoomIn").autoRepeat)
+                verify(findChild(photo.contentItem, "photoZoomOut").autoRepeat)
+
+                // The navigator moves the view; closing it fits the picture again.
+                // Pressing and dragging in the navigator pans continuously;
+                // the frame is carried from where it was grabbed.
+                const area = findChild(photo.contentItem, "photoNavigatorArea")
+                const frame = findChild(photo.contentItem, "photoNavigatorFrame")
+                tryVerify(function() { return area.width > 20 && area.height > 20 })
+                photo.centerOn(0, 0)
+                const grabX = frame.x + frame.width / 2, grabY = frame.y + frame.height / 2
+                mousePress(area, grabX, grabY)
+                compare(flick.contentX, 0, "grabbing the frame does not jump")
+                for (let step = 1; step <= 8; ++step)
+                    mouseMove(area, grabX + 6 * step, grabY + 4 * step, -1, Qt.LeftButton)
+                fuzzyCompare(frame.x + frame.width / 2, grabX + 48, 1.5)
+                verify(flick.contentX > 0)
+                mouseRelease(area, grabX + 48, grabY + 32)
+                // Compact thumbnail strip, centred and only as wide as needed.
+                const strip = findChild(photo.contentItem, "photoStripPanel")
+                compare(strip.height, 54)
+                verify(strip.width <= photo.contentItem.width - 36)
+                fuzzyCompare(strip.x + strip.width / 2, photo.contentItem.width / 2, 1)
+                photo.centerOn(0, 0)
+                compare(flick.contentX, 0)
+                photo.centerOn(photo.displayWidth, photo.displayHeight)
+                fuzzyCompare(flick.contentX, flick.contentWidth - flick.width, 1)
+                mouseClick(findChild(photo.contentItem, "photoNavigatorClose"))
+                compare(photo.zoom, 1)
+                verify(!photo.zoomedIn)
+                tryCompare(navigator, "visible", false)
+                photo.close()
+                tryVerify(function() { return photoViewer() === null }, 2000)
+            }
+
             function test_vector_render_size_and_unreadable_image() {
                 // Logical size: Qt Quick multiplies by the device pixel ratio
                 // itself; doing it twice made Qt reject large SVGs at 3x.

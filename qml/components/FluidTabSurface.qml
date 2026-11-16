@@ -45,6 +45,14 @@ Item {
     readonly property color outlineColor: dropTarget ? AppTheme.accent
         : administrator ? (AppTheme.useQtTheme ? AppTheme.tint(AppTheme.warning, AppTheme.qtActiveOutlineOpacity) : AppTheme.warning)
         : AppTheme.mix(AppTheme.border, AppTheme.activeTabOutline, selectionProgress)
+    // Inactive tabs keep their own contour at half the selected tab's
+    // strength, so the strip reads as one family of shapes.
+    readonly property color passiveOutlineColor: {
+        const full = administrator
+            ? (AppTheme.useQtTheme ? AppTheme.tint(AppTheme.warning, AppTheme.qtActiveOutlineOpacity) : AppTheme.warning)
+            : AppTheme.activeTabOutline
+        return Qt.rgba(full.r, full.g, full.b, full.a * 0.5)
+    }
     Component.onCompleted: animationReady = true
     Behavior on selectionProgress {
         enabled: surface.animationReady && surface.visible
@@ -171,36 +179,15 @@ Item {
         }
         Contour {
             fillColor: "transparent"
-            // Like Chrome / Windows 11, only the selected tab (and a drop
-            // target) is outlined. Inactive tabs are separated by a single
-            // divider; their own side outlines would double up at each joint.
+            // The selected tab's contour is drawn together with the page
+            // (Main.qml). Inactive tabs, separated by a small gap, carry a
+            // half-strength outline of their own.
             strokeColor: surface.pageOutlineJoined && surface.selected ? "transparent"
                     : surface.selected || surface.dropTarget || !surface.pageOutlineJoined ? surface.outlineColor
-                    : "transparent"
+                    : surface.passiveOutlineColor
             strokeWidth: surface.dropTarget ? 1.5 : surface.administrator ? 0.8 : 1
             // Keep the navigation join open, including during transitions.
             closeBottom: false
-        }
-    }
-
-    // Upper edge line for inactive tabs (they have no outline). A white
-    // gloss vanished on light themes; use a theme-aware edge colour instead.
-    readonly property color edgeColor: AppTheme.dark ? Qt.rgba(1, 1, 1, hovered ? 0.24 : 0.16)
-                                                     : (hovered ? AppTheme.mix(AppTheme.borderStrong, AppTheme.text, 0.15)
-                                                                : AppTheme.borderStrong)
-    Rectangle {
-        objectName: "fluidTabTopEdge"
-        visible: !surface.selected
-        x: surface.wing + surface.corner
-        y: surface.capTop
-        width: Math.max(0, surface.width - 2 * x)
-        height: 1
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 0.12; color: surface.edgeColor }
-            GradientStop { position: 0.88; color: surface.edgeColor }
-            GradientStop { position: 1; color: "transparent" }
         }
     }
 }

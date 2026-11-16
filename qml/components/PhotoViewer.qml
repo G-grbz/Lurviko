@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQuick.Effects
 import Lurviko.App
 import Lurviko.Backend
 
@@ -13,7 +14,10 @@ Popup {
     required property var lang
     property var files: []
     property int currentIndex: -1
+    // 1.0 fits the whole picture in the stage; up to 2000%.
     property real zoom: 1.0
+    readonly property real minZoom: 0.25
+    readonly property real maxZoom: 20.0
     property int rotationAngle: 0
     property bool slideshowRunning: false
     property int slideshowIntervalMs: 3500
@@ -69,6 +73,53 @@ Popup {
         const h = Math.max(1, height)
         const scale = Math.min(1, 4096 / (Math.max(w, h) * dpr))
         return Qt.size(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)))
+    }
+
+    // On-screen size of the picture (rotation included) and whether it is
+    // larger than the stage, which enables panning and the navigator.
+    readonly property bool quarterTurn: Math.abs(rotationAngle % 180) === 90
+    readonly property var activeImage: showingImageA ? imageA : imageB
+    // Computed from the aspect ratio rather than paintedWidth, which for SVGs
+    // only updates after the asynchronous re-render at the new size.
+    readonly property real imageAspect: activeImage.knownAspect
+    readonly property real boxWidth: activeImage.width
+    readonly property real boxHeight: activeImage.height
+    readonly property real paintedW: imageAspect <= 0 ? 0 : Math.min(boxWidth, boxHeight * imageAspect)
+    readonly property real paintedH: imageAspect <= 0 ? 0 : Math.min(boxHeight, boxWidth / imageAspect)
+    readonly property real displayWidth: quarterTurn ? paintedH : paintedW
+    readonly property real displayHeight: quarterTurn ? paintedW : paintedH
+    readonly property bool zoomedIn: displayWidth > photoFlick.width + 1 || displayHeight > photoFlick.height + 1
+
+    // Changes the zoom while the picture point under (viewportX, viewportY)
+    // stays put: the stage centre for buttons and keys, the pointer for the
+    // wheel. Without this the picture grew from its top-left corner and
+    // drifted off to the right.
+    function setZoom(value, viewportX, viewportY) {
+        const next = Math.max(minZoom, Math.min(maxZoom, value))
+        if (Math.abs(next - zoom) < 0.0001)
+            return
+        const vx = viewportX === undefined ? photoFlick.width / 2 : viewportX
+        const vy = viewportY === undefined ? photoFlick.height / 2 : viewportY
+        const oldWidth = Math.max(1, displayWidth)
+        const oldHeight = Math.max(1, displayHeight)
+        const fx = (photoFlick.contentX + vx - (photoFlick.contentWidth - oldWidth) / 2) / oldWidth
+        const fy = (photoFlick.contentY + vy - (photoFlick.contentHeight - oldHeight) / 2) / oldHeight
+        zoom = next
+        const width = displayWidth
+        const height = displayHeight
+        photoFlick.contentX = Math.max(0, Math.min(photoFlick.contentWidth - photoFlick.width,
+                                                   (photoFlick.contentWidth - width) / 2 + fx * width - vx))
+        photoFlick.contentY = Math.max(0, Math.min(photoFlick.contentHeight - photoFlick.height,
+                                                   (photoFlick.contentHeight - height) / 2 + fy * height - vy))
+    }
+    function zoomBy(factor, viewportX, viewportY) { setZoom(zoom * factor, viewportX, viewportY) }
+
+    // Scrolls so that (x, y) of the on-screen picture is in the stage centre.
+    function centerOn(x, y) {
+        photoFlick.contentX = Math.max(0, Math.min(photoFlick.contentWidth - photoFlick.width,
+                                                   (photoFlick.contentWidth - displayWidth) / 2 + x - photoFlick.width / 2))
+        photoFlick.contentY = Math.max(0, Math.min(photoFlick.contentHeight - photoFlick.height,
+                                                   (photoFlick.contentHeight - displayHeight) / 2 + y - photoFlick.height / 2))
     }
 
     readonly property bool imageFailed: pendingImageSlot < 0
@@ -415,8 +466,8 @@ Popup {
     Shortcut { sequences: KeyboardShortcuts.bindings["photo_next"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.next(true) }
     Shortcut { sequences: KeyboardShortcuts.bindings["fullscreen"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; context: Qt.ApplicationShortcut; onActivated: viewer.toggleViewerFullScreen() }
     Shortcut { sequences: KeyboardShortcuts.bindings["photo_slideshow"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.slideshowRunning = !viewer.slideshowRunning }
-    Shortcut { sequences: KeyboardShortcuts.bindings["photo_zoom_in"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.zoom = Math.min(5.0, viewer.zoom * 1.15) }
-    Shortcut { sequences: KeyboardShortcuts.bindings["photo_zoom_out"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.zoom = Math.max(0.25, viewer.zoom / 1.15) }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_zoom_in"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.zoomBy(1.15) }
+    Shortcut { sequences: KeyboardShortcuts.bindings["photo_zoom_out"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.zoomBy(1 / 1.15) }
     Shortcut { sequences: KeyboardShortcuts.bindings["photo_reset"]; enabled: viewer.visible && !KeyboardShortcuts.editorOpen; onActivated: viewer.resetView() }
 
     Item {
@@ -429,7 +480,19 @@ Popup {
             anchors.fill: parent
 
         // The backdrop is double-buffered together with the full-resolution
-        // image so the whole stage changes as one smooth frame.
+        // image so the whole stage changes as one smooth frame. It extends
+        // past the stage so the blur has no faded edges.
+        Item {
+            id: backdropLayer
+            anchors.fill: parent
+            anchors.margins: -72
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blur: 1.0
+                blurMax: 48
+                autoPaddingEnabled: false
+            }
         Image {
             id: backdropA
             anchors.fill: parent
@@ -452,6 +515,7 @@ Popup {
             smooth: true
             opacity: 0.0
         }
+        }
         Rectangle {
             anchors.fill: parent
             color: AppTheme.viewerScrim
@@ -459,31 +523,29 @@ Popup {
 
         Flickable {
             id: photoFlick
+            objectName: "photoFlick"
+            // The picture uses the whole stage, like other viewers; the
+            // controls float over it and fade out when idle.
             anchors.fill: parent
-            // In the window the picture fits between the top bar and the
-            // thumbnail strip instead of running underneath them. Full screen
-            // keeps the whole screen (its controls fade out).
-            anchors.topMargin: viewer.viewerFullScreen ? 0 : 74
-            anchors.bottomMargin: viewer.viewerFullScreen ? 0 : 104
             clip: true
-            interactive: viewer.zoom > 1.0
-            contentWidth: Math.max(width, imageHolder.width)
-            contentHeight: Math.max(height, imageHolder.height)
+            interactive: viewer.zoomedIn
+            contentWidth: Math.max(width, viewer.displayWidth)
+            contentHeight: Math.max(height, viewer.displayHeight)
             boundsBehavior: Flickable.StopAtBounds
 
-            HoverHandler { cursorShape: viewer.zoom > 1.0 ? Qt.OpenHandCursor : Qt.ArrowCursor }
+            HoverHandler { cursorShape: viewer.zoomedIn ? Qt.OpenHandCursor : Qt.ArrowCursor }
 
             Item {
                 id: imageHolder
-                width: Math.max(photoFlick.width, photoFlick.width * viewer.zoom)
-                height: Math.max(photoFlick.height, photoFlick.height * viewer.zoom)
+                width: photoFlick.contentWidth
+                height: photoFlick.contentHeight
 
                 Image {
                     id: imageA
                     objectName: "photoImageA"
                     anchors.centerIn: parent
-                    width: Math.max(80, photoFlick.width * 0.965 * viewer.zoom)
-                    height: Math.max(80, photoFlick.height * 0.94 * viewer.zoom)
+                    width: Math.max(80, (viewer.quarterTurn ? photoFlick.height : photoFlick.width) * viewer.zoom)
+                    height: Math.max(80, (viewer.quarterTurn ? photoFlick.width : photoFlick.height) * viewer.zoom)
                     // Vector images are rendered at their on-screen size (and
                     // again when zoomed); photos keep their full resolution.
                     readonly property bool vector: /\.svgz?$/i.test(String(source))
@@ -495,15 +557,23 @@ Popup {
                     smooth: true
                     mipmap: true
                     opacity: 1.0
-                    onStatusChanged: viewer.handleImageStatus(0, status)
+                    // Kept while an SVG re-renders at a new zoom (its implicit
+                    // size is 0 meanwhile); reset for a different file.
+                    property real knownAspect: 0
+                    onSourceChanged: knownAspect = 0
+                    onStatusChanged: {
+                        if (status === Image.Ready && implicitWidth > 0 && implicitHeight > 0)
+                            knownAspect = implicitWidth / implicitHeight
+                        viewer.handleImageStatus(0, status)
+                    }
                 }
 
                 Image {
                     id: imageB
                     objectName: "photoImageB"
                     anchors.centerIn: parent
-                    width: Math.max(80, photoFlick.width * 0.965 * viewer.zoom)
-                    height: Math.max(80, photoFlick.height * 0.94 * viewer.zoom)
+                    width: Math.max(80, (viewer.quarterTurn ? photoFlick.height : photoFlick.width) * viewer.zoom)
+                    height: Math.max(80, (viewer.quarterTurn ? photoFlick.width : photoFlick.height) * viewer.zoom)
                     // Vector images are rendered at their on-screen size (and
                     // again when zoomed); photos keep their full resolution.
                     readonly property bool vector: /\.svgz?$/i.test(String(source))
@@ -515,20 +585,18 @@ Popup {
                     smooth: true
                     mipmap: true
                     opacity: 0.0
-                    onStatusChanged: viewer.handleImageStatus(1, status)
+                    // Kept while an SVG re-renders at a new zoom (its implicit
+                    // size is 0 meanwhile); reset for a different file.
+                    property real knownAspect: 0
+                    onSourceChanged: knownAspect = 0
+                    onStatusChanged: {
+                        if (status === Image.Ready && implicitWidth > 0 && implicitHeight > 0)
+                            knownAspect = implicitWidth / implicitHeight
+                        viewer.handleImageStatus(1, status)
+                    }
                 }
             }
 
-            WheelHandler {
-                acceptedModifiers: Qt.NoModifier
-                onWheel: function(event) {
-                    if (event.angleDelta.y > 0)
-                        viewer.zoom = Math.min(5.0, viewer.zoom * 1.12)
-                    else
-                        viewer.zoom = Math.max(0.25, viewer.zoom / 1.12)
-                    event.accepted = true
-                }
-            }
         }
         }
 
@@ -557,8 +625,16 @@ Popup {
             acceptedButtons: Qt.NoButton
             // The pointer hides with the controls and returns on any motion.
             cursorShape: !viewer.controlsVisible ? Qt.BlankCursor
-                       : viewer.zoom > 1.0 ? Qt.OpenHandCursor : Qt.ArrowCursor
+                       : viewer.zoomedIn ? Qt.OpenHandCursor : Qt.ArrowCursor
             onPositionChanged: function(mouse) { viewer.handleStagePointerMotion(motionTracker, mouse.x, mouse.y) }
+            // The wheel zooms around the pointer (120 units ≈ one 20% step;
+            // touchpads send smaller steps for smooth zooming).
+            onWheel: function(wheel) {
+                const delta = wheel.angleDelta.y
+                if (delta === 0) { wheel.accepted = false; return }
+                const point = motionTracker.mapToItem(photoFlick, wheel.x, wheel.y)
+                viewer.zoomBy(Math.pow(1.0015, delta), point.x, point.y)
+            }
         }
 
         Rectangle {
@@ -736,7 +812,7 @@ Popup {
                 sourceItem: photoScene
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: stripPanel.top
-                anchors.bottomMargin: 12
+                anchors.bottomMargin: 10
                 height: Math.max(54, bottomTools.implicitHeight + 12)
                 width: bottomTools.implicitWidth + 18
                 radius: 13
@@ -747,12 +823,12 @@ Popup {
                     id: bottomTools
                     anchors.centerIn: parent
                     spacing: 6
-                    ViewerIconButton { iconName: "viewer-zoom-out.svg"; toolTipText: viewer.lang.language === "tr" ? "Uzaklaştır" : "Zoom out"; onClicked: viewer.zoom = Math.max(0.25, viewer.zoom / 1.18) }
+                    ViewerIconButton { objectName: "photoZoomOut"; iconName: "viewer-zoom-out.svg"; toolTipText: viewer.lang.language === "tr" ? "Uzaklaştır" : "Zoom out"; autoRepeat: true; autoRepeatDelay: 350; autoRepeatInterval: 60; onClicked: viewer.zoomBy(1 / 1.12) }
                     Rectangle {
                         width: 52; height: 34; radius: 8; color: AppTheme.viewerGlassSoft; border.width: 1; border.color: AppTheme.viewerGlassBorderSoft
                         GText { anchors.centerIn: parent; text: Math.round(viewer.zoom * 100) + "%"; baseColor: AppTheme.viewerText; basePixelSize: 9; baseFontWeight: Font.DemiBold }
                     }
-                    ViewerIconButton { iconName: "viewer-zoom-in.svg"; toolTipText: viewer.lang.language === "tr" ? "Yakınlaştır" : "Zoom in"; onClicked: viewer.zoom = Math.min(5.0, viewer.zoom * 1.18) }
+                    ViewerIconButton { objectName: "photoZoomIn"; iconName: "viewer-zoom-in.svg"; toolTipText: viewer.lang.language === "tr" ? "Yakınlaştır" : "Zoom in"; autoRepeat: true; autoRepeatDelay: 350; autoRepeatInterval: 60; onClicked: viewer.zoomBy(1.12) }
                     Rectangle { width: 1; height: 24; color: AppTheme.viewerGlassBorderSoft }
                     ViewerIconButton { iconName: viewer.slideshowRunning ? "viewer-pause.svg" : "viewer-play.svg"; toolTipText: viewer.lang.language === "tr" ? "Slayt gösterisi (Space)" : "Slideshow (Space)"; emphasized: viewer.slideshowRunning; onClicked: viewer.slideshowRunning = !viewer.slideshowRunning }
                 }
@@ -761,14 +837,14 @@ Popup {
             GGlassPanel {
                 id: stripPanel
                 sourceItem: photoScene
-                anchors.left: parent.left
-                anchors.right: parent.right
+                // Compact: only as wide as its thumbnails, centred.
+                anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
-                anchors.bottomMargin: 14
-                height: 76
-                radius: 12
+                anchors.bottomMargin: 10
+                width: Math.min(parent.width - 36, filmstrip.contentWidth + 2 * filmstrip.anchors.margins)
+                objectName: "photoStripPanel"
+                height: 54
+                radius: 11
                 tintColor: AppTheme.viewerGlassStrong
                 borderColor: AppTheme.viewerGlassBorder
                 clip: true
@@ -776,10 +852,11 @@ Popup {
 
                 ListView {
                     id: filmstrip
+                    objectName: "photoFilmstrip"
                     anchors.fill: parent
-                    anchors.margins: 7
+                    anchors.margins: 5
                     orientation: ListView.Horizontal
-                    spacing: 6
+                    spacing: 4
                     clip: true
                     model: viewer.files
                     boundsBehavior: Flickable.StopAtBounds
@@ -788,9 +865,9 @@ Popup {
                     delegate: Rectangle {
                         required property var modelData
                         required property int index
-                        width: 86
-                        height: 60
-                        radius: 8
+                        width: 62
+                        height: 44
+                        radius: 6
                         color: AppTheme.dark ? "#16000000" : "#12FFFFFF"
                         border.width: index === viewer.currentIndex ? 2 : 1
                         border.color: index === viewer.currentIndex ? AppTheme.accent : AppTheme.viewerGlassBorderSoft
@@ -802,12 +879,12 @@ Popup {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            sourceSize.width: 192
-                            sourceSize.height: 128
+                            sourceSize.width: 144
+                            sourceSize.height: 96
                         }
                         Rectangle {
                             anchors.fill: parent
-                            radius: 7
+                            radius: 5
                             color: mouse.containsMouse ? AppTheme.viewerGlassHover : "transparent"
                         }
                         MouseArea {
@@ -819,6 +896,112 @@ Popup {
                         }
                     }
                 }
+            }
+        }
+
+        // Navigator for a picture larger than the stage: the visible part is
+        // framed on a thumbnail and can be dragged; closing it fits the
+        // picture again.
+        GGlassPanel {
+            id: navigator
+            objectName: "photoNavigator"
+            sourceItem: photoScene
+            readonly property real thumbScale: Math.min(220 / Math.max(1, viewer.displayWidth),
+                                                        150 / Math.max(1, viewer.displayHeight))
+            readonly property real offsetX: (photoFlick.contentWidth - viewer.displayWidth) / 2
+            readonly property real offsetY: (photoFlick.contentHeight - viewer.displayHeight) / 2
+            visible: viewer.zoomedIn && !viewer.imageFailed
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 18
+            // Clear of the thumbnail strip; constant so it never moves mid-drag.
+            anchors.bottomMargin: 74
+            width: navigatorThumb.width + 16
+            height: navigatorThumb.height + 16
+            radius: 10
+            tintColor: AppTheme.viewerGlass
+            borderColor: AppTheme.viewerGlassBorder
+            HoverHandler { onHoveredChanged: if (hovered) viewer.revealControls() }
+
+            Item {
+                id: navigatorThumb
+                anchors.centerIn: parent
+                width: Math.max(1, Math.round(viewer.displayWidth * navigator.thumbScale))
+                height: Math.max(1, Math.round(viewer.displayHeight * navigator.thumbScale))
+                clip: true
+                Image {
+                    anchors.centerIn: parent
+                    width: viewer.quarterTurn ? parent.height : parent.width
+                    height: viewer.quarterTurn ? parent.width : parent.height
+                    rotation: viewer.rotationAngle
+                    source: navigator.visible && viewer.currentItem ? viewer.thumbSource(viewer.currentItem) : ""
+                    sourceSize.width: 320
+                    sourceSize.height: 320
+                    fillMode: Image.Stretch
+                    asynchronous: true
+                    cache: true
+                    smooth: true
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#66000000"
+                }
+                Rectangle {
+                    id: navigatorFrame
+                    objectName: "photoNavigatorFrame"
+                    readonly property real frameLeft: Math.max(0, photoFlick.contentX - navigator.offsetX)
+                    readonly property real frameTop: Math.max(0, photoFlick.contentY - navigator.offsetY)
+                    readonly property real frameRight: Math.min(viewer.displayWidth, photoFlick.contentX - navigator.offsetX + photoFlick.width)
+                    readonly property real frameBottom: Math.min(viewer.displayHeight, photoFlick.contentY - navigator.offsetY + photoFlick.height)
+                    x: frameLeft * navigator.thumbScale
+                    y: frameTop * navigator.thumbScale
+                    width: Math.max(4, (frameRight - frameLeft) * navigator.thumbScale)
+                    height: Math.max(4, (frameBottom - frameTop) * navigator.thumbScale)
+                    color: "#26FFFFFF"
+                    border.width: 2
+                    border.color: AppTheme.accent
+                    radius: 2
+                }
+                MouseArea {
+                    id: navigatorArea
+                    objectName: "photoNavigatorArea"
+                    anchors.fill: parent
+                    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.SizeAllCursor
+                    // Keeps the drag even if an ancestor (popup overlay)
+                    // would like to take the pointer over.
+                    preventStealing: true
+                    // Offset between the pointer and the frame centre: the
+                    // frame is carried from where it was grabbed instead of
+                    // jumping under the pointer.
+                    property real grabX: 0
+                    property real grabY: 0
+                    function follow(mouse) {
+                        viewer.centerOn((mouse.x - grabX) / navigator.thumbScale, (mouse.y - grabY) / navigator.thumbScale)
+                    }
+                    onPressed: function(mouse) {
+                        const inside = mouse.x >= navigatorFrame.x && mouse.x <= navigatorFrame.x + navigatorFrame.width
+                                    && mouse.y >= navigatorFrame.y && mouse.y <= navigatorFrame.y + navigatorFrame.height
+                        grabX = inside ? mouse.x - (navigatorFrame.x + navigatorFrame.width / 2) : 0
+                        grabY = inside ? mouse.y - (navigatorFrame.y + navigatorFrame.height / 2) : 0
+                        if (!inside)
+                            follow(mouse)
+                    }
+                    onPositionChanged: function(mouse) { if (navigatorArea.pressed) follow(mouse) }
+                    onWheel: function(wheel) {
+                        if (wheel.angleDelta.y !== 0) viewer.zoomBy(Math.pow(1.0015, wheel.angleDelta.y))
+                    }
+                }
+            }
+            ViewerIconButton {
+                objectName: "photoNavigatorClose"
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 4
+                width: 24
+                height: 24
+                iconName: "close-ui.svg"
+                toolTipText: viewer.lang.language === "tr" ? "Kapat ve sığdır" : "Close and fit"
+                onClicked: viewer.resetView()
             }
         }
     }

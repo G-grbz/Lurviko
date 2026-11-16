@@ -261,6 +261,8 @@ Available profiles: `default`, `wayland`, `wayland-opengl`, `x11`, `x11-opengl`,
 | PDF previews | `pdftoppm` from Poppler |
 | Archive creation / extraction | `bsdtar` from libarchive creates and safely extracts archives; `7z` from 7zip inspects entries for overwrite confirmation. Format support depends on libarchive; unsafe destination links are rejected. |
 | AppImage icon extraction | `unsquashfs` from squashfs-tools |
+| CBR comic covers | `unrar`, `7z` or `bsdtar` (CBZ, CB7 and CBT need nothing extra) |
+| APK, Windows program, `.desktop`, Blender and 3MF previews | Built in, no helper; off by default, enable them under Settings → File previews |
 | Additional image formats | Qt image-format plugins |
 | Administrator locations | `kio-admin` and a functioning Polkit agent |
 | Administrator file ownership and permissions | `polkit` (`pkexec`), a functioning Polkit agent, and the installed Lurviko access helper |

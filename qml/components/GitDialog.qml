@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
+import QtCore
 import Lurviko.App
 
 GModalPopup {
@@ -42,6 +44,36 @@ GModalPopup {
     function resultIcon(kind) {
         return kind === "success" ? "✓" : kind === "error" ? "✕" : kind === "warning" ? "!" : "ⓘ"
     }
+    function patchFileName() {
+        // Prefer the remote repository's name (…/owner/Lurviko → lurviko) over
+        // the local checkout folder, which is often named differently.
+        const web = String(info.webUrl || "").replace(/\/+$/, "")
+        const root = String(info.root || "")
+        const name = (web.substring(web.lastIndexOf("/") + 1) || root.substring(root.lastIndexOf("/") + 1) || "changes").toLowerCase()
+        const stamp = Qt.formatDateTime(new Date(), "yyyyMMdd-HHmm")
+        return name.replace(/[^A-Za-z0-9._-]+/g, "_") + "-" + stamp + ".patch"
+    }
+    function patchUrl() {
+        const value = patchPath.text.trim()
+        if (!value.length) return ""
+        if (value.startsWith("file://")) return value
+        return value.startsWith("/") ? "file://" + value.split("/").map(encodeURIComponent).join("/") : ""
+    }
+    function exportPatch() {
+        const folder = StandardPaths.writableLocation(StandardPaths.DownloadLocation)
+        // A fresh dialog per export: Qt's portal dialog appends every
+        // selectedFile and always suggests the first one, so a reused dialog
+        // would keep offering the first repository's name.
+        const picker = patchSaveDialogComponent.createObject(dialog, {
+            currentFolder: folder,
+            selectedFile: String(folder).replace(/\/$/, "") + "/" + encodeURIComponent(patchFileName())
+        })
+        picker.open()
+    }
+    readonly property string noticeText: working ? (controller.progress || (tr ? "Git işlemi sürüyor…" : "Git operation in progress…"))
+                                                  : resultMessage || (controller ? controller.error : "")
+    readonly property bool noticeShown: noticeText.length > 0 && (working || operationSteps.length === 0)
+    readonly property bool stepsShown: !working && operationSteps.length > 0
     readonly property int selectedCount: Object.keys(selected).length
     readonly property bool working: controller !== null && controller.busy
     readonly property var visibleChanges: {
@@ -68,6 +100,10 @@ GModalPopup {
         tagAfter.checked = false
         standalonePush.checked = false
         statusFilter.currentIndex = 0
+        patchPath.text = ""
+        patchStage.checked = false
+        patchThreeWay.checked = false
+        if (controller) controller.clearPatchPreview()
         changeMode(action === "commit" || action === "history" || action === "diff" ? action : "info")
         open()
         if (action === "sync") source.synchronize()
@@ -138,6 +174,7 @@ GModalPopup {
                     : dialog.mode === "compare" ? (dialog.tr ? "Dal karşılaştırması" : "Branch comparison")
                     : dialog.mode === "upstream" ? (dialog.tr ? "Upstream seç" : "Choose upstream")
                     : dialog.mode === "tags" ? (dialog.tr ? "Sürüm etiketleri" : "Version tags")
+                    : dialog.mode === "apply" ? (dialog.tr ? "Patch uygula" : "Apply patch")
                     : (dialog.tr ? "Git deposu" : "Git repository")
                 basePixelSize: 18; baseBold: true; baseColor: AppTheme.text
             }
@@ -154,39 +191,57 @@ GModalPopup {
             text: String(dialog.info.root || "")
             basePixelSize: 11; baseColor: AppTheme.textMuted; textFormat: Text.PlainText; elide: Text.ElideMiddle
         }
-        Rectangle {
+        // Git can report one line per failing file; keep that feedback inside
+        // the modal and let it scroll instead of pushing the content out.
+        ScrollView {
+            id: feedbackScroll
+            objectName: "gitFeedbackScroll"
             Layout.fillWidth: true
-            implicitHeight: notice.implicitHeight + 16
-            visible: notice.text.length > 0 && (dialog.working || dialog.operationSteps.length === 0)
-            radius: 9
-            color: AppTheme.surfaceRaised
-            GText {
-                id: notice
-                anchors.fill: parent; anchors.margins: 8
-                text: dialog.working ? (dialog.controller.progress || (dialog.tr ? "Git işlemi sürüyor…" : "Git operation in progress…"))
-                     : dialog.resultMessage || (dialog.controller ? dialog.controller.error : "")
-                textFormat: Text.PlainText; wrapMode: Text.Wrap
-                basePixelSize: 11
-                baseColor: !dialog.working && ((!dialog.resultMessage.length && dialog.controller !== null && dialog.controller.error.length) || !dialog.resultSuccess) ? AppTheme.danger
-                    : !dialog.working && dialog.resultMessage.length > 0 ? AppTheme.success : AppTheme.textMuted
-            }
-        }
-        ColumnLayout {
-            Layout.fillWidth: true
-            visible: !dialog.working && dialog.operationSteps.length > 0
-            spacing: 3
-            Repeater {
-                model: dialog.operationSteps
-                delegate: Rectangle {
-                    required property var modelData
+            Layout.preferredHeight: Math.min(feedbackColumn.implicitHeight, 132)
+            visible: dialog.noticeShown || dialog.stepsShown
+            clip: true
+            contentWidth: availableWidth
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ColumnLayout {
+                id: feedbackColumn
+                width: feedbackScroll.availableWidth
+                spacing: 3
+                Rectangle {
+                    id: noticeBox
                     Layout.fillWidth: true
-                    implicitHeight: stageMessage.implicitHeight + 12
-                    radius: 8
-                    color: AppTheme.tint(dialog.resultColor(modelData.kind), AppTheme.dark ? 0.15 : 0.08)
-                    RowLayout {
-                        anchors.fill: parent; anchors.margins: 6; spacing: 7
-                        GText { text: dialog.resultIcon(modelData.kind); baseBold: true; basePixelSize: 12; baseColor: dialog.resultColor(modelData.kind) }
-                        GText { id: stageMessage; Layout.fillWidth: true; text: modelData.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; basePixelSize: 11; baseColor: dialog.resultColor(modelData.kind) }
+                    implicitHeight: notice.implicitHeight + 16
+                    visible: dialog.noticeShown
+                    radius: 9
+                    color: AppTheme.surfaceRaised
+                    GText {
+                        id: notice
+                        anchors.fill: parent; anchors.margins: 8
+                        text: dialog.noticeText
+                        textFormat: Text.PlainText; wrapMode: Text.Wrap
+                        basePixelSize: 11
+                        baseColor: !dialog.working && ((!dialog.resultMessage.length && dialog.controller !== null && dialog.controller.error.length) || !dialog.resultSuccess) ? AppTheme.danger
+                            : !dialog.working && dialog.resultMessage.length > 0 ? AppTheme.success : AppTheme.textMuted
+                    }
+                }
+                ColumnLayout {
+                    id: stepsColumn
+                    Layout.fillWidth: true
+                    visible: dialog.stepsShown
+                    spacing: 3
+                    Repeater {
+                        model: dialog.operationSteps
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: stageMessage.implicitHeight + 12
+                            radius: 8
+                            color: AppTheme.tint(dialog.resultColor(modelData.kind), AppTheme.dark ? 0.15 : 0.08)
+                            RowLayout {
+                                anchors.fill: parent; anchors.margins: 6; spacing: 7
+                                GText { text: dialog.resultIcon(modelData.kind); baseBold: true; basePixelSize: 12; baseColor: dialog.resultColor(modelData.kind) }
+                                GText { id: stageMessage; Layout.fillWidth: true; text: modelData.message; textFormat: Text.PlainText; wrapMode: Text.Wrap; basePixelSize: 11; baseColor: dialog.resultColor(modelData.kind) }
+                            }
+                        }
                     }
                 }
             }
@@ -229,6 +284,7 @@ GModalPopup {
                 GModalButton { text: dialog.tr ? "Karşılaştır" : "Compare"; enabled: !dialog.working && !!dialog.info.upstream; onClicked: dialog.changeMode("compare") }
                 GModalButton { text: dialog.tr ? "Upstream seç…" : "Choose upstream…"; enabled: !dialog.working && !dialog.info.detached && !dialog.info.unborn; onClicked: dialog.changeMode("upstream") }
                 GModalButton { text: dialog.tr ? "Değişiklikler" : "Changes"; enabled: !dialog.working; onClicked: dialog.changeMode("diff") }
+                GModalButton { objectName: "gitApplyPatchAction"; text: dialog.tr ? "Patch uygula…" : "Apply patch…"; enabled: !dialog.working; onClicked: dialog.changeMode("apply") }
                 GModalButton { text: dialog.tr ? "Geçmiş" : "History"; enabled: !dialog.working; onClicked: dialog.changeMode("history") }
                 GModalButton { objectName: "gitTagsAction"; text: dialog.tr ? "Tag oluştur…" : "Create tag…"; enabled: !dialog.working && !dialog.info.unborn; onClicked: { independentTagName.text = ""; dialog.changeMode("tags") } }
                 GModalButton { text: dialog.tr ? "Uzak depoda aç" : "Open remote"; enabled: !!dialog.info.webUrl; onClicked: dialog.controller.openRemote() }
@@ -303,17 +359,66 @@ GModalPopup {
                 }
             }
         }
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: dialog.mode === "apply"
+            spacing: 8
+            GText {
+                Layout.fillWidth: true
+                text: dialog.tr ? "Dışarıdan alınan bir .patch/.diff dosyası bu deponun kök dizinine uygulanır. Patch önce kontrol edilir; temiz uygulanamıyorsa hiçbir dosya değiştirilmez. Commit oluşturulmaz."
+                                : "An external .patch/.diff file is applied at this repository's root. The patch is checked first; if it does not apply cleanly no file is changed. No commit is created."
+                wrapMode: Text.Wrap; basePixelSize: 12; baseColor: AppTheme.textMuted
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                GTextField {
+                    id: patchPath
+                    objectName: "gitPatchPath"
+                    Layout.fillWidth: true
+                    enabled: !dialog.working
+                    placeholderText: dialog.tr ? "Patch dosyası yolu…" : "Patch file path…"
+                    onTextEdited: if (dialog.controller) dialog.controller.clearPatchPreview()
+                    TextEditMenu { id: patchPathMenu; editor: patchPath; langManager: dialog.lang; positioningBounds: Overlay.overlay }
+                    EditorContextMenu { menu: patchPathMenu }
+                }
+                GModalButton {
+                    objectName: "gitChoosePatch"
+                    text: dialog.tr ? "Dosya seç…" : "Choose file…"
+                    enabled: !dialog.working
+                    onClicked: {
+                        patchOpenDialog.currentFolder = StandardPaths.writableLocation(StandardPaths.DownloadLocation)
+                        patchOpenDialog.open()
+                    }
+                }
+            }
+            GCheckBox {
+                id: patchStage; objectName: "gitPatchStage"
+                text: dialog.tr ? "Değişiklikleri stage et (index'e de uygula)" : "Stage the changes (also apply to the index)"
+                checked: false; enabled: !dialog.working && !patchThreeWay.checked
+                onCheckedChanged: if (dialog.controller) dialog.controller.clearPatchPreview()
+            }
+            GCheckBox {
+                id: patchThreeWay; objectName: "gitPatchThreeWay"
+                text: dialog.tr ? "Uymayan bölümleri 3-way birleştir (çakışma işaretleri bırakabilir)" : "Merge mismatched hunks 3-way (may leave conflict markers)"
+                checked: false; enabled: !dialog.working
+                onCheckedChanged: if (dialog.controller) dialog.controller.clearPatchPreview()
+            }
+        }
         ScrollView {
             Layout.fillWidth: true; Layout.fillHeight: true
-            visible: dialog.mode === "diff" || dialog.mode === "compare"
+            visible: dialog.mode === "diff" || dialog.mode === "compare" || dialog.mode === "apply"
             clip: true
             TextArea {
+                id: diffText
                 objectName: "gitDiffText"
-                text: dialog.controller ? dialog.controller.detailText : ""
+                text: !dialog.controller ? "" : dialog.mode === "apply" ? dialog.controller.patchPreview : dialog.controller.detailText
                 textFormat: TextEdit.PlainText; readOnly: true; selectByMouse: true; wrapMode: TextEdit.NoWrap
                 color: AppTheme.text; selectionColor: AppTheme.accent; selectedTextColor: AppTheme.highlightedText
+                readonly property alias applicationContextMenu: diffTextMenu
                 font.family: "monospace"; font.pixelSize: 12
                 background: Rectangle { color: AppTheme.surfaceRaised; radius: 9 }
+                TextEditMenu { id: diffTextMenu; objectName: "gitDiffTextMenu"; editor: diffText; langManager: dialog.lang; positioningBounds: Overlay.overlay }
+                EditorContextMenu { menu: diffTextMenu }
             }
         }
         ColumnLayout {
@@ -385,6 +490,8 @@ GModalPopup {
                     Layout.fillWidth: true
                     placeholderText: "v1.6.0"
                     enabled: !dialog.working
+                    TextEditMenu { id: independentTagNameMenu; editor: independentTagName; langManager: dialog.lang; positioningBounds: Overlay.overlay }
+                    EditorContextMenu { menu: independentTagNameMenu }
                 }
             }
             GCheckBox {
@@ -418,6 +525,8 @@ GModalPopup {
                     selectionColor: AppTheme.accent; selectedTextColor: AppTheme.highlightedText
                     font.family: AppTheme.typographyFamily("body"); font.pixelSize: AppTheme.typographySize("body", 12)
                     background: Rectangle { color: AppTheme.surfaceRaised; radius: 9; border.color: AppTheme.border }
+                    TextEditMenu { id: messageMenu; editor: messageInput; langManager: dialog.lang; positioningBounds: Overlay.overlay }
+                    EditorContextMenu { menu: messageMenu }
                 }
             }
             GCheckBox {
@@ -449,6 +558,8 @@ GModalPopup {
                     Layout.fillWidth: true
                     enabled: !dialog.working
                     placeholderText: "v1.6.0"
+                    TextEditMenu { id: commitTagNameMenu; editor: commitTagName; langManager: dialog.lang; positioningBounds: Overlay.overlay }
+                    EditorContextMenu { menu: commitTagNameMenu }
                 }
             }
             GText {
@@ -463,6 +574,27 @@ GModalPopup {
             Layout.fillWidth: true
             GText { visible: dialog.mode === "commit"; text: dialog.selectedCount + (dialog.tr ? " dosya seçili" : " files selected"); baseColor: AppTheme.textMuted; basePixelSize: 11 }
             Item { Layout.fillWidth: true }
+            GModalButton {
+                objectName: "gitExportPatch"
+                visible: dialog.mode === "diff"
+                text: dialog.tr ? "Patch olarak indir" : "Download as patch"
+                enabled: !dialog.working && dialog.controller !== null && !dialog.controller.loading
+                onClicked: dialog.exportPatch()
+            }
+            GModalButton {
+                objectName: "gitCheckPatch"
+                visible: dialog.mode === "apply"
+                text: dialog.tr ? "Kontrol et" : "Check"
+                enabled: !dialog.working && dialog.controller !== null && dialog.patchUrl().length > 0
+                onClicked: { dialog.resultMessage = ""; dialog.controller.checkPatch(dialog.patchUrl(), patchStage.checked, patchThreeWay.checked) }
+            }
+            GModalButton {
+                objectName: "gitApplyPatch"
+                visible: dialog.mode === "apply"; primary: true
+                text: dialog.tr ? "Patch'i uygula" : "Apply patch"
+                enabled: !dialog.working && dialog.controller !== null && dialog.controller.available && dialog.patchUrl().length > 0
+                onClicked: { dialog.resultMessage = ""; dialog.controller.applyPatch(dialog.patchUrl(), patchStage.checked, patchThreeWay.checked) }
+            }
             GModalButton { text: dialog.tr ? "İptal et" : "Cancel operation"; visible: dialog.working; onClicked: dialog.controller.cancel() }
             GModalButton { text: dialog.tr ? "Yenile" : "Refresh"; enabled: !dialog.working && dialog.controller !== null && !dialog.controller.loading; onClicked: { dialog.resultMessage = ""; dialog.controller.refresh(); dialog.changeMode(dialog.mode) } }
             GModalButton { text: dialog.tr ? "Kapat" : "Close"; enabled: !dialog.working; onClicked: dialog.close() }
@@ -475,6 +607,33 @@ GModalPopup {
                         && !(dialog.controller.tags || []).some(function(row) { return row.name === commitTagName.text })))
                 onClicked: dialog.controller.commit(Object.keys(dialog.selected), messageInput.text, pushAfter.checked, tagAfter.checked ? commitTagName.text : "")
             }
+        }
+    }
+    Component {
+        id: patchSaveDialogComponent
+        FileDialog {
+            objectName: "gitPatchSaveDialog"
+            title: dialog.tr ? "Değişiklikleri patch olarak kaydet" : "Save changes as patch"
+            fileMode: FileDialog.SaveFile
+            defaultSuffix: "patch"
+            nameFilters: [dialog.tr ? "Patch dosyaları (*.patch *.diff)" : "Patch files (*.patch *.diff)", dialog.tr ? "Tüm dosyalar (*)" : "All files (*)"]
+            onAccepted: {
+                if (dialog.controller) { dialog.resultMessage = ""; dialog.controller.exportPatch(selectedFile) }
+                destroy()
+            }
+            onRejected: destroy()
+        }
+    }
+    FileDialog {
+        id: patchOpenDialog
+        objectName: "gitPatchOpenDialog"
+        title: dialog.tr ? "Uygulanacak patch dosyasını seç" : "Choose a patch to apply"
+        fileMode: FileDialog.OpenFile
+        nameFilters: [dialog.tr ? "Patch dosyaları (*.patch *.diff)" : "Patch files (*.patch *.diff)", dialog.tr ? "Tüm dosyalar (*)" : "All files (*)"]
+        onAccepted: {
+            patchPath.text = decodeURIComponent(String(selectedFile).replace(/^file:\/\//, ""))
+            dialog.resultMessage = ""
+            if (dialog.controller) dialog.controller.checkPatch(dialog.patchUrl(), patchStage.checked, patchThreeWay.checked)
         }
     }
 }

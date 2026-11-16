@@ -39,6 +39,8 @@ public:
     int revision() const { return m_revision; }
 
     Q_INVOKABLE bool kindEnabled(const QString &kind) const;
+    // Newer kinds (APK, Windows programs, launchers, 3D models) are opt-in.
+    Q_INVOKABLE bool kindEnabledByDefault(const QString &kind) const;
     Q_INVOKABLE void setKindEnabled(const QString &kind, bool enabled);
     // ignoreSizeLimit: media category pages (images, music, videos) exist to
     // show artwork; covers and frames do not cost more for larger files.
@@ -65,6 +67,7 @@ private:
     int m_systemMaxKiB = 0;
     int m_externalMaxKiB = 0;
     QSet<QString> m_disabledKinds;
+    QSet<QString> m_enabledOptInKinds;
     int m_revision = 0;
     mutable QHash<QString, bool> m_externalByDirectory;
     // Mount points, longest first. QStorageInfo(path) re-reads the system

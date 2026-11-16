@@ -332,8 +332,9 @@ DirectoryModel::DirectoryModel(QObject *parent)
             m_refreshDeferredByHeavyIo = true;
             return;
         }
+        // Huge folders take long to list; coalesce their change bursts more.
         if (!m_localRefreshTimer.isActive())
-            m_localRefreshTimer.start(m_transferActive ? 1500 : 320); // also sets the interval
+            m_localRefreshTimer.start(m_transferActive || m_items.size() > 20000 ? 1500 : 320); // also sets the interval
     });
 
     // QFileSystemWatcher does not emit directoryChanged when an existing child
@@ -820,6 +821,71 @@ void DirectoryModel::setContentIndexSource(ContentIndexModel *source)
     emit contentIndexSourceChanged();
     if (m_location.scheme() == QStringLiteral("category"))
         refreshInternal(false);
+}
+
+bool DirectoryModel::EntryFilter::accepts(const QString &name, bool isDir, const QString &mimeType) const
+{
+    if (isDir)
+        return true;
+    if (directoriesOnly)
+        return false;
+    if (names.isEmpty() && mimes.isEmpty())
+        return true;
+    for (const QRegularExpression &glob : globs) {
+        if (glob.match(name).hasMatch())
+            return true;
+    }
+    if (!mimes.isEmpty() && !mimeType.isEmpty()) {
+        static const QMimeDatabase database;
+        const QMimeType type = database.mimeTypeForName(mimeType);
+        for (const QString &pattern : mimes) {
+            if (pattern == QStringLiteral("*/*") || pattern == QStringLiteral("*"))
+                return true;
+            if (pattern.endsWith(QStringLiteral("/*"))) {
+                if (mimeType.startsWith(pattern.chopped(1)))
+                    return true;
+            } else if (mimeType == pattern || (type.isValid() && type.inherits(pattern))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void DirectoryModel::setNameFilters(const QStringList &value)
+{
+    if (m_entryFilter.names == value)
+        return;
+    m_entryFilter.names = value;
+    m_entryFilter.globs.clear();
+    for (const QString &pattern : value) {
+        const QString trimmed = pattern.trimmed();
+        if (trimmed.isEmpty())
+            continue;
+        m_entryFilter.globs.append(QRegularExpression(
+            QRegularExpression::wildcardToRegularExpression(trimmed, QRegularExpression::NonPathWildcardConversion),
+            QRegularExpression::CaseInsensitiveOption));
+    }
+    emit entryFilterChanged();
+    refresh();
+}
+
+void DirectoryModel::setMimeFilters(const QStringList &value)
+{
+    if (m_entryFilter.mimes == value)
+        return;
+    m_entryFilter.mimes = value;
+    emit entryFilterChanged();
+    refresh();
+}
+
+void DirectoryModel::setDirectoriesOnly(bool value)
+{
+    if (m_entryFilter.directoriesOnly == value)
+        return;
+    m_entryFilter.directoriesOnly = value;
+    emit entryFilterChanged();
+    refresh();
 }
 
 void DirectoryModel::setShowHidden(bool value)
@@ -1871,8 +1937,21 @@ void DirectoryModel::loadLocal(bool incremental)
     // An option change can supersede the initial navigation worker. Its
     // replacement must also complete the loading state, not just update rows.
     incremental = incremental && !m_loading;
-    const int generation = ++m_localGeneration;
     const QString requestedPath = QDir::cleanPath(m_location.toLocalFile());
+    // A folder with 100 000s of entries takes seconds to list. Watcher
+    // refreshes arriving meanwhile (a mass delete, an extraction, a cache
+    // cleanup) must not start more full listings in parallel: each one holds
+    // its own copy of every entry and only the last result is ever used.
+    if (incremental && m_runningLocalGeneration == m_localGeneration
+            && m_runningLocalPath == requestedPath) {
+        m_localReloadPending = true;
+        return;
+    }
+    const int generation = ++m_localGeneration;
+    m_runningLocalGeneration = generation;
+    m_runningLocalPath = requestedPath;
+    if (!incremental)
+        m_localReloadPending = false;
     // Arm the directory watch before the asynchronous readdir. Otherwise a
     // file created after readdir but before the watcher is installed can be
     // absent until F5 (notably an output renamed into place by another app).
@@ -1902,6 +1981,10 @@ void DirectoryModel::loadLocal(bool incremental)
         watcher->deleteLater();
         if (generation != m_localGeneration)
             return;
+        m_runningLocalGeneration = 0;
+        // Changes seen while listing get one more (coalesced) pass.
+        if (std::exchange(m_localReloadPending, false))
+            requestRefresh();
 
         if (!result.error.isEmpty()) {
             setErrorString(result.error);
@@ -1936,7 +2019,9 @@ void DirectoryModel::loadLocal(bool incremental)
         emit refreshCompleted();
     });
 
-    watcher->setFuture(QtConcurrent::run([requestedPath, showHidden, collectFolderDetails, collectFolderPreviews]() -> LocalLoadResult {
+    const EntryFilter entryFilter = m_entryFilter;
+    watcher->setFuture(QtConcurrent::run([requestedPath, showHidden, collectFolderDetails, collectFolderPreviews,
+                                          entryFilter]() -> LocalLoadResult {
         LocalLoadResult result;
         QDir dir(requestedPath);
         if (!dir.exists()) {
@@ -1982,6 +2067,8 @@ void DirectoryModel::loadLocal(bool incremental)
                 ? mimeDb.mimeTypeForName(QStringLiteral("inode/directory"))
                 : mimeDb.mimeTypeForFile(fi, QMimeDatabase::MatchExtension);
             e.mimeType = mime.name();
+            if (entryFilter.active() && !entryFilter.accepts(e.name, e.isDir, e.mimeType))
+                continue;
             if (e.isDir) {
                 if (collectFolderDetails) {
                     QDir::Filters childFilters = QDir::AllEntries | QDir::NoDotAndDotDot;
@@ -2084,12 +2171,52 @@ void DirectoryModel::reconcileLocalEntries(QVector<Entry> target)
     const int oldCount = m_items.size();
     bool structureChanged = false;
 
-    // Remove paths that disappeared. Work backwards so existing indices remain
-    // valid and visible delegates not affected by the removal stay alive.
     QSet<QString> targetUrls;
     targetUrls.reserve(target.size());
     for (const Entry &entry : std::as_const(target))
         targetUrls.insert(entry.url.toString());
+
+    // Row-by-row updates keep visible delegates alive for the usual handful
+    // of changes, but every single-row removal/insertion costs O(rows) here
+    // and in each attached view. Removing 280 000 of 350 000 rows that way
+    // froze the GUI thread for minutes, so a bulk change is one reset.
+    {
+        QHash<QString, int> currentRows;
+        currentRows.reserve(m_items.size());
+        for (int row = 0; row < m_items.size(); ++row)
+            currentRows.insert(m_items.at(row).url.toString(), row);
+        qsizetype changes = 0;
+        for (const Entry &entry : std::as_const(target))
+            changes += !currentRows.contains(entry.url.toString());
+        for (const Entry &entry : std::as_const(m_items))
+            changes += !targetUrls.contains(entry.url.toString());
+        if (changes > qMax<qsizetype>(256, oldCount / 8)) {
+            // Carry over what the row path would have preserved.
+            for (Entry &desired : target) {
+                const auto found = currentRows.constFind(desired.url.toString());
+                if (found == currentRows.cend())
+                    continue;
+                const Entry &current = m_items.at(found.value());
+                if (desired.videoInfo.isEmpty())
+                    desired.videoInfo = current.videoInfo;
+                if (isVideoEntry(desired.mimeType, desired.suffix)) {
+                    desired.previewRevision = current.previewRevision.isEmpty()
+                        ? QString::number(current.modified.toMSecsSinceEpoch()) + '-' + QString::number(current.size)
+                        : current.previewRevision;
+                    if (current.size != desired.size || current.modified != desired.modified)
+                        schedulePreviewSettlement(desired.localPath);
+                }
+            }
+            beginResetModel();
+            m_items = std::move(target);
+            endResetModel();
+            emit countChanged();
+            return;
+        }
+    }
+
+    // Remove paths that disappeared. Work backwards so existing indices remain
+    // valid and visible delegates not affected by the removal stay alive.
 
     for (int row = m_items.size() - 1; row >= 0; --row) {
         if (targetUrls.contains(m_items.at(row).url.toString()))
@@ -2653,6 +2780,8 @@ void DirectoryModel::loadKio()
             if (!m_showHidden && e.hidden)
                 continue;
             e.mimeType = uds.stringValue(KIO::UDSEntry::UDS_MIME_TYPE);
+            if (m_entryFilter.active() && !m_entryFilter.accepts(name, e.isDir, e.mimeType))
+                continue;
             e.systemIconName = uds.stringValue(KIO::UDSEntry::UDS_ICON_NAME);
             if (e.systemIconName.isEmpty()) {
                 const QMimeType mime = mimeDb.mimeTypeForName(e.mimeType);

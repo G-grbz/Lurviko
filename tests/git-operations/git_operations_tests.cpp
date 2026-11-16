@@ -292,6 +292,103 @@ os.execv(real,[real]+args)
         QVERIFY(GitOperations::remoteWebUrl("ext::sh arbitrary").isEmpty());
         QCOMPARE(GitOperations::remoteWebUrl("git@[2001:db8::1]:team/repo.git").toString(), QString("https://[2001:db8::1]/team/repo"));
     }
+    void exportPatchCoversAllChangesWithoutTouchingIndex() {
+        Fixture f;
+        writeFile(f.local + "/one.txt", "one\nunstaged\n");
+        writeFile(f.local + "/staged.txt", "staged\n"); command(f.local, {"add", "staged.txt"});
+        writeFile(f.local + "/untracked ı.txt", "untracked\n");
+        writeFile(f.local + "/binary.bin", QByteArray("\0\1\2", 3));
+        QVERIFY(QFile::remove(f.local + "/two.txt"));
+        const auto indexBefore = command(f.local, {"ls-files", "-s"});
+        const auto statusBefore = command(f.local, {"status", "--porcelain"});
+        GitOperations api; api.setContext(f.local);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        const auto target = f.temp.path() + "/out/changes.patch"; QDir().mkpath(f.temp.path() + "/out");
+        QSignalSpy result(&api, &GitOperations::operationFinished);
+        api.exportPatch(QUrl::fromLocalFile(target));
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), 1, 15000);
+        QVERIFY2(result.last().at(1).toBool(), qPrintable(result.last().at(2).toString()));
+        QCOMPARE(result.last().at(0).toString(), QString("export-patch"));
+        QCOMPARE(command(f.local, {"ls-files", "-s"}), indexBefore);
+        QCOMPARE(command(f.local, {"status", "--porcelain"}), statusBefore);
+        const auto patch = readFile(target);
+        QVERIFY(patch.contains("+unstaged")); QVERIFY(patch.contains("+staged")); QVERIFY(patch.contains("+untracked"));
+        QVERIFY(patch.contains("deleted file mode")); QVERIFY(patch.contains("GIT binary patch"));
+        // The patch reproduces the working copy on a clean clone.
+        const auto clean = f.temp.path() + "/clean";
+        command(f.temp.path(), {"clone", "-q", f.remote, clean});
+        command(clean, {"apply", "--index", target});
+        QCOMPARE(readFile(clean + "/one.txt"), QByteArray("one\nunstaged\n"));
+        QCOMPARE(readFile(clean + "/untracked ı.txt"), QByteArray("untracked\n"));
+        QCOMPARE(readFile(clean + "/binary.bin"), QByteArray("\0\1\2", 3));
+        QVERIFY(!QFile::exists(clean + "/two.txt"));
+        // A clean tree reports an error instead of writing an empty file.
+        GitOperations peer; peer.setContext(f.peer);
+        QTRY_VERIFY_WITH_TIMEOUT(peer.available() && !peer.loading(), 10000);
+        QSignalSpy empty(&peer, &GitOperations::operationFinished);
+        const auto none = f.temp.path() + "/out/none.patch";
+        peer.exportPatch(QUrl::fromLocalFile(none));
+        QTRY_COMPARE_WITH_TIMEOUT(empty.size(), 1, 15000);
+        QVERIFY(!empty.last().at(1).toBool()); QVERIFY(!QFile::exists(none));
+    }
+    void externalPatchIsCheckedThenAppliedAtomically() {
+        Fixture f;
+        writeFile(f.local + "/one.txt", "one\npatched\n");
+        writeFile(f.local + "/added ı.txt", "added\n");
+        QVERIFY(QFile::remove(f.local + "/two.txt"));
+        const auto patch = f.temp.path() + "/external.patch";
+        {
+            GitOperations source; source.setContext(f.local);
+            QTRY_VERIFY_WITH_TIMEOUT(source.available() && !source.loading(), 10000);
+            QSignalSpy exported(&source, &GitOperations::operationFinished);
+            source.exportPatch(QUrl::fromLocalFile(patch));
+            QTRY_COMPARE_WITH_TIMEOUT(exported.size(), 1, 15000);
+            QVERIFY2(exported.last().at(1).toBool(), qPrintable(exported.last().at(2).toString()));
+        }
+        GitOperations api; api.setContext(f.peer);
+        QTRY_VERIFY_WITH_TIMEOUT(api.available() && !api.loading(), 10000);
+        QSignalSpy result(&api, &GitOperations::operationFinished);
+
+        // Not a patch: rejected with nothing changed.
+        const auto bogus = f.temp.path() + "/bogus.patch"; writeFile(bogus, "hello\n");
+        api.checkPatch(QUrl::fromLocalFile(bogus));
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), 1, 15000);
+        QVERIFY(!result.last().at(1).toBool());
+
+        api.checkPatch(QUrl::fromLocalFile(patch));
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), 2, 15000);
+        QVERIFY2(result.last().at(1).toBool(), qPrintable(result.last().at(2).toString()));
+        QCOMPARE(result.last().at(0).toString(), QString("check-patch"));
+        QVERIFY(api.patchPreview().contains("one.txt"));
+        QCOMPARE(readFile(f.peer + "/one.txt"), QByteArray("one\n"));
+        QVERIFY(command(f.peer, {"status", "--porcelain"}).isEmpty());
+
+        api.applyPatch(QUrl::fromLocalFile(patch), true);
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), 3, 15000);
+        QVERIFY2(result.last().at(1).toBool(), qPrintable(result.last().at(2).toString()));
+        QCOMPARE(readFile(f.peer + "/one.txt"), QByteArray("one\npatched\n"));
+        QCOMPARE(readFile(f.peer + "/added ı.txt"), QByteArray("added\n"));
+        QVERIFY(!QFile::exists(f.peer + "/two.txt"));
+        QCOMPARE(command(f.peer, {"show", ":one.txt"}), QByteArray("one\npatched\n"));
+
+        // Re-checking the same patch names the situation instead of listing
+        // every file, and keeps Git's full report in the preview.
+        api.checkPatch(QUrl::fromLocalFile(patch));
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), 4, 15000);
+        QVERIFY(!result.last().at(1).toBool());
+        const auto already = result.last().at(2).toString();
+        QVERIFY2(already.contains("already applied") || already.contains("zaten uygulanmış"), qPrintable(already));
+        QVERIFY(!already.contains('\n'));
+        QVERIFY(api.patchPreview().contains("one.txt"));
+
+        // Applying twice fails during the check and leaves the tree as it is.
+        writeFile(f.peer + "/one.txt", "local edit\n");
+        api.applyPatch(QUrl::fromLocalFile(patch));
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), 5, 15000);
+        QVERIFY(!result.last().at(1).toBool());
+        QCOMPARE(readFile(f.peer + "/one.txt"), QByteArray("local edit\n"));
+        QCOMPARE(readFile(f.peer + "/added ı.txt"), QByteArray("added\n"));
+    }
     void signingFailureDoesNotAdvanceHeadAndPathsStayLiteral() {
         Fixture f;
         const auto before = head(f.local);

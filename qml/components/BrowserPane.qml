@@ -31,7 +31,9 @@ Rectangle {
     property string viewMode: paneSettings.viewMode
     property bool updatingViewMode: false
     property bool viewModeReady: false
+    // Miller columns list each level with its own unfiltered model.
     readonly property bool columnsMode: viewMode === "columns" && !isCategoryLocation && !directory.searchActive
+                                        && !pickerMode
     property var lastHandledDirectory: null
     property string lastHandledLocation: ""
     readonly property int itemCount: directory.count
@@ -61,6 +63,14 @@ Rectangle {
     required property var oneDrive
     property var privateVault: null
     property var operationPresentation: null
+    // File chooser (xdg-desktop-portal, FileChooserWindow.qml): activating a
+    // file chooses it instead of opening it; folders still navigate. The
+    // filters only hide non-matching files; folders always stay listed.
+    property bool pickerMode: false
+    property var pickerNameFilters: []
+    property var pickerMimeFilters: []
+    property bool pickerDirectoriesOnly: false
+    signal pickerActivated(var urls)
     readonly property var effectivePresentation: operationPresentation || standaloneOperationPresentation
     property alias fileOperations: fileOps
     property bool vaultRemovePending: false
@@ -917,6 +927,19 @@ Rectangle {
             const parts = rest.split("/").filter(function(part) { return part.length > 0 })
             if (parts.length === 0)
                 return [{ "label": raw, "location": directory.location }]
+            // "admin:///cache/x" has an EMPTY authority: "cache" is a folder.
+            // Gluing it to the prefix ("admin://cache/") turned it into a host,
+            // so KIO opened a new worker for that "host" and its
+            // authentication failed (local password server error).
+            if (rest.startsWith("/")) {
+                let path = prefix
+                items.push({ "label": prefix + "/", "location": prefix + "/" })
+                for (let i = 0; i < parts.length; ++i) {
+                    path += "/" + parts[i]
+                    items.push({ "label": parts[i], "location": path + "/" })
+                }
+                return items
+            }
             let current = prefix + parts[0]
             items.push({ "label": current, "location": current })
             for (let i = 1; i < parts.length; ++i) {
@@ -1346,7 +1369,10 @@ Rectangle {
         const info = fileOps.inspectPath(input)
         if (info && info.exists && !info.isDir) {
             root.locationCompletions = []
-            openWithModel.openDefault(info.url, info.mimeType || "")
+            if (root.pickerMode)
+                root.pickerActivated([info.url])
+            else
+                openWithModel.openDefault(info.url, info.mimeType || "")
             // The address bar represents the current directory, not the file
             // that was just launched. Restore it after accepting a file path.
             locationField.text = directory.displayLocation
@@ -2633,6 +2659,16 @@ Rectangle {
     function openSelected() {
         if (!selectedUrls.length)
             return
+        if (root.pickerMode) {
+            const chosen = selectedItemsInViewOrder()
+            const files = chosen.filter(function(item) { return item && !item.isDir })
+                                .map(function(item) { return String(item.itemUrl) })
+            if (files.length)
+                root.pickerActivated(files)
+            else if (chosen.length === 1 && chosen[0])
+                root.navigateTo(String(chosen[0].itemUrl))
+            return
+        }
 
         const items = selectedItemsInViewOrder()
         if (items.length <= 1) {
@@ -3487,7 +3523,9 @@ Rectangle {
     }
 
     function openItem(url, isDir, name, mimeType) {
-        if (isDir) {
+        if (root.pickerMode && !isDir) {
+            root.pickerActivated([url])
+        } else if (isDir) {
             root.navigateTo(url)
         } else if (root.isCloudUrl(url)) {
             root.cloudManagerFor(url).downloadAndOpen(url, name || root.selectedName, mimeType || root.selectedMimeType)
@@ -3920,6 +3958,9 @@ Rectangle {
         contentIndexSource: root.contentIndexModel
         googleAccessToken: root.googleDrive ? String(root.googleDrive.accessToken || "") : ""
         oneDriveAccessToken: root.oneDrive ? String(root.oneDrive.accessToken || "") : ""
+        nameFilters: root.pickerNameFilters
+        mimeFilters: root.pickerMimeFilters
+        directoriesOnly: root.pickerDirectoriesOnly
     }
 
     MillerNavigationModel {
@@ -4074,7 +4115,9 @@ Rectangle {
     property bool directorySizeNeedsRefresh: true
     function scheduleDirectorySize(changed) {
         if (changed) directorySizeNeedsRefresh = true
-        if (!root.visible || !root.currentLocationHasLocalSize || directory.searchActive) {
+        // A picker runs in its own process; it must not write the shared
+        // directory-size database the browser window owns.
+        if (!root.visible || !root.currentLocationHasLocalSize || directory.searchActive || root.pickerMode) {
             directorySizeTimer.stop()
             if (directoryProperties.calculating || directoryProperties.statsReady) directoryProperties.cancelInspection()
             return
@@ -4098,7 +4141,8 @@ Rectangle {
         interval: 350
         onTriggered: {
             if (root.transferIoBusy) { directorySizeTimer.restart(); return }
-            if (root.visible && root.currentLocationHasLocalSize && !directory.searchActive && !directory.loading) {
+            if (root.visible && root.currentLocationHasLocalSize && !directory.searchActive && !directory.loading
+                    && !root.pickerMode) {
                 root.directorySizeNeedsRefresh = false
                 directoryProperties.inspectCached(directory.location)
             }
@@ -7200,7 +7244,7 @@ Rectangle {
                     }
                     GText {
                         objectName: "directorySizeLabel"
-                        visible: root.currentLocationHasLocalSize && !directory.searchActive
+                        visible: root.currentLocationHasLocalSize && !directory.searchActive && !root.pickerMode
                         readonly property bool ready: directoryProperties.statsReady
                                 && directoryProperties.statsState !== "cached"
                                 && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))
@@ -7208,7 +7252,8 @@ Rectangle {
                                 && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))
                         readonly property bool failed: !directoryProperties.statsAvailable
                                 && (directoryProperties.statsState === "unavailable" || directoryProperties.statsState === "error"
-                                    || directoryProperties.statsState === "excluded")
+                                    || directoryProperties.statsState === "excluded"
+                                    || directoryProperties.statsState === "denied")
                         readonly property bool partial: !ready && directoryProperties.calculating
                                 && root.locationsEquivalent(directoryProperties.path, root.sizeLocation(directory.location))
                                 && (directoryProperties.fileCount > 0 || directoryProperties.folderCount > 0)
@@ -7224,6 +7269,9 @@ Rectangle {
                             text: directoryProperties.statsState === "excluded"
                                     ? (lang.language === "tr" ? "Sanal dosya sistemleri boyut hesabına katılmaz."
                                                              : "Virtual filesystems are excluded from size accounting.")
+                                    : directoryProperties.statsState === "denied"
+                                    ? (lang.language === "tr" ? "Boyut hesabı kullanıcı izinleriyle yapılır; bu klasörün içeriği okunamıyor."
+                                                             : "Sizes are calculated with your user's permissions; this folder's contents cannot be read.")
                                     : parent.failed
                                     ? (lang.language === "tr" ? "Boyut hesaplanamadı. Konuma erişimi kontrol edip yeniden deneyin."
                                                              : "The size could not be calculated. Check access to this location and try again.")
@@ -9102,7 +9150,8 @@ Rectangle {
                                 GText {
                                     text: propertiesDialog.localSelection
                                           ? ((fileProperties.statsState === "unavailable" || fileProperties.statsState === "error"
-                                              || fileProperties.statsState === "excluded") && !fileProperties.statsAvailable
+                                              || fileProperties.statsState === "excluded" || fileProperties.statsState === "denied")
+                                             && !fileProperties.statsAvailable
                                              ? (lang.language === "tr" ? "Kullanılamıyor" : "Unavailable")
                                              : fileProperties.calculating && !fileProperties.statsAvailable
                                              ? (lang.language === "tr" ? "Hesaplanıyor…" : "Calculating…")

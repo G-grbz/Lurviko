@@ -19,6 +19,7 @@
 #include <QPromise>
 #include <QReadWriteLock>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSettings>
 #include <QSet>
 #include <QStandardPaths>
@@ -465,7 +466,7 @@ Result perform(const Input& input)
     try {
         auto c = resolve(git);
         result.root = c.root; result.commonDir = c.commonDir;
-        const bool writing = QStringList{"sync", "fetch", "pull", "push", "commit", "upstream", "create-tag", "push-tag"}.contains(input.kind);
+        const bool writing = QStringList{"sync", "fetch", "pull", "push", "commit", "upstream", "create-tag", "push-tag", "apply-patch"}.contains(input.kind);
         if (writing) {
             const auto directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/git-operations";
             if (!QDir().mkpath(directory)) throw Failure{text(input.tr, "Cannot create the Git operation lock directory.", "Git işlem kilidi dizini oluşturulamadı.")};
@@ -479,6 +480,77 @@ Result perform(const Input& input)
         if (input.kind == "metadata") { result.ok = true; return result; }
         if (input.kind == "tags") { const auto tags = inspectTags(git, c, false); result.tags = tagRows(tags); result.tagInfo = tagInformation(tags); result.ok = true; return result; }
         if (input.kind == "changes") { result.changes = c.changes; result.ok = true; return result; }
+        if (input.kind == "check-patch" || input.kind == "apply-patch") {
+            const auto file = input.parameters.value("path").toString();
+            const QFileInfo patchFile(file);
+            if (file.isEmpty() || !QDir::isAbsolutePath(file) || !patchFile.isFile() || !patchFile.isReadable())
+                throw Failure{text(input.tr, "Choose a readable patch file.", "Okunabilir bir patch dosyası seç.")};
+            if (patchFile.size() == 0) throw Failure{text(input.tr, "The patch file is empty.", "Patch dosyası boş.")};
+            if (patchFile.size() > 256LL * 1024 * 1024) throw Failure{text(input.tr, "The patch file is too large.", "Patch dosyası çok büyük.")};
+            QStringList options;
+            const bool threeWay = input.parameters.value("threeWay").toBool();
+            if (input.parameters.value("index").toBool() && !threeWay) options << "--index";
+            if (threeWay) options << "--3way";
+            const auto summary = git.run({"apply", "--stat", "--summary", file}, {}, {}, false);
+            if (summary.code != 0)
+                throw Failure{summary.error.isEmpty() ? text(input.tr, "This is not a valid patch.", "Bu geçerli bir patch değil.") : summary.error};
+            result.detailText = QString::fromUtf8(summary.output).left(1024 * 1024);
+            // Git verifies every hunk before touching the work tree; a patch
+            // that does not apply cleanly is never partially written.
+            const auto check = git.run(QStringList{"apply", "--check"} + options + QStringList{file}, {}, {}, false);
+            if (check.code != 0) {
+                // Git's full per-file report goes to the scrollable preview;
+                // the status line stays short.
+                if (!check.error.isEmpty()) result.detailText += "\n" + check.error;
+                if (git.run({"apply", "--check", "--reverse", file}, {}, {}, false).code == 0)
+                    throw Failure{text(input.tr, "This patch is already applied to this working tree. Nothing was changed.",
+                                       "Bu patch bu çalışma ağacında zaten uygulanmış. Hiçbir şey değiştirilmedi.")};
+                throw Failure{text(input.tr, "The patch does not apply to this working tree. Nothing was changed; see the details below.",
+                                   "Patch bu çalışma ağacına uygulanamıyor. Hiçbir şey değiştirilmedi; ayrıntılar aşağıda.")};
+            }
+            if (input.kind == "check-patch") {
+                result.message = text(input.tr, "The patch can be applied.", "Patch uygulanabilir.");
+                result.ok = true; return result;
+            }
+            result.wrote = true;
+            const auto applied = git.run(QStringList{"apply"} + options + QStringList{file}, {}, {}, false, false, true);
+            if (applied.code != 0) {
+                if (!applied.error.isEmpty()) result.detailText += "\n" + applied.error;
+                if (threeWay) step(result, "warning", text(input.tr, "Conflicts were left in the working tree for manual resolution.", "Çakışmalar elle çözülmek üzere çalışma ağacında bırakıldı."));
+                throw Failure{text(input.tr, "Git could not apply the patch; see the details below.", "Git patch'i uygulayamadı; ayrıntılar aşağıda.")};
+            }
+            result.message = text(input.tr, "Patch applied: ", "Patch uygulandı: ") + patchFile.fileName();
+            result.ok = true; return result;
+        }
+        if (input.kind == "export-patch") {
+            const auto target = input.parameters.value("path").toString();
+            if (target.isEmpty() || !QDir::isAbsolutePath(target))
+                throw Failure{text(input.tr, "Choose a location for the patch file.", "Patch dosyası için bir konum seç.")};
+            // A private index copy marks untracked files intent-to-add, so the
+            // patch covers every listed change without touching the real index.
+            QTemporaryDir temporary;
+            if (!temporary.isValid()) throw Failure{text(input.tr, "Cannot create a temporary directory.", "Geçici dizin oluşturulamadı.")};
+            const auto index = temporary.filePath("index"), patch = temporary.filePath("changes.patch");
+            const auto realIndex = c.gitDir + "/index";
+            if (QFileInfo::exists(realIndex) && !QFile::copy(realIndex, index))
+                throw Failure{text(input.tr, "Cannot read the Git index.", "Git index'i okunamadı.")};
+            git.run({"add", "--all", "--intent-to-add", "--", "."}, {}, index);
+            const auto base = c.head.isEmpty() ? QString::fromLatin1(git.run({"hash-object", "-t", "tree", "--stdin"}).output.trimmed()) : c.head;
+            git.run({"diff", "--binary", "--no-ext-diff", "--no-textconv", "--output=" + patch, base, "--", "."}, {}, index);
+            QFile source(patch);
+            if (!source.open(QIODevice::ReadOnly)) throw Failure{text(input.tr, "Git did not produce a patch.", "Git patch üretmedi.")};
+            if (source.size() == 0) throw Failure{text(input.tr, "There are no changes to export.", "Dışa aktarılacak değişiklik yok.")};
+            QSaveFile output(target);
+            if (!output.open(QIODevice::WriteOnly)) throw Failure{text(input.tr, "Cannot write the patch file: ", "Patch dosyası yazılamadı: ") + output.errorString()};
+            while (!source.atEnd()) {
+                git.check();
+                const auto chunk = source.read(1024 * 1024);
+                if (output.write(chunk) != chunk.size()) throw Failure{text(input.tr, "Cannot write the patch file: ", "Patch dosyası yazılamadı: ") + output.errorString()};
+            }
+            if (!output.commit()) throw Failure{text(input.tr, "Cannot write the patch file: ", "Patch dosyası yazılamadı: ") + output.errorString()};
+            result.message = text(input.tr, "Patch saved: ", "Patch kaydedildi: ") + target;
+            result.ok = true; return result;
+        }
         if (input.kind == "history") {
             if (!c.head.isEmpty()) {
                 auto records = git.run({"log", "-n", "50", "--date=iso-strict", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00"}).output;
@@ -715,7 +787,7 @@ struct GitOperations::Private {
     QVariantMap info;
     QVariantList changes, history, upstreamTargets, tags, steps;
     QVariantMap tagInfo;
-    QString detailText;
+    QString detailText, patchPreview;
     QPointer<GitStatusCache> cache;
     QPointer<QFutureWatcher<Result>> reader, writer;
     QTimer debounce;
@@ -767,6 +839,7 @@ QVariantList GitOperations::tags() const { return d->tags; }
 QVariantMap GitOperations::tagInfo() const { return d->tagInfo; }
 QVariantList GitOperations::operationSteps() const { return d->steps; }
 QString GitOperations::detailText() const { return d->detailText; }
+QString GitOperations::patchPreview() const { return d->patchPreview; }
 QString GitOperations::error() const { return d->error; }
 QString GitOperations::progress() const { return d->progress; }
 QString GitOperations::lastCommit() const { return d->lastCommit; }
@@ -844,6 +917,7 @@ void GitOperations::write(const QString& kind, const QVariantMap& parameters)
     connect(watcher, &QFutureWatcher<Result>::finished, this, [this, watcher] {
         const auto result = watcher->result(); watcher->deleteLater(); d->writer = nullptr;
         d->busy = false; d->progress.clear(); d->error = result.error; d->lastCommit = result.localCommit; d->steps = result.steps;
+        if (result.kind == "check-patch" || result.kind == "apply-patch") { d->patchPreview = result.detailText; emit detailsChanged(); }
         emit changed();
         if (result.wrote) emit repositoryMutated(result.root, result.commonDir, result.touched);
         if (!d->directory.isEmpty()) { read("metadata", true); d->cache->request(this, d->directory, true); }
@@ -873,6 +947,10 @@ void GitOperations::commit(const QStringList& ids, const QString& message, bool 
 void GitOperations::createTag(const QString& name, bool pushRemote) { write("create-tag", {{"name", name}, {"send", pushRemote}}); }
 void GitOperations::pushTag(const QString& name) { write("push-tag", {{"name", name}}); }
 void GitOperations::setUpstream(const QString& ref) { write("upstream", {{"ref", ref}}); }
+void GitOperations::checkPatch(const QUrl& file, bool index, bool threeWay) { write("check-patch", {{"path", file.isLocalFile() ? file.toLocalFile() : QString()}, {"index", index}, {"threeWay", threeWay}}); }
+void GitOperations::applyPatch(const QUrl& file, bool index, bool threeWay) { write("apply-patch", {{"path", file.isLocalFile() ? file.toLocalFile() : QString()}, {"index", index}, {"threeWay", threeWay}}); }
+void GitOperations::clearPatchPreview() { if (!d->patchPreview.isEmpty()) { d->patchPreview.clear(); emit detailsChanged(); } }
+void GitOperations::exportPatch(const QUrl& target) { write("export-patch", {{"path", target.isLocalFile() ? target.toLocalFile() : QString()}}); }
 void GitOperations::cancel() { if (d->writeCancelled) d->writeCancelled->store(true); }
 void GitOperations::openRemote()
 {

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.6.1 LANGUAGES CXX)
+project(Lurviko VERSION 1.6.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -157,6 +157,16 @@ qt_add_executable(lurviko
     src/clipboardhistory.h
     src/storagehousekeeping.cpp
     src/storagehousekeeping.h
+    src/filechooserportal.cpp
+    src/filedialogintegration.cpp
+    src/filedialogintegration.h
+    src/imageproviders.cpp
+    src/imageproviders.h
+    src/filechooserportal.h
+    src/thumbnailcache.cpp
+    src/thumbnailcache.h
+    src/thumbnailextractors.cpp
+    src/thumbnailextractors.h
     src/thumbnailprovider.cpp
     src/thumbnailprovider.h
     src/systemiconprovider.cpp
@@ -299,6 +309,7 @@ qt_add_qml_module(lurviko
         qml/components/SambaSharePanel.qml
         qml/components/LocalSambaShares.qml
         qml/Main.qml
+        qml/FileChooserWindow.qml
         qml/TypographyStyle.qml
         qml/GText.qml
         qml/components/TypographyDialog.qml
@@ -437,6 +448,27 @@ else()
     install(FILES packaging/org.freedesktop.FileManager1.service
         DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/dbus-1/services)
 endif()
+# xdg-desktop-portal FileChooser backend ("lurviko --file-chooser-portal").
+# Its D-Bus name is Lurviko's own, so it never displaces another backend; a
+# user enables it in Settings, which selects it in portals.conf.
+# The executable path is written at install time: "cmake --install --prefix"
+# (update-icons.sh, ~/.local) overrides the configured prefix, and D-Bus
+# activation must not depend on the activation environment's PATH.
+if(IS_ABSOLUTE "${CMAKE_INSTALL_BINDIR}")
+    set(LURVIKO_PORTAL_BINDIR "${CMAKE_INSTALL_BINDIR}")
+else()
+    set(LURVIKO_PORTAL_BINDIR "\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
+endif()
+file(READ packaging/portal/org.freedesktop.impl.portal.desktop.lurviko.service.in LURVIKO_PORTAL_SERVICE_TEMPLATE)
+install(CODE "
+    set(LURVIKO_PORTAL_EXEC \"${LURVIKO_PORTAL_BINDIR}/lurviko\")
+    set(lurviko_portal_service \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/dbus-1/services/org.freedesktop.impl.portal.desktop.lurviko.service\")
+    string(CONFIGURE [=[${LURVIKO_PORTAL_SERVICE_TEMPLATE}]=] lurviko_portal_text @ONLY)
+    message(STATUS \"Installing: \$ENV{DESTDIR}\${lurviko_portal_service}\")
+    file(WRITE \"\$ENV{DESTDIR}\${lurviko_portal_service}\" \"\${lurviko_portal_text}\")
+    list(APPEND CMAKE_INSTALL_MANIFEST_FILES \"\${lurviko_portal_service}\")
+")
+install(FILES packaging/portal/lurviko.portal DESTINATION ${CMAKE_INSTALL_DATADIR}/xdg-desktop-portal/portals)
 install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps RENAME lurviko.png)
 install(FILES assets/icons/png/logo.png DESTINATION ${CMAKE_INSTALL_DATADIR}/pixmaps RENAME lurviko.png)
 install(FILES LICENSE assets/LICENSE-FluentUI.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/Lurviko/licenses)

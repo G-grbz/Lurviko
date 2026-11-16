@@ -13,6 +13,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QQueue>
 #include <QHash>
 #include <QSharedPointer>
@@ -58,6 +59,13 @@ class DirectoryModel : public QAbstractListModel
     // files is not re-listed several times per second.
     Q_PROPERTY(bool transferActive READ transferActive WRITE setTransferActive NOTIFY transferActiveChanged)
     Q_PROPERTY(bool folderPreviewsEnabled READ folderPreviewsEnabled WRITE setFolderPreviewsEnabled NOTIFY folderPreviewsEnabledChanged)
+    // File chooser filters: shell globs ("*.png", case-insensitive) and MIME
+    // types ("image/png", "image/*", or a parent type such as "text/plain").
+    // A file is listed when it matches any of them; folders always are.
+    // With directoriesOnly, files are not listed at all.
+    Q_PROPERTY(QStringList nameFilters READ nameFilters WRITE setNameFilters NOTIFY entryFilterChanged)
+    Q_PROPERTY(QStringList mimeFilters READ mimeFilters WRITE setMimeFilters NOTIFY entryFilterChanged)
+    Q_PROPERTY(bool directoriesOnly READ directoriesOnly WRITE setDirectoriesOnly NOTIFY entryFilterChanged)
 
 public:
     enum Roles {
@@ -110,6 +118,22 @@ public:
     bool heavyIoBusy() const { return m_heavyIoBusy; }
     bool transferActive() const { return m_transferActive; }
     bool folderPreviewsEnabled() const { return m_folderPreviewsEnabled; }
+    QStringList nameFilters() const { return m_entryFilter.names; }
+    QStringList mimeFilters() const { return m_entryFilter.mimes; }
+    bool directoriesOnly() const { return m_entryFilter.directoriesOnly; }
+    void setNameFilters(const QStringList &value);
+    void setMimeFilters(const QStringList &value);
+    void setDirectoriesOnly(bool value);
+
+    // Immutable once built, so listing workers can use a copy.
+    struct EntryFilter {
+        QStringList names;
+        QStringList mimes;
+        QList<QRegularExpression> globs;
+        bool directoriesOnly = false;
+        bool active() const { return directoriesOnly || !names.isEmpty() || !mimes.isEmpty(); }
+        bool accepts(const QString &name, bool isDir, const QString &mimeType) const;
+    };
 
     bool gitEnabled() const { return m_gitEnabled; }
     void setGitEnabled(bool enabled);
@@ -191,6 +215,7 @@ signals:
     void heavyIoBusyChanged();
     void transferActiveChanged();
     void folderPreviewsEnabledChanged();
+    void entryFilterChanged();
 
 private:
     struct Entry {
@@ -332,6 +357,12 @@ private:
     QHash<QString, QSharedPointer<SearchSession>> m_searchSessions;
     QTimer m_searchResultTimer;
     int m_localGeneration = 0;
+    // The local listing currently running (0: none) and whether a watcher
+    // refresh arrived meanwhile. Automatic refreshes never run a second full
+    // listing of the same folder in parallel; they are folded into one rerun.
+    int m_runningLocalGeneration = 0;
+    QString m_runningLocalPath;
+    bool m_localReloadPending = false;
     int m_kioGeneration = 0;
     QPointer<KIO::ListJob> m_kioJob;
     QHash<QString, QString> m_trashLocalPaths;
@@ -354,6 +385,7 @@ private:
     bool m_heavyIoBusy = false;
     bool m_transferActive = false;
     bool m_folderPreviewsEnabled = true;
+    EntryFilter m_entryFilter;
     bool m_refreshDeferredByHeavyIo = false;
     QQueue<QString> m_videoProbeQueue;
     QSet<QString> m_videoProbePending;

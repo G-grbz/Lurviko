@@ -365,7 +365,9 @@ bool DirectorySizeIndex::request(const QString& value, bool force)
     d->used[path] = ++d->serial;
     if (s.calculating && !force)
         return true;
-    if (s.complete && !force) {
+    // An unreadable folder is as settled as a complete one: only a forced
+    // refresh or the regular metadata check after 5 s looks at it again.
+    if ((s.complete || s.state == QStringLiteral("denied")) && !force) {
         if (s.checkedAt.msecsTo(QDateTime::currentDateTimeUtc()) < 5000) return true;
         d->paths.insert(path); // on-demand metadata check; never a TTL timer
     }

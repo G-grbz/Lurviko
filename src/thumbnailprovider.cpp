@@ -1,7 +1,11 @@
 #include "thumbnailprovider.h"
 #include "previewsettings.h"
 #include "svgpreviewidentity.h"
+#include "thumbnailcache.h"
+#include "thumbnailextractors.h"
+#include <K7Zip>
 #include <KCompressionDevice>
+#include <KTar>
 #include <KZip>
 
 #include <QCryptographicHash>
@@ -39,6 +43,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <memory>
 
 
@@ -740,7 +745,7 @@ void collectFiles(const KArchiveDirectory *directory, const QString &prefix, QSt
     }
 }
 
-// OpenDocument, OOXML and OpenRaster files carry a ready-made preview.
+// OpenDocument, OOXML, OpenRaster and iWork files carry a ready-made preview.
 QImage embeddedZipThumbnail(const QString &path)
 {
     KZip zip(path);
@@ -751,7 +756,10 @@ QImage embeddedZipThumbnail(const QString &path)
                                 QStringLiteral("docProps/thumbnail.jpg"),
                                 QStringLiteral("docProps/thumbnail.png"),
                                 QStringLiteral("mergedimage.png"),
-                                QStringLiteral("preview.png")}) {
+                                QStringLiteral("preview.png"),
+                                QStringLiteral("preview.jpg"),
+                                QStringLiteral("QuickLook/Thumbnail.jpg"),
+                                QStringLiteral("QuickLook/Preview.jpg")}) {
         const QImage image = decodeImageData(zipEntryData(zip.directory(), name));
         if (!image.isNull())
             return image;
@@ -830,28 +838,114 @@ QImage epubCover(const QString &path)
     return {};
 }
 
-QImage comicCover(const QString &path)
+// Comic pages in reading order: natural sort, no macOS resource forks.
+QStringList comicPages(QStringList names)
 {
-    KZip zip(path);
-    if (!zip.open(QIODevice::ReadOnly))
-        return {};
-    QStringList pages;
-    collectFiles(zip.directory(), QString(), pages);
-    pages.erase(std::remove_if(pages.begin(), pages.end(), [](const QString &name) {
+    names.erase(std::remove_if(names.begin(), names.end(), [](const QString &name) {
         return !isImageEntryName(name) || name.startsWith(QLatin1String("__MACOSX/"));
-    }), pages.end());
+    }), names.end());
     QCollator collator;
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
-    std::sort(pages.begin(), pages.end(), [&collator](const QString &a, const QString &b) {
+    std::sort(names.begin(), names.end(), [&collator](const QString &a, const QString &b) {
         return collator.compare(a, b) < 0;
     });
-    for (const QString &name : std::as_const(pages)) {
-        const QImage image = decodeImageData(zipEntryData(zip.directory(), name));
+    return names;
+}
+
+// RAR comics (and archives KArchive cannot open) through an installed
+// extractor. Nothing is written to disk; the first page goes to stdout.
+QImage externalComicCover(const QString &path, const std::shared_ptr<std::atomic_bool> &cancelled)
+{
+    struct Tool {
+        QString program;
+        QStringList list;
+        std::function<QStringList(const QString &)> extract;
+    };
+    const QList<Tool> tools = {
+        {QStringLiteral("unrar"), {QStringLiteral("lb"), QStringLiteral("-p-"), QStringLiteral("--"), path},
+         [&path](const QString &entry) {
+             return QStringList{QStringLiteral("p"), QStringLiteral("-inul"), QStringLiteral("-p-"),
+                                QStringLiteral("--"), path, entry};
+         }},
+        {QStringLiteral("7z"), {QStringLiteral("l"), QStringLiteral("-slt"), QStringLiteral("-pnone"),
+                                QStringLiteral("--"), path},
+         [&path](const QString &entry) {
+             return QStringList{QStringLiteral("e"), QStringLiteral("-so"), QStringLiteral("-spd"),
+                                QStringLiteral("-pnone"), QStringLiteral("--"), path, entry};
+         }},
+        {QStringLiteral("bsdtar"), {QStringLiteral("-tf"), path},
+         [&path](const QString &entry) {
+             return QStringList{QStringLiteral("-xOf"), path, entry};
+         }},
+    };
+    for (const Tool &tool : tools) {
+        const QString program = QStandardPaths::findExecutable(tool.program);
+        if (program.isEmpty())
+            continue;
+        QProcess list;
+        list.setStandardInputFile(QProcess::nullDevice());
+        list.start(program, tool.list);
+        if (!waitForThumbnailProcess(list, cancelled, 10000) || list.exitStatus() != QProcess::NormalExit
+                || list.exitCode() != 0)
+            continue;
+        QStringList names;
+        bool entries = tool.program != QLatin1String("7z");
+        const QStringList lines = QString::fromUtf8(list.readAllStandardOutput()).split(QLatin1Char('\n'));
+        for (QString line : lines) {
+            line.remove(QLatin1Char('\r'));
+            if (tool.program == QLatin1String("7z")) {
+                // "-slt": the archive's own "Path =" comes before the dashes.
+                if (line.startsWith(QLatin1String("----------")))
+                    entries = true;
+                else if (entries && line.startsWith(QLatin1String("Path = ")))
+                    names.append(line.mid(7));
+            } else if (!line.isEmpty()) {
+                names.append(line);
+            }
+        }
+        const QStringList pages = comicPages(names);
+        if (pages.isEmpty() || cancelled->load(std::memory_order_relaxed))
+            continue; // Not an archive this tool understands.
+        // Only the first page: a tool that cannot read it will not read the rest.
+        QProcess extract;
+        extract.setStandardInputFile(QProcess::nullDevice());
+        extract.start(program, tool.extract(pages.first()));
+        if (!waitForThumbnailProcess(extract, cancelled, 10000) || extract.exitStatus() != QProcess::NormalExit)
+            continue;
+        const QByteArray data = extract.readAllStandardOutput();
+        if (data.size() > kMaxEmbeddedEntryBytes)
+            return {};
+        const QImage image = decodeImageData(data);
         if (!image.isNull())
             return image;
     }
     return {};
+}
+
+QImage comicCover(const QString &path, const QString &suffix,
+                  const std::shared_ptr<std::atomic_bool> &cancelled)
+{
+    // Archive type by name, falling back to the external tools for RAR and
+    // for comics whose extension does not match their actual format.
+    std::unique_ptr<KArchive> archive;
+    if (suffix == QLatin1String("cbt"))
+        archive = std::make_unique<KTar>(path);
+    else if (suffix == QLatin1String("cb7"))
+        archive = std::make_unique<K7Zip>(path);
+    else
+        archive = std::make_unique<KZip>(path);
+    if (archive->open(QIODevice::ReadOnly)) {
+        QStringList names;
+        collectFiles(archive->directory(), QString(), names);
+        for (const QString &name : comicPages(names)) {
+            const QImage image = decodeImageData(zipEntryData(archive->directory(), name));
+            if (!image.isNull())
+                return image;
+        }
+        return {};
+    }
+    return externalComicCover(path, cancelled);
 }
 
 QImage fontSpecimen(const QString &path)
@@ -906,7 +1000,7 @@ QImage fontSpecimen(const QString &path)
 }
 
 // Text is detected the way Dolphin does it: a file without a known type
-// (".gitignore", "README", "claude"…) is previewed when its content says
+// (".gitignore", "README"…) is previewed when its content says
 // it is text/plain or a subtype of it.
 bool contentLooksLikeText(const QString &path)
 {
@@ -951,6 +1045,10 @@ public:
             const QFileInfo info(path);
             if (!info.exists() || info.isDir())
                 return QImage();
+            // Previews of the thumbnail repositories would be written back
+            // into the folder being shown (an endless watcher/refresh loop).
+            if (ThumbnailCache::isInsideRepository(info.absoluteFilePath()))
+                return QImage();
 
             if (cancelled->load(std::memory_order_relaxed))
                 return QImage();
@@ -978,17 +1076,36 @@ public:
             if (kind.isEmpty())
                 return QImage();
 
-            const QString cacheBase = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/thumbnails";
+            const auto finish = [&](const QImage &source) {
+                QImage result = roundedThumbnail(source.scaled(target, Qt::KeepAspectRatio,
+                                                                Qt::SmoothTransformation));
+                storeMemoryThumbnail(memoryKey, result);
+                return result;
+            };
+
+            // Raster images and PDFs: the freedesktop.org repository shared
+            // with Dolphin, Gwenview, Nautilus…
+            const bool shared = ThumbnailCache::usesSharedRepository(kind, suffix, info.absoluteFilePath());
+            if (shared) {
+                image = ThumbnailCache::loadShared(info, target);
+                if (!image.isNull())
+                    return finish(image);
+            }
+
+            const QString cacheBase = ThumbnailCache::privateDirectory();
             QDir().mkpath(cacheBase);
             const QString cached = ThumbnailProvider::cachedFilePath(path);
             const QString hash = QFileInfo(cached).completeBaseName();
             const QString missing = cacheBase + "/" + hash + ".miss";
             image = QImage(cached);
             if (!image.isNull()) {
-                QImage result = roundedThumbnail(image.scaled(target, Qt::KeepAspectRatio,
-                                                               Qt::SmoothTransformation));
-                storeMemoryThumbnail(memoryKey, result);
-                return result;
+                // A preview stored privately by an older Lurviko moves to the
+                // shared repository; the private copy is no longer needed.
+                if (shared && ThumbnailCache::saveShared(info, image, nameMime))
+                    QFile::remove(cached);
+                else
+                    ThumbnailCache::markUsed(cached);
+                return finish(image);
             }
             if (QFileInfo::exists(missing))
                 return QImage();
@@ -1005,7 +1122,9 @@ public:
                     if (produced.width() > maximum || produced.height() > maximum)
                         produced = produced.scaled(QSize(maximum, maximum), Qt::KeepAspectRatio,
                                                    Qt::SmoothTransformation);
-                    produced.save(cached, "PNG");
+                    // Shared previews are stored once generation finished.
+                    if (!shared)
+                        produced.save(cached, "PNG");
                     generated = produced;
                 };
                 previewAttempted = true;
@@ -1069,9 +1188,15 @@ public:
                 } else if (kind == QLatin1String("office")) {
                     keep(embeddedZipThumbnail(path));
                 } else if (kind == QLatin1String("ebooks")) {
-                    keep(epubCover(path));
+                    if (suffix == QLatin1String("epub"))
+                        keep(epubCover(path));
+                    else if (suffix == QLatin1String("mobi") || suffix == QLatin1String("azw")
+                             || suffix == QLatin1String("azw3") || suffix == QLatin1String("prc"))
+                        keep(ThumbnailExtractors::mobipocketCover(path));
+                    else
+                        keep(ThumbnailExtractors::fictionBookCover(path));
                 } else if (kind == QLatin1String("comics")) {
-                    keep(comicCover(path));
+                    keep(comicCover(path, suffix, cancelled));
                 } else if (kind == QLatin1String("fonts")) {
                     keep(fontSpecimen(path));
                 } else if (kind == QLatin1String("audio")) {
@@ -1083,6 +1208,15 @@ public:
                                                         : embeddedVideoCover(path, cancelled), 384);
                 } else if (kind == QLatin1String("appimage")) {
                     keep(embeddedAppImageIcon(path, cancelled));
+                } else if (kind == QLatin1String("apk")) {
+                    keep(ThumbnailExtractors::androidPackageIcon(path));
+                } else if (kind == QLatin1String("windows")) {
+                    keep(ThumbnailExtractors::windowsExecutableIcon(path));
+                } else if (kind == QLatin1String("desktop")) {
+                    keep(ThumbnailExtractors::desktopEntryIcon(path), 256);
+                } else if (kind == QLatin1String("models")) {
+                    keep(suffix == QLatin1String("3mf") ? ThumbnailExtractors::threeMfThumbnail(path)
+                                                         : ThumbnailExtractors::blenderThumbnail(path));
                 } else if (kind == QLatin1String("text")) {
                     // Use a stable cache resolution instead of tying expensive
                     // document rendering to whichever delegate (list/grid)
@@ -1097,10 +1231,16 @@ public:
 
             image = generated.isNull() ? QImage(cached) : generated;
             if (!image.isNull()) {
-                QImage result = roundedThumbnail(image.scaled(target, Qt::KeepAspectRatio,
-                                                               Qt::SmoothTransformation));
-                storeMemoryThumbnail(memoryKey, result);
-                return result;
+                if (shared) {
+                    // External renderers (pdftoppm) write the private path;
+                    // keep a private copy only if the shared repository is
+                    // not writable.
+                    if (ThumbnailCache::saveShared(info, image, nameMime))
+                        QFile::remove(cached);
+                    else if (!QFileInfo::exists(cached))
+                        image.save(cached, "PNG");
+                }
+                return finish(image);
             }
             if (previewAttempted && !cancelled->load(std::memory_order_relaxed)) {
                 QFile marker(missing);
@@ -1142,9 +1282,16 @@ private:
     QImage m_image;
 };
 
+ThumbnailProvider::ThumbnailProvider()
+{
+    // Desktop launchers resolve their Icon= names in the worker threads;
+    // they only need the theme name and search paths read here.
+    ThumbnailExtractors::captureIconTheme();
+}
+
 QString ThumbnailProvider::cacheDirectory()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/thumbnails");
+    return ThumbnailCache::privateDirectory();
 }
 
 void ThumbnailProvider::clearMemoryCache()
@@ -1162,6 +1309,12 @@ QString ThumbnailProvider::cachedFilePath(const QString &path)
     const QString version = kind == QLatin1String("video") ? QStringLiteral("v4|")
         : kind == QLatin1String("audio") ? QStringLiteral("audio-v1|")
         : kind == QLatin1String("appimage") ? QStringLiteral("appimage-v1|")
+        // Kinds and formats that used to be previewed as text (or not at
+        // all) must not reuse an old text preview or ".miss" marker.
+        : kind == QLatin1String("apk") || kind == QLatin1String("windows")
+                || kind == QLatin1String("desktop") || kind == QLatin1String("models")
+            ? kind + QStringLiteral("-v1|")
+        : kind == QLatin1String("ebooks") && suffix != QLatin1String("epub") ? QStringLiteral("ebook-v1|")
         : suffix == QStringLiteral("svgz") ? QStringLiteral("svgz-v1|")
         : QStringLiteral("v2|");
     const QByteArray key = (version + path + QLatin1Char('|')

@@ -69,3 +69,4 @@ for page in (browse, home, private):
     assert '0.30' in page
 assert 'color: "transparent"' in card and 'border.width: 0' in card
 print('Single-path tab/page outline, new-tab lifecycle and watermark checks passed.')
+assert 'slot.x + slot.y' in main, 'outline must track the tab slot position'

@@ -1401,8 +1401,9 @@ Item {
                         id: tabRow
                         objectName: "browserTabRow"
                         onWidthChanged: Qt.callLater(page.ensureActiveTabVisible)
-                        // Neighbouring flares overlap completely (2 x 8 px feet).
-                        spacing: -16
+                        // Neighbouring flares (2 x 8 px feet) overlap; the
+                        // tab bodies keep a 4 px gap between them.
+                        spacing: -12
                         Repeater {
                             id: tabRepeater
                             onItemAdded: function(index, item) {
@@ -1607,25 +1608,6 @@ Item {
                                     radius: 1.25
                                     color: AppTheme.accent
                                     opacity: tabSurface.selectionProgress
-                                }
-                                // Divider between two inactive, unhovered neighbours. Drawn by the
-                                // right-hand tab: later delegates paint over earlier ones.
-                                Rectangle {
-                                    objectName: "browserTabDivider"
-                                    readonly property int previous: index - 1
-                                    readonly property Item previousTab: previous >= 0 && tabRepeater.count > previous
-                                                                        ? tabRepeater.itemAt(previous) : null
-                                    visible: index > 0 && !tabDelegate.selectedTab
-                                             && previous !== page.currentTab && !tabDelegate.hoveredTab
-                                             && !(previousTab && previousTab.hoveredTab) && page.tabDragFrom < 0
-                                    // Exactly where both vertical sides meet.
-                                    x: tabSurface.wing - 0.5
-                                    y: tabSurface.capTop + 9
-                                    width: 1
-                                    height: Math.max(0, parent.height - y - 9)
-                                    // border is nearly the window colour in light themes.
-                                    color: AppTheme.dark ? Qt.rgba(1, 1, 1, 0.16) : AppTheme.borderStrong
-                                    z: 30
                                 }
                                 // A copy/move into this tab's folder: thin progress line.
                                 Item {

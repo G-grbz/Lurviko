@@ -45,14 +45,28 @@ GModalPopup {
         {id: "pdf", tr: "PDF belgeleri", en: "PDF documents", hint: "PDF"},
         {id: "print", tr: "PostScript ve DjVu", en: "PostScript and DjVu", hint: "PS, EPS, DjVu"},
         {id: "office", tr: "Ofis belgeleri", en: "Office documents",
-         hint: "ODT, ODS, ODP, ODG, DOCX, XLSX, PPTX"},
-        {id: "ebooks", tr: "E-kitaplar", en: "E-books", hint: "EPUB"},
-        {id: "comics", tr: "Çizgi romanlar", en: "Comic books", hint: "CBZ"},
+         hint: "ODT, ODS, ODP, ODG, DOCX, XLSX, PPTX, Pages, Numbers"},
+        {id: "ebooks", tr: "E-kitaplar", en: "E-books", hint: "EPUB, FB2, MOBI, AZW, AZW3"},
+        {id: "comics", tr: "Çizgi romanlar", en: "Comic books",
+         trHint: "CBZ, CB7, CBT; CBR için unrar, 7z veya bsdtar gerekir",
+         enHint: "CBZ, CB7, CBT; CBR needs unrar, 7z or bsdtar"},
         {id: "fonts", tr: "Yazı tipleri", en: "Fonts", hint: "TTF, OTF, TTC, WOFF, WOFF2"},
         {id: "text", tr: "Metin ve kaynak kodu", en: "Text and source code",
          trHint: "İçerikten algılanır: .gitignore, README, Makefile ve uzantısız metin dosyaları dahil",
          enHint: "Detected from content, including .gitignore, README, Makefile and extension-less text files"},
-        {id: "appimage", tr: "AppImage simgeleri", en: "AppImage icons", hint: "AppImage"}
+        {id: "appimage", tr: "AppImage simgeleri", en: "AppImage icons", hint: "AppImage"},
+        // The kinds below are off until enabled (PreviewSettings.kindEnabledByDefault).
+        {id: "apk", tr: "Android uygulama simgeleri", en: "Android app icons",
+         trHint: "APK, XAPK, APKS, APKM · uyarlanabilir ve vektör simgeler dahil",
+         enHint: "APK, XAPK, APKS, APKM · including adaptive and vector icons"},
+        {id: "windows", tr: "Windows program simgeleri", en: "Windows program icons",
+         hint: "EXE, DLL, CPL, SCR, OCX"},
+        {id: "desktop", tr: "Uygulama kısayolu simgeleri", en: "Application launcher icons",
+         trHint: ".desktop dosyalarının Icon= simgesi, metin önizlemesi yerine",
+         enHint: "The Icon= of .desktop files, instead of a text preview"},
+        {id: "models", tr: "3B modeller", en: "3D models",
+         trHint: "Blender (.blend) ve 3MF içine gömülü küçük resim",
+         enHint: "Thumbnail embedded in Blender (.blend) and 3MF files"}
     ]
 
     function t(tr, en) { return turkish ? tr : en }
@@ -918,6 +932,45 @@ GModalPopup {
                         SettingsSection {
                             sectionId: "operations"
                             title: dialog.t("İşlemler", "Operations")
+                            ToggleRow {
+                                objectName: "fileDialogIntegrationSetting"
+                                text: dialog.t("Uygulamaların Aç/Kaydet pencerelerinde Lurviko'yu kullan",
+                                               "Use Lurviko for apps' Open/Save dialogs")
+                                searchKeywords: "portal dosya diyaloğu file dialog chooser picker aç kaydet open save"
+                                description: FileDialogIntegration.error === "writeFailed"
+                                    ? dialog.t("Portal ayar dosyası yazılamadı: ", "Could not write the portal settings: ")
+                                      + FileDialogIntegration.configPath
+                                    : !FileDialogIntegration.installed
+                                    ? dialog.t("Önce Lurviko'nun portal tanımı sisteme kurulmalı (aşağıda).",
+                                               "Lurviko's portal definition must be installed first (below).")
+                                    : dialog.t("Firefox, Flatpak uygulamaları ve portal kullanan diğer uygulamalar Lurviko'nun dosya seçicisini açar. Ayar değişince masaüstü portalı yeniden başlatılır.",
+                                               "Firefox, Flatpak apps and other apps that use the desktop portal open Lurviko's file picker. The desktop portal restarts when this changes.")
+                                checked: FileDialogIntegration.enabled
+                                onToggledTo: function(value) { FileDialogIntegration.setEnabled(value) }
+                            }
+                            ToggleRow {
+                                objectName: "fileDialogDesktopAppsSetting"
+                                shown: FileDialogIntegration.plasmaSession && FileDialogIntegration.enabled
+                                text: dialog.t("KDE/Qt ve GTK uygulamalarında da kullan", "Also use it in KDE/Qt and GTK apps")
+                                searchKeywords: "kate okular gwenview libreoffice gtk qt kde dosya diyaloğu file dialog"
+                                description: dialog.t("Kate, Okular, Gwenview, LibreOffice ve GTK uygulamaları da Lurviko'nun Aç/Kaydet penceresini kullanır. Oturumu kapatıp açınca etkinleşir.",
+                                                      "Kate, Okular, Gwenview, LibreOffice and GTK apps also use Lurviko's Open/Save dialog. Takes effect after logging out and back in.")
+                                checked: FileDialogIntegration.desktopAppsEnabled
+                                onToggledTo: function(value) { FileDialogIntegration.setDesktopAppsEnabled(value) }
+                            }
+                            ActionRow {
+                                objectName: "fileDialogPortalInstall"
+                                shown: !FileDialogIntegration.installed
+                                text: FileDialogIntegration.busy
+                                      ? dialog.t("Portal tanımı kuruluyor…", "Installing the portal definition…")
+                                      : dialog.t("Portal tanımını sisteme kur", "Install the portal definition")
+                                description: FileDialogIntegration.error === "installFailed"
+                                    ? dialog.t("Kurulum tamamlanmadı. Yönetici parolası gerekir.",
+                                               "Installation did not complete. An administrator password is required.")
+                                    : dialog.t("xdg-desktop-portal arka uç tanımlarını yalnızca sistem klasöründen okur; bir kez yönetici izni gerekir.",
+                                               "xdg-desktop-portal reads backend definitions only from the system folder; administrator approval is needed once.")
+                                onTriggered: FileDialogIntegration.installPortalDefinition()
+                            }
                             ToggleRow {
                                 objectName: "kioProgressSetting"
                                 text: dialog.lang.t("kio_progress")

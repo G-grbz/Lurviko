@@ -59,6 +59,10 @@
 #include "clipboardhistory.h"
 #include "storagehousekeeping.h"
 #include "thumbnailprovider.h"
+#include "thumbnailcache.h"
+#include "imageproviders.h"
+#include "filechooserportal.h"
+#include "filedialogintegration.h"
 #include "bundlediconprovider.h"
 #include "admineditmanager.h"
 #include "openwithmodel.h"
@@ -454,6 +458,8 @@ int main(int argc, char *argv[])
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new DiskImageManager; });
 
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PreviewSettings", PreviewSettings::instance());
+    qmlRegisterSingletonType<FileDialogIntegration>("Lurviko.Backend", 1, 0, "FileDialogIntegration",
+        [](QQmlEngine *, QJSEngine *) -> QObject * { return new FileDialogIntegration; });
     // App-wide: every browser page shows the same Copy/Cut history.
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "ClipboardHistory", ClipboardHistory::instance());
     PlaybackResumeManager playbackResumeManager;
@@ -474,6 +480,11 @@ int main(int argc, char *argv[])
         }
     }
     const bool activatedForFileManager = app.arguments().contains(QStringLiteral("--filemanager1"));
+
+    // D-Bus activated xdg-desktop-portal FileChooser backend. It runs beside
+    // (never instead of) the single-instance browser window.
+    if (app.arguments().contains(QStringLiteral("--file-chooser-portal")))
+        return runFileChooserPortal(app);
 
     // One Lurviko process per user. Plasma/file-association launches are
     // forwarded to the existing window instead of creating a second window.
@@ -539,11 +550,7 @@ int main(int argc, char *argv[])
     }
 
     QQmlApplicationEngine engine;
-    engine.addImageProvider(QStringLiteral("gfilethumb"), new ThumbnailProvider);
-    engine.addImageProvider(QStringLiteral("systemicon"), new SystemIconProvider);
-    engine.addImageProvider(QStringLiteral("bundledicon"), new BundledIconProvider);
-    engine.addImageProvider(QStringLiteral("folderart"), new FolderIconProvider);
-    engine.addImageProvider(QStringLiteral("fileart"), new ArtworkIconProvider);
+    installImageProviders(engine);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, [] { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);

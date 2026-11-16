@@ -49,4 +49,54 @@ foreach(installed_file IN LISTS installed_files)
         message(STATUS "Already absent: ${staged_file}")
     endif()
 endforeach()
+# xdg-desktop-portal selects a backend by its *.portal file alone, without
+# checking that it can still be started. If this installation provided the
+# file chooser backend, drop Lurviko from the user's portal choice so Open/Save
+# dialogs fall back to the desktop's own (a portal definition installed into
+# /usr/share with administrator rights may outlive a user-prefix install).
+set(provided_portal FALSE)
+foreach(installed_file IN LISTS installed_files)
+    if(installed_file MATCHES "/org\\.freedesktop\\.impl\\.portal\\.desktop\\.lurviko\\.service$")
+        set(provided_portal TRUE)
+    endif()
+endforeach()
+if(provided_portal AND "$ENV{DESTDIR}" STREQUAL "")
+    set(portal_config_dir "$ENV{XDG_CONFIG_HOME}")
+    if(portal_config_dir STREQUAL "")
+        set(portal_config_dir "$ENV{HOME}/.config")
+    endif()
+    file(GLOB portal_configs "${portal_config_dir}/xdg-desktop-portal/*portals.conf")
+    set(portal_choice_changed FALSE)
+    foreach(portal_config IN LISTS portal_configs)
+        file(READ "${portal_config}" portal_text)
+        if(portal_text MATCHES "^# Created by Lurviko ")
+            message(STATUS "Removing Lurviko's file dialog choice: ${portal_config}")
+            file(REMOVE "${portal_config}")
+            set(portal_choice_changed TRUE)
+        elseif(portal_text MATCHES "org\\.freedesktop\\.impl\\.portal\\.FileChooser=[ \t]*lurviko")
+            string(REGEX REPLACE "(org\\.freedesktop\\.impl\\.portal\\.FileChooser=)[ \t]*lurviko;?" "\\1"
+                portal_text "${portal_text}")
+            string(REGEX REPLACE "(^|\n)org\\.freedesktop\\.impl\\.portal\\.FileChooser=[ \t]*(\n|$)" "\\1"
+                portal_text "${portal_text}")
+            message(STATUS "Removing Lurviko from the file dialog choice: ${portal_config}")
+            file(WRITE "${portal_config}" "${portal_text}")
+            set(portal_choice_changed TRUE)
+        endif()
+    endforeach()
+    # Lurviko's env script routes KDE/Qt and GTK apps to the portal; without
+    # Lurviko that is pointless, so remove it with the portal choice.
+    set(portal_env_script "${portal_config_dir}/plasma-workspace/env/lurviko-file-dialogs.sh")
+    if(EXISTS "${portal_env_script}")
+        file(READ "${portal_env_script}" portal_env_text)
+        if(portal_env_text MATCHES "^# Created by Lurviko ")
+            message(STATUS "Removing: ${portal_env_script}")
+            file(REMOVE "${portal_env_script}")
+        endif()
+    endif()
+    # The portal reads its configuration at startup.
+    if(portal_choice_changed AND NOT "$ENV{LURVIKO_UNINSTALL_NO_PORTAL_RESTART}" STREQUAL "1")
+        execute_process(COMMAND systemctl --user try-restart xdg-desktop-portal.service
+            RESULT_VARIABLE ignored OUTPUT_QUIET ERROR_QUIET)
+    endif()
+endif()
 message(STATUS "Lurviko uninstalled. User settings, caches and personal data were kept.")

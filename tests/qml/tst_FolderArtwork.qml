@@ -709,8 +709,44 @@ Item {
                 // the worker confirms from the file content, like Dolphin.
                 compare(PreviewSettings.previewKind("gitignore", "application/octet-stream"), "text")
                 compare(PreviewSettings.previewKind("", "application/octet-stream"), "text")
-                compare(PreviewSettings.previewKind("exe", "application/x-ms-dos-executable"), "")
                 compare(PreviewSettings.previewKind("zip", "application/zip"), "")
+                // Formats added later.
+                compare(PreviewSettings.previewKind("exe", "application/x-ms-dos-executable"), "windows")
+                compare(PreviewSettings.previewKind("dll", ""), "windows")
+                compare(PreviewSettings.previewKind("apk", "application/vnd.android.package-archive"), "apk")
+                compare(PreviewSettings.previewKind("xapk", ""), "apk")
+                compare(PreviewSettings.previewKind("desktop", "application/x-desktop"), "desktop",
+                        "Launchers show their icon, not their text")
+                compare(PreviewSettings.previewKind("blend", ""), "models")
+                compare(PreviewSettings.previewKind("3mf", "model/3mf"), "models")
+                compare(PreviewSettings.previewKind("fb2", "application/x-fictionbook+xml"), "ebooks")
+                compare(PreviewSettings.previewKind("zip", "application/x-zip-compressed-fb2"), "ebooks")
+                compare(PreviewSettings.previewKind("azw3", ""), "ebooks")
+                compare(PreviewSettings.previewKind("cbr", "application/vnd.comicbook-rar"), "comics")
+                compare(PreviewSettings.previewKind("cb7", ""), "comics")
+                compare(PreviewSettings.previewKind("pages", ""), "office")
+            }
+            function test_new_preview_kinds_are_opt_in() {
+                const optIn = ["apk", "windows", "desktop", "models"]
+                for (let i = 0; i < optIn.length; ++i) {
+                    verify(PreviewSettings.kinds.indexOf(optIn[i]) >= 0, optIn[i] + " is listed")
+                    verify(!PreviewSettings.kindEnabledByDefault(optIn[i]), optIn[i] + " starts off")
+                }
+                verify(PreviewSettings.kindEnabledByDefault("images"))
+                verify(PreviewSettings.kindEnabledByDefault("appimage"))
+                const saved = PreviewSettings.kindEnabled("apk")
+                const savedEnabled = PreviewSettings.enabled
+                try {
+                    PreviewSettings.enabled = true
+                    PreviewSettings.setKindEnabled("apk", false)
+                    verify(!PreviewSettings.allows("/tmp/app.apk", "apk", "application/vnd.android.package-archive", 1024))
+                    PreviewSettings.setKindEnabled("apk", true)
+                    verify(PreviewSettings.kindEnabled("apk"))
+                    verify(PreviewSettings.allows("/tmp/app.apk", "apk", "application/vnd.android.package-archive", 1024))
+                } finally {
+                    PreviewSettings.setKindEnabled("apk", saved)
+                    PreviewSettings.enabled = savedEnabled
+                }
             }
             function test_preview_settings_gate_thumbnails() {
                 const pane = page.activePane

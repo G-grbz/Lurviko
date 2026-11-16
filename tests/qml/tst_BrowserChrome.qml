@@ -277,7 +277,8 @@ Item {
                     const fontBefore = title.font.weight
                     const titleWidth = title.width
                     const tabBefore = inactiveTab.mapToItem(window.contentItem, 0, 0)
-                    verify(findChild(page, "browserTabRow").spacing <= -14)
+                    // Flared feet overlap; the tab bodies keep a small 4 px gap.
+                    compare(findChild(page, "browserTabRow").spacing, -12)
                     verify(activeTab.z > inactiveTab.z)
                     mouseClick(inactiveTab, 45, 22)
                     compare(page.currentTab, 1)
@@ -344,6 +345,44 @@ Item {
                     page.tabs = savedTabs
                     page.switchToTab(savedCurrent, true)
                 }
+            }
+            function test_inactive_tabs_have_half_outline_and_a_gap() {
+                const savedTabs = page.tabs
+                const savedCurrent = page.currentTab
+                const location = String(fileArtworkFixtureUrl)
+                try {
+                    page.tabs = [page.makeTab(location), page.makeTab(location), page.makeTab(location)]
+                    page.switchToTab(1, true)
+                    verify(inputTestHelper.settleQmlCreations(page))
+                    const passive = findChild(visualTab(0), "fluidTabSurface")
+                    const active = findChild(visualTab(1), "fluidTabSurface")
+                    tryCompare(passive, "selectionProgress", 0)
+                    fuzzyCompare(passive.passiveOutlineColor.a, AppTheme.activeTabOutline.a * 0.5, 0.01)
+                    compare(Qt.rgba(passive.passiveOutlineColor.r, passive.passiveOutlineColor.g,
+                                    passive.passiveOutlineColor.b, 1),
+                            Qt.rgba(AppTheme.activeTabOutline.r, AppTheme.activeTabOutline.g,
+                                    AppTheme.activeTabOutline.b, 1))
+                    // Tab bodies (between the flared feet) are 4 px apart.
+                    const gap = (visualTab(1).x + active.wing) - (visualTab(0).x + visualTab(0).width - passive.wing)
+                    fuzzyCompare(gap, 4, 0.01)
+                    verify(findChild(visualTab(2), "browserTabDivider") === null,
+                        "Outlined inactive tabs need no extra divider")
+                } finally {
+                    page.tabs = savedTabs
+                    page.switchToTab(savedCurrent, true)
+                }
+            }
+            function test_breadcrumbs_keep_an_empty_authority() {
+                const pane = page.activePane
+                const locations = function(raw) {
+                    return pane.buildBreadcrumbItems(raw).map(function(item) { return item.location })
+                }
+                // "cache" is a folder of admin:/// — never a host.
+                compare(locations("admin:///cache/transcoding/07"),
+                        ["admin:///", "admin:///cache/", "admin:///cache/transcoding/",
+                         "admin:///cache/transcoding/07/"])
+                compare(locations("sftp://server/srv/data"),
+                        ["sftp://server", "sftp://server/srv/", "sftp://server/srv/data/"])
             }
             function test_context_menu_opens_encryption_for_selected_local_items() {
                 const pane = page.activePane

@@ -181,6 +181,30 @@ Item {
                 dialog.changeMode("diff")
                 tryCompare(operations, "loading", false)
                 verify(findChild(dialog, "gitDiffText").text.indexOf("changed") >= 0)
+                const diffText = findChild(dialog, "gitDiffText")
+                compare(diffText.applicationContextMenu.objectName, "gitDiffTextMenu")
+                compare(diffText.applicationContextMenu.editor, diffText)
+                verify(findChild(dialog, "gitExportPatch").visible)
+                verify(findChild(dialog, "gitExportPatch").enabled)
+                verify(/^[a-z0-9._-]+-\d{8}-\d{4}\.patch$/.test(dialog.patchFileName()))
+                dialog.changeMode("apply")
+                verify(!findChild(dialog, "gitExportPatch").visible)
+                verify(findChild(dialog, "gitApplyPatch").visible)
+                verify(!findChild(dialog, "gitApplyPatch").enabled)
+                findChild(dialog, "gitPatchPath").text = "/tmp/a b#c.patch"
+                compare(dialog.patchUrl(), "file:///tmp/a%20b%23c.patch")
+                verify(findChild(dialog, "gitApplyPatch").enabled)
+                // Long Git feedback scrolls inside the modal instead of overflowing it.
+                const feedback = findChild(dialog, "gitFeedbackScroll")
+                dialog.resultSuccess = false
+                dialog.resultMessage = new Array(80).fill("error: patch failed: file.txt:1").join("\n")
+                tryCompare(feedback, "visible", true)
+                tryVerify(function() { return feedback.contentHeight > 500 })
+                verify(feedback.height <= 132)
+                dialog.resultMessage = ""; dialog.resultSuccess = true
+                dialog.changeMode("history")
+                verify(!findChild(dialog, "gitExportPatch").visible)
+                verify(!findChild(dialog, "gitApplyPatch").visible)
                 dialog.close(); tryCompare(dialog, "visible", false)
             }
             function test_tag_controls_safe_defaults_and_version_validation() {
