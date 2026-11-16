@@ -19,7 +19,6 @@
 #include <QImageReader>
 #include <QFile>
 #include <QFontDatabase>
-#include <QCollator>
 #include <QMimeDatabase>
 #include <QRawFont>
 #include <QXmlStreamReader>
@@ -844,12 +843,39 @@ QStringList comicPages(QStringList names)
     names.erase(std::remove_if(names.begin(), names.end(), [](const QString &name) {
         return !isImageEntryName(name) || name.startsWith(QLatin1String("__MACOSX/"));
     }), names.end());
-    QCollator collator;
-    collator.setNumericMode(true);
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
-    std::sort(names.begin(), names.end(), [&collator](const QString &a, const QString &b) {
-        return collator.compare(a, b) < 0;
-    });
+    // Natural order without QCollator: under the C/POSIX locale (CI
+    // containers, minimal sessions) QCollator ignores numeric mode and put
+    // page10 before page2.
+    const auto naturalLess = [](const QString &a, const QString &b) {
+        qsizetype i = 0, j = 0;
+        while (i < a.size() && j < b.size()) {
+            if (a.at(i).isDigit() && b.at(j).isDigit()) {
+                qsizetype ai = i, bj = j;
+                while (ai < a.size() && a.at(ai) == QLatin1Char('0')) ++ai;
+                while (bj < b.size() && b.at(bj) == QLatin1Char('0')) ++bj;
+                qsizetype ae = ai, be = bj;
+                while (ae < a.size() && a.at(ae).isDigit()) ++ae;
+                while (be < b.size() && b.at(be).isDigit()) ++be;
+                if (ae - ai != be - bj)
+                    return ae - ai < be - bj;
+                const int digits = QStringView(a).mid(ai, ae - ai).compare(QStringView(b).mid(bj, be - bj));
+                if (digits != 0)
+                    return digits < 0;
+                i = ae;
+                j = be;
+                continue;
+            }
+            const int letters = QStringView(a).mid(i, 1).compare(QStringView(b).mid(j, 1), Qt::CaseInsensitive);
+            if (letters != 0)
+                return letters < 0;
+            ++i;
+            ++j;
+        }
+        if ((a.size() - i) != (b.size() - j))
+            return a.size() - i < b.size() - j;
+        return a < b;
+    };
+    std::stable_sort(names.begin(), names.end(), naturalLess);
     return names;
 }
 

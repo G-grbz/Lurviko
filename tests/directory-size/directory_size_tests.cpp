@@ -805,6 +805,12 @@ private slots:
         const auto root = temp.path() + "/locked";
         write(root + "/secret", 11);
         QVERIFY(QFile::setPermissions(root, QFileDevice::Permissions()));
+        // Root (CI containers) bypasses file permissions, so the folder
+        // stays listable and there is nothing to deny.
+        if (!QDir(root).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System).isEmpty()) {
+            QFile::setPermissions(root, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+            QSKIP("Permissions are not enforced for this user (running as root).");
+        }
         DirectorySizeIndex index(temp.path() + "/cache/index.sqlite");
         index.retain(this, root);
         index.setWatchedDirectories(this, {root});
