@@ -30,6 +30,13 @@ Item {
     signal renameCancel()
     signal renamePrepare(var editor, string itemName, bool itemIsDir)
     signal zoomRequested(int delta)
+    // Date basis of the groups ("modified", "created" or "added"); the
+    // timeline asks the host to change it, which regroups the files.
+    property string timelineBasis: "modified"
+    property bool timelineEnabled: true
+    signal timelineBasisRequested(string basis)
+    property var timelineGroups: []
+    property string currentGroupKey: ""
 
     property var groups: []
     property double wheelBurstLastMs: 0
@@ -109,9 +116,11 @@ Item {
             const key = dayKey
             if (byKey[key] === undefined) {
                 byKey[key] = result.length
-                result.push({ key: key, dateMs: ms, title: dateTitle(ms), items: [] })
+                result.push({ key: key, dateMs: ms, title: dateTitle(ms), items: [], bytes: 0 })
             }
-            result[byKey[key]].items.push(item)
+            const group = result[byKey[key]]
+            group.items.push(item)
+            group.bytes += Math.max(0, Number(item.size || 0))
         }
         result.sort(function(a, b) {
             const av = Number(a.dateMs || 0)
@@ -189,17 +198,30 @@ Item {
     function rebuildRows() {
         const result = []
         const itemRows = ({})
+        // Header offsets in the content, for the timeline's mark positions.
+        const headerOffsets = []
+        let offset = 0
         for (let g = 0; g < groups.length; ++g) {
             const group = groups[g]
+            headerOffsets.push(offset)
+            offset += 58 + (result.length > 0 ? Math.max(0, 12 - cellGap) : 0) + cellGap
             result.push({ kind: "header", key: group.key, title: group.title, count: group.items.length })
-            for (let offset = 0; offset < group.items.length; offset += layoutColumns) {
-                const items = group.items.slice(offset, offset + layoutColumns)
+            for (let start = 0; start < group.items.length; start += layoutColumns) {
+                const items = group.items.slice(start, start + layoutColumns)
                 for (let i = 0; i < items.length; ++i) itemRows[items[i].modelIndex] = result.length
                 result.push({ kind: "cards", key: group.key, items: items })
+                offset += rowCardHeight + cellGap
             }
         }
+        const total = Math.max(1, offset)
+        const marks = []
+        for (let g = 0; g < groups.length; ++g)
+            marks.push({ key: groups[g].key, dateMs: groups[g].dateMs, count: groups[g].items.length,
+                         bytes: groups[g].bytes, position: headerOffsets[g] / total })
+        timelineGroups = marks
         rows = result
         modelRows = itemRows
+        currentGroupTimer.restart()
         // One insert for all new rows: thousands of single appends each made
         // the ListView process a separate insertion.
         if (rowModel.count < result.length) {
@@ -248,6 +270,29 @@ Item {
         }
     }
 
+    // Timeline: jump to a date group without filtering anything.
+    function scrollToGroup(key) {
+        rowRebuildTimer.stop()
+        updateRows()
+        for (let i = 0; i < rows.length; ++i) {
+            if (rows[i].kind === "header" && rows[i].key === key) {
+                wheelScrollAnimation.stop()
+                galleryList.cancelFlick()
+                galleryList.positionViewAtIndex(i, ListView.Beginning)
+                currentGroupKey = key
+                return
+            }
+        }
+    }
+
+    function updateCurrentGroup() {
+        let index = galleryList.indexAt(4, galleryList.contentY + 4)
+        if (index < 0)
+            index = galleryList.indexAt(4, galleryList.contentY + Math.min(40, galleryList.height / 2))
+        const row = index >= 0 && index < rows.length ? rows[index] : (rows.length ? rows[0] : null)
+        currentGroupKey = row ? String(row.key) : ""
+    }
+
     function positionModelIndex(index, mode) {
         rowRebuildTimer.stop()
         updateRows()
@@ -275,12 +320,14 @@ Item {
 
     ListModel { id: rowModel }
     Timer { id: rowRebuildTimer; interval: 0; onTriggered: root.updateRows() }
+    Timer { id: currentGroupTimer; interval: 60; onTriggered: root.updateCurrentGroup() }
 
     ListView {
         id: galleryList
         objectName: "categoryGroupedList"
         anchors.fill: parent
-        anchors.rightMargin: 12
+        // Cards, scrollbar, then the timeline panel.
+        anchors.rightMargin: timeline.visible ? timeline.gutterWidth + 8 + 12 : 12
         clip: true
         spacing: root.cellGap
         model: rowModel
@@ -288,6 +335,7 @@ Item {
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         onDraggingChanged: if (dragging) wheelScrollAnimation.stop()
+        onContentYChanged: currentGroupTimer.restart()
 
         WheelHandler {
             target: null
@@ -549,6 +597,7 @@ Item {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             anchors.right: parent.right
+            anchors.rightMargin: timeline.visible ? timeline.gutterWidth + 8 : 0
             width: 10
             policy: ScrollBar.AsNeeded
             active: pressed || hovered || galleryList.moving || wheelScrollAnimation.running
@@ -562,5 +611,22 @@ Item {
             }
             background: Item {}
         }
+    }
+
+    // Timeline panel right of the scrollbar.
+    CategoryTimeline {
+        id: timeline
+        anchors.top: galleryList.top
+        anchors.bottom: galleryList.bottom
+        anchors.right: parent.right
+        z: 4
+        hostWidth: root.width
+        visible: root.timelineEnabled && AppTheme.categoryTimelineVisible && periods.length > 1
+        groups: root.timelineEnabled ? root.timelineGroups : []
+        currentKey: root.currentGroupKey
+        basis: root.timelineBasis
+        lang: root.lang
+        onPeriodActivated: function(groupKey) { root.scrollToGroup(groupKey) }
+        onBasisRequested: function(value) { root.timelineBasisRequested(value) }
     }
 }

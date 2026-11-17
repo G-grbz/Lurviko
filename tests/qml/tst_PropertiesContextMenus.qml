@@ -58,7 +58,7 @@ Item {
                     {tag: "group", name: "permissionGroupCombo", account: true},
                     {tag: "share-name", name: "sambaShareName", account: false},
                     {tag: "share-comment", name: "sambaShareComment", account: false},
-                    {tag: "account-help", name: "sambaAccountSetupCommand", account: false}]
+                    {tag: "share-rule", name: "sambaAddRuleField", account: false}]
             }
             function test_properties_fields_use_the_application_menu(data) {
                 let field = findChild(pane, data.name)
@@ -69,9 +69,16 @@ Item {
                     findChild(pane, "filePropertiesDialog").administratorDraft = true
                     field = findChild(field, "accountEditor")
                 }
+                if (data.name.indexOf("samba") === 0) {
+                    // Share fields open with "Share this folder".
+                    const panel = findChild(pane, "sambaSharePanel")
+                    tryVerify(function() { return findChild(panel, "sambaShareManager").available })
+                    panel.shareEnabled = true
+                }
                 tryCompare(field, "enabled", true)
                 if (data.name === "sambaShareComment") field.text = "Copy selected comment"
                 else if (data.name === "sambaShareName") field.text = "SelectedShare"
+                else if (data.name === "sambaAddRuleField") field.text = "office-user"
                 reveal(field)
                 field.forceActiveFocus(); field.selectAll()
                 const selected = field.selectedText

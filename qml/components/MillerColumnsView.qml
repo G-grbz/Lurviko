@@ -218,6 +218,13 @@ Item {
                                 status: entry.gitStatus
                                 language: browser.lang.language
                             }
+                            SharedFolderBadge {
+                                anchors { left: artwork.left; bottom: artwork.bottom; leftMargin: -3; bottomMargin: -3 }
+                                size: 15
+                                folder: entry.isDir
+                                path: entry.localPath
+                                language: browser.lang.language
+                            }
                             DropTargetBadge {
                                 anchors { left: artwork.left; top: artwork.top }
                                 width: 18; height: 18; radius: 6

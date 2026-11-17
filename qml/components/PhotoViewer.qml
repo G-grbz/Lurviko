@@ -11,6 +11,7 @@ Popup {
     // Opens with the type's preferred application, like the file browser;
     // Qt.openUrlExternally asked for an application every time.
     OpenWithModel { id: photoOpenWith }
+    ImageGeometry { id: imageGeometry }
     required property var lang
     property var files: []
     property int currentIndex: -1
@@ -67,6 +68,27 @@ Popup {
     // by the ratio here as well asked for ~9000 px at 3x scaling and Qt
     // rejected the image (256 MB allocation limit), so it never appeared.
     // The device-pixel long side is capped at 4096.
+    // Decode size for raster photos. Without a sourceSize every photo was
+    // decoded at full resolution (a 24 MP JPEG is ~96 MB of RAM plus the
+    // same again as a GPU texture, and more with mipmaps). Decode for the
+    // stage in device pixels instead; zooming raises the size in powers of
+    // two, up to the file's own size, with the previous picture retained
+    // while the sharper one loads. undefined keeps the native size (remote
+    // files, or pictures already smaller than the stage).
+    function rasterSourceSize(source, zoomValue) {
+        const src = String(source || "")
+        if (!src.length)
+            return undefined
+        const dpr = Math.max(1, Screen.devicePixelRatio)
+        const stageLong = Math.max(photoFlick.width, photoFlick.height)
+                || Math.max(Screen.width, Screen.height)
+        const tier = zoomValue <= 1.01 ? 1 : Math.pow(2, Math.ceil(Math.log(zoomValue) / Math.LN2))
+        // 512 px steps: resizing the window does not decode on every pixel.
+        const longSide = Math.min(8192, Math.ceil(stageLong * dpr * tier / 512) * 512)
+        const size = imageGeometry.boundedSourceSize(src, longSide)
+        return size.width > 0 ? size : undefined
+    }
+
     function vectorRenderSize(width, height) {
         const dpr = Math.max(1, Screen.devicePixelRatio)
         const w = Math.max(1, width)
@@ -424,6 +446,13 @@ Popup {
         pendingImageItem = null
         lastPointerSceneX = -1
         lastPointerSceneY = -1
+        // Release the decoded photos; the gallery page stays open after the
+        // viewer closes, and the buffers used to stay in RAM and VRAM with it.
+        imageA.source = ""
+        imageB.source = ""
+        backdropA.source = ""
+        backdropB.source = ""
+        showingImageA = true
     }
     onViewerFullScreenChanged: {
         controlsSettleTimer.stop()
@@ -486,7 +515,10 @@ Popup {
             id: backdropLayer
             anchors.fill: parent
             anchors.margins: -72
-            layer.enabled: true
+            // Window-sized blur passes: allocate them only while the viewer
+            // is shown. An always-enabled layer kept its textures until the
+            // whole gallery page was destroyed.
+            layer.enabled: viewer.visible
             layer.effect: MultiEffect {
                 blurEnabled: true
                 blur: 1.0
@@ -546,13 +578,16 @@ Popup {
                     anchors.centerIn: parent
                     width: Math.max(80, (viewer.quarterTurn ? photoFlick.height : photoFlick.width) * viewer.zoom)
                     height: Math.max(80, (viewer.quarterTurn ? photoFlick.width : photoFlick.height) * viewer.zoom)
-                    // Vector images are rendered at their on-screen size (and
-                    // again when zoomed); photos keep their full resolution.
+                    // Vector images are rendered at their on-screen size and
+                    // photos at the stage size (both again when zoomed).
                     readonly property bool vector: /\.svgz?$/i.test(String(source))
-                    sourceSize: vector ? viewer.vectorRenderSize(width, height) : undefined
+                    sourceSize: vector ? viewer.vectorRenderSize(width, height)
+                                       : viewer.rasterSourceSize(source, viewer.zoom)
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: false
+                    // Keep the current frame while a zoom step re-decodes.
+                    retainWhileLoading: true
                     rotation: viewer.rotationAngle
                     smooth: true
                     mipmap: true
@@ -574,13 +609,16 @@ Popup {
                     anchors.centerIn: parent
                     width: Math.max(80, (viewer.quarterTurn ? photoFlick.height : photoFlick.width) * viewer.zoom)
                     height: Math.max(80, (viewer.quarterTurn ? photoFlick.width : photoFlick.height) * viewer.zoom)
-                    // Vector images are rendered at their on-screen size (and
-                    // again when zoomed); photos keep their full resolution.
+                    // Vector images are rendered at their on-screen size and
+                    // photos at the stage size (both again when zoomed).
                     readonly property bool vector: /\.svgz?$/i.test(String(source))
-                    sourceSize: vector ? viewer.vectorRenderSize(width, height) : undefined
+                    sourceSize: vector ? viewer.vectorRenderSize(width, height)
+                                       : viewer.rasterSourceSize(source, viewer.zoom)
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: false
+                    // Keep the current frame while a zoom step re-decodes.
+                    retainWhileLoading: true
                     rotation: viewer.rotationAngle
                     smooth: true
                     mipmap: true
@@ -858,7 +896,8 @@ Popup {
                     orientation: ListView.Horizontal
                     spacing: 4
                     clip: true
-                    model: viewer.files
+                    // No strip thumbnails while the viewer is closed.
+                    model: viewer.visible ? viewer.files : []
                     boundsBehavior: Flickable.StopAtBounds
                     currentIndex: viewer.currentIndex
                     highlightMoveDuration: 120

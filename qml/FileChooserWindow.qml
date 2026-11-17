@@ -25,6 +25,53 @@ ApplicationWindow {
     property var pendingUris: []
     // The active filter; returned to the caller as current_filter.
     property int filterIndex: -1
+    // Folder history of this dialog for Back/Forward (toolbar, mouse side
+    // buttons, Alt+Left/Right). The main window keeps history per tab in
+    // BrowsePage, which a picker does not have.
+    property var backHistory: []
+    property var forwardHistory: []
+    property string historyLocation: ""
+    property bool historyNavigating: false
+
+    function recordLocation(location) {
+        const value = String(location || "")
+        if (!value.length || value === historyLocation)
+            return
+        // The pane settles on its first folder while it starts up; only
+        // later changes are navigation the user can go back from.
+        if (!pane.userLocationSignalsReady) {
+            historyLocation = value
+            return
+        }
+        if (!historyNavigating && historyLocation.length) {
+            backHistory = backHistory.concat([historyLocation]).slice(-100)
+            forwardHistory = []
+        }
+        historyNavigating = false
+        historyLocation = value
+    }
+    function goBack() {
+        if (!backHistory.length)
+            return
+        const back = backHistory.slice()
+        const target = back.pop()
+        forwardHistory = forwardHistory.concat([historyLocation])
+        backHistory = back
+        historyNavigating = true
+        pane.navigateTo(target)
+    }
+    function goForward() {
+        if (!forwardHistory.length)
+            return
+        const forward = forwardHistory.slice()
+        const target = forward.pop()
+        backHistory = backHistory.concat([historyLocation])
+        forwardHistory = forward
+        historyNavigating = true
+        pane.navigateTo(target)
+    }
+    // Backspace belongs to text fields (name, address) while they are focused.
+    readonly property bool textInputFocused: !!activeFocusItem && activeFocusItem.cursorPosition !== undefined
 
     function t(tr, en) { return turkish ? tr : en }
 
@@ -268,6 +315,27 @@ ApplicationWindow {
         sequences: [StandardKey.Cancel]
         onActivated: chooser.close()
     }
+    Shortcut {
+        objectName: "fileChooserBackShortcut"
+        sequences: (KeyboardShortcuts.bindings["back"] || []).filter(function(key) {
+            return !chooser.textInputFocused || String(key).indexOf("+") > 0
+        })
+        enabled: chooser.backHistory.length > 0
+        onActivated: pane.handleBackNavigation()
+    }
+    Shortcut {
+        sequences: KeyboardShortcuts.bindings["forward"] || []
+        enabled: chooser.forwardHistory.length > 0
+        onActivated: pane.handleForwardNavigation()
+    }
+    Shortcut {
+        sequences: KeyboardShortcuts.bindings["up"] || []
+        onActivated: pane.navigateUp()
+    }
+    Shortcut {
+        sequences: KeyboardShortcuts.bindings["location"] || []
+        onActivated: pane.focusLocationField()
+    }
 
     // Same shell as the browser window: an inset sidebar and a separate,
     // bordered workspace panel with the command bar, files and the footer.
@@ -415,6 +483,11 @@ ApplicationWindow {
                 cloudIntegrationPreferences: noCloudPreferences
                 googleDrive: noCloudDrive
                 oneDrive: noCloudDrive
+                backNavigationEnabled: chooser.backHistory.length > 0
+                forwardNavigationEnabled: chooser.forwardHistory.length > 0
+                onBackNavigationRequested: chooser.goBack()
+                onForwardNavigationRequested: chooser.goForward()
+                onCurrentLocationChanged: chooser.recordLocation(currentLocation)
                 onPickerActivated: function(urls) {
                     if (chooser.mode === "open") {
                         chooser.finish(chooser.request.multiple ? urls : [urls[0]])

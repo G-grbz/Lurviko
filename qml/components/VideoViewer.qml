@@ -176,6 +176,10 @@ Popup {
     // source completely on close so reopening the same vault item creates a
     // fresh QMediaPlayer source instead of retaining a stopped/deleted URL.
     property bool resetMediaOnClose: false
+    // True while the viewer is closed. player.stop() alone kept the file
+    // open with its decoder, hardware surfaces and last frame, so a gallery
+    // page that stayed open held that memory until it was left.
+    property bool mediaReleased: true
     signal browseRequested(string location)
 
     parent: viewerFullScreen && viewerFullScreenWindow.contentItem
@@ -1308,7 +1312,7 @@ Popup {
     MediaPlayer {
         id: player
         objectName: "videoMediaPlayer"
-        source: viewer.currentItem ? viewer.currentItem.url : ""
+        source: !viewer.mediaReleased && viewer.currentItem ? viewer.currentItem.url : ""
         onSourceChanged: viewer.firstVideoFrameReady = false
         activeSubtitleTrack: -1
         function disableNativeSubtitleTrack() {
@@ -1412,6 +1416,7 @@ Popup {
         if (Object.keys(pendingTrackPreferences || {}).length)
             trackPreferenceRestoreTimer.restart()
     }
+    onAboutToShow: mediaReleased = false
     onClosed: {
         subtitleAiOpenAfterSources = false
         chapterPopup.close()
@@ -1445,6 +1450,8 @@ Popup {
             currentIndex = -1
             files = []
         }
+        // After the resume position and track choices were saved above.
+        mediaReleased = true
     }
     onCurrentIndexChanged: {
         displayVideoWidth = 0

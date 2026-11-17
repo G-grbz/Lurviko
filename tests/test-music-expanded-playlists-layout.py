@@ -23,9 +23,10 @@ assert 'id: confirmPlaylistRemoval' in view
 for api in ('saveCurrentQueueAsPlaylist', 'playPlaylist', 'deletePlaylist'):
     assert f'function {api}(' in player
 
-# Tab contrast remains correct for light and dark themes.
+# Tab contrast remains correct for light and dark themes (labels are GText,
+# whose themed colour is baseColor).
 for name in ('lyricsTabButton', 'queueTabButton', 'playlistsTabButton'):
-    assert f'color: {name}.checked ? AppTheme.accent : AppTheme.text' in view
+    assert f'baseColor: {name}.checked ? AppTheme.accent : AppTheme.text' in view
 
 # Compact footer: 94 px, capped volume width; no second audio output.
 assert 'Layout.preferredHeight: 94' in view

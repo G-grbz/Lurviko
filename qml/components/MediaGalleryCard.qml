@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Effects
 import Lurviko.App
 import Lurviko.Backend
 
@@ -49,6 +48,25 @@ Rectangle {
     readonly property int metadataHeight: card.compact ? 0 : Math.max(40, Math.round(44 * card.textScale))
         + AppTheme.fileLabelExtraHeight(Math.round(11 * card.textScale), Math.round(8 * card.textScale))
 
+    // Decode size bucket, in logical pixels (the provider multiplies by the
+    // device pixel ratio and caps at 512). Every card used to request 512 px
+    // regardless of its size: 1 MiB of RAM and 1 MiB of VRAM per card even at
+    // the default zoom, where ~200 px is shown. Buckets keep the texture
+    // shared while the zoom slider moves within a step. Cropped (video and
+    // artwork) cards must cover their box, so they ask one step higher.
+    readonly property int thumbnailRequest: {
+        const extent = Math.max(card.width, card.height) * ((card.videoMode || card.artworkMode) ? 1.5 : 1.0)
+        return extent <= 192 ? 192 : (extent <= 256 ? 256 : (extent <= 384 ? 384 : 512))
+    }
+    // Cropped media is clipped to the card's rounded corners by one shader
+    // pass. The previous layer + MultiEffect mask allocated two offscreen
+    // 4x-multisampled textures per card (the content and its mask), which
+    // multiplied VRAM use while scrolling and kept it for pooled delegates.
+    // Fitted image thumbnails need no clip: the provider already rounds them.
+    readonly property bool roundedCrop: (card.videoMode || card.artworkMode)
+                                        && card.imageSource.length > 0
+                                        && GraphicsInfo.api !== GraphicsInfo.Software
+
     Item {
         id: roundedContent
         anchors.left: parent.left
@@ -56,30 +74,38 @@ Rectangle {
         anchors.top: parent.top
         anchors.bottom: metadataPanel.visible ? metadataPanel.top : parent.bottom
         anchors.margins: card.videoMode ? 0 : 1
-        clip: true
-        // StackLayout also constructs this component while the media page is
-        // hidden. Allocate the off-screen mask texture only for a real card.
-        layer.enabled: card.itemData !== null && card.imageSource.length > 0
-        layer.smooth: true
-        layer.samples: 4
-        layer.effect: MultiEffect {
-            maskEnabled: true
-            maskSource: roundedMask
-        }
+        // Only the plain-Image fallback (software renderer) crops outside.
+        clip: !card.roundedCrop && (card.videoMode || card.artworkMode)
 
         Image {
             id: preview
             anchors.fill: parent
             anchors.margins: (card.videoMode || card.compact) ? 0 : 6
             source: card.imageSource
-            // ThumbnailProvider already caps cached previews at 512 px.
-            // Keeping the requested decode size stable lets slider movement
-            // reuse the same texture instead of decoding again for every px.
-            sourceSize.width: 512
-            sourceSize.height: 512
+            sourceSize.width: card.thumbnailRequest
+            sourceSize.height: card.thumbnailRequest
             fillMode: (card.videoMode || card.artworkMode) ? Image.PreserveAspectCrop : Image.PreserveAspectFit
             asynchronous: true
             cache: true
+            // Drawn through roundedCropEffect when cropping.
+            visible: !card.roundedCrop
+        }
+
+        ShaderEffect {
+            id: roundedCropEffect
+            anchors.fill: preview
+            visible: card.roundedCrop
+            property var source: preview
+            property size itemSize: Qt.size(width, height)
+            property size cardSize: Qt.size(width, height)
+            property size sourceImageSize: Qt.size(preview.implicitWidth, preview.implicitHeight)
+            property real padding: 0
+            property real cornerRadius: Math.max(0, card.radius - (card.videoMode ? 0 : 1))
+            property real shadowOffset: 0
+            property real shadowSoftness: 1
+            property real shadowAlpha: 0
+            property real hasImage: preview.status === Image.Ready ? 1 : 0
+            fragmentShader: "qrc:/qt/qml/Lurviko/App/qml/shaders/roundedthumb.frag.qsb"
         }
 
         Rectangle {
@@ -138,18 +164,6 @@ Rectangle {
                 maximumLineCount: AppTheme.fileSubtitleLines
             }
         }
-    }
-
-    Rectangle {
-        id: roundedMask
-        width: roundedContent.width
-        height: roundedContent.height
-        radius: Math.max(0, card.radius - (card.videoMode ? 0 : 1))
-        color: "white"
-        antialiasing: true
-        visible: false
-        layer.enabled: roundedContent.layer.enabled
-        layer.samples: 4
     }
 
     function formatSize(bytes) {

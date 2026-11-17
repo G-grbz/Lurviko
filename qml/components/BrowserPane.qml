@@ -330,6 +330,9 @@ Rectangle {
     // browsing folders and do not apply to covers in Images, Music and Videos.
     readonly property bool mediaCategoryPreviews: root.mediaGalleryCategory || root.categoryKey === "music"
     readonly property bool groupedCategory: root.isCategoryLocation && !root.mediaGalleryCategory
+    // sftp:// without a server: the connection start page instead of KIO's
+    // "no hostname specified" error.
+    readonly property bool sftpRoot: ["sftp:", "sftp:/", "sftp://", "sftp:///"].indexOf(String(root.currentLocation).toLowerCase()) >= 0
     readonly property bool categorySingleClickOpen: {
         if (AppTheme.singleClickOpen)
             return true
@@ -339,6 +342,20 @@ Rectangle {
     }
     property int categoryViewRevision: 0
     property var groupedCategoryFiles: []
+    // Date the category groups and the timeline follow. It is the category
+    // sort: modified ("date", the default), created, or added.
+    readonly property string categoryDateBasis: directory.sortMode === "created" ? "created"
+                                                : (directory.sortMode === "added" ? "added" : "modified")
+    readonly property bool categoryDateSort: directory.sortMode === "date" || directory.sortMode === "created"
+                                             || directory.sortMode === "added"
+    function setCategoryDateBasis(basis) {
+        directory.sortMode = basis === "created" ? "created" : (basis === "added" ? "added" : "date")
+    }
+    function categoryGroupDate(entry, basis) {
+        if (basis === "created") return Number(entry.createdMs || entry.modifiedMs || 0)
+        if (basis === "added") return Number(entry.addedMs || entry.modifiedMs || 0)
+        return Number(entry.modifiedMs || 0)
+    }
     property int musicLibraryTab: 0
     property string musicLibraryFilter: ""
     property string musicGenreFilter: ""
@@ -667,19 +684,17 @@ Rectangle {
         // The directory model is the authoritative snapshot for category:/... .
         // Rebuild from it every time the category load finishes so leaving and
         // re-entering Images/Videos cannot leave the separate gallery cache empty.
+        // One native call for all rows instead of itemAt() per row.
+        const entries = directory.categoryEntries("")
+        const basis = root.categoryDateBasis
         const items = []
         let totalBytes = 0
-        for (let row = 0; row < directory.count; ++row) {
-            const entry = directory.itemAt(row)
+        for (let row = 0; row < entries.length; ++row) {
+            const entry = entries[row]
             const localPath = String(entry.localPath || "")
             if (!localPath.length || entry.isDir)
                 continue
-            let modifiedMs = 0
-            if (entry.modified) {
-                const d = new Date(entry.modified)
-                if (!isNaN(d.getTime()))
-                    modifiedMs = d.getTime()
-            }
+            const modifiedMs = Number(entry.modifiedMs || 0)
             const itemSize = Number(entry.size || 0)
             totalBytes += Math.max(0, itemSize)
             items.push({
@@ -692,7 +707,8 @@ Rectangle {
                 hidden: !!entry.hidden,
                 size: itemSize,
                 modifiedMs: modifiedMs,
-                modelIndex: row
+                groupDateMs: root.categoryGroupDate(entry, basis),
+                modelIndex: Number(entry.modelIndex)
             })
         }
         root.mediaGalleryFiles = items
@@ -741,7 +757,7 @@ Rectangle {
         // objects: a native list stored in a var property is converted again
         // on every read.
         const entries = directory.categoryEntries(query)
-        const byCreated = directory.sortMode === "created"
+        const basis = root.categoryDateBasis
         const folderText = lang.language === "tr" ? "Klasör" : "Folder"
         const result = new Array(entries.length)
         // A file's icon depends on its extension(s) and system icon name only
@@ -757,6 +773,7 @@ Rectangle {
             const size = Number(entry.size || 0)
             const modifiedMs = Number(entry.modifiedMs || 0)
             const createdMs = Number(entry.createdMs || 0)
+            const addedMs = Number(entry.addedMs || 0)
             const systemIconName = String(entry.systemIconName || "")
             result[i] = {
                 modelIndex: Number(entry.modelIndex),
@@ -770,7 +787,8 @@ Rectangle {
                 systemIconName: systemIconName,
                 modifiedMs: modifiedMs,
                 createdMs: createdMs,
-                groupDateMs: byCreated ? createdMs : modifiedMs,
+                addedMs: addedMs,
+                groupDateMs: root.categoryGroupDate(entry, basis),
                 iconSource: isDir ? root.iconForItem(true, suffix, systemIconName, name)
                                   : root.cachedFileIcon(fileIcons, suffix, systemIconName, name),
                 hidden: !!entry.hidden,
@@ -4413,6 +4431,13 @@ Rectangle {
             anchors.bottomMargin: root.navigationHost ? 4 : 0
             visible: root.navigationVisible || root.splitNavigation
             spacing: 6
+            // Narrow panes (a small file chooser, a split half) drop optional
+            // controls one by one; Back/Forward/Up, the address field and
+            // search always stay. Ctrl+wheel still zooms without the slider.
+            readonly property bool showZoom: width >= (root.splitNavigation ? 560 : 640)
+            readonly property bool showGit: width >= 560
+            readonly property bool showRecent: width >= 440
+            readonly property bool showNewFolder: width >= 520
 
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -4457,6 +4482,8 @@ Rectangle {
 
             GButton {
                 id: recentLocationsButton
+                objectName: "recentLocationsButton"
+                visible: navigationBar.showRecent
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                 implicitWidth: 32
                 implicitHeight: root.navigationControlHeight
@@ -4482,7 +4509,9 @@ Rectangle {
 
             Rectangle {
                 id: locationBar
+                objectName: "locationBar"
                 Layout.fillWidth: true
+                Layout.minimumWidth: 120
                 Layout.preferredHeight: root.navigationControlHeight
                 radius: 10
                 color: AppTheme.surface
@@ -4713,7 +4742,7 @@ Rectangle {
             GButton {
                 id: gitIndicator
                 objectName: "gitRepositoryIndicator"
-                visible: AppTheme.gitEnabled && paneGit.available
+                visible: AppTheme.gitEnabled && paneGit.available && navigationBar.showGit
                 Layout.preferredWidth: Math.min(185, implicitWidth)
                 implicitHeight: root.navigationControlHeight
                 readonly property string summary: {
@@ -4759,6 +4788,8 @@ Rectangle {
             }
 
             Rectangle {
+                objectName: "iconSizeControl"
+                visible: navigationBar.showZoom
                 Layout.preferredWidth: root.splitNavigation ? 150 : 210
                 Layout.preferredHeight: root.navigationControlHeight
                 radius: 10
@@ -4888,7 +4919,9 @@ Rectangle {
 
             GButton {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
+                // A file chooser has its own "New folder" in the command bar.
                 visible: !root.navigationHost && !root.splitNavigation && !root.isCategoryLocation && !root.isTrashLocation
+                         && !root.pickerMode && navigationBar.showNewFolder
                 text: ""
                 display: AbstractButton.IconOnly
                 icon.source: AppTheme.icon("plus.svg")
@@ -5171,7 +5204,7 @@ Rectangle {
 
 
         Rectangle {
-            visible: directory.errorString.length > 0
+            visible: directory.errorString.length > 0 && !root.sftpRoot
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? 38 : 0
             radius: 10
@@ -5254,8 +5287,22 @@ Rectangle {
             onOpenShare: function(url) { root.openLocationInput(url) }
         }
 
+        SftpConnections {
+            id: sftpConnections
+            Layout.fillWidth: true
+            Layout.fillHeight: visible
+            Layout.preferredHeight: visible ? -1 : 0
+            visible: root.visible && root.sftpRoot && !root.pickerMode
+            active: visible
+            lang: root.lang
+            recentLocations: root.quickAccessModel ? root.quickAccessModel.recentLocations : []
+            textEditMenu: propertiesTextEditMenu
+            onOpenLocation: function(url) { root.navigateTo(url) }
+        }
+
         StackLayout {
             id: viewStack
+            visible: !sftpConnections.visible
             Layout.fillWidth: true
             Layout.fillHeight: true
             currentIndex: root.mediaGalleryCategory ? 2 : (root.groupedCategory ? 3 : (root.columnsMode ? 4 : (root.gridMode ? 0 : 1)))
@@ -5528,6 +5575,19 @@ Rectangle {
                                     anchors { left: parent.left; bottom: parent.bottom }
                                     z: 90
                                     status: gridDelegate.gitStatus
+                                    language: root.lang.language
+                                }
+                                SharedFolderBadge {
+                                    // On the folder artwork's lower right corner;
+                                    // a link badge takes that corner for links.
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: parent.width * 0.04
+                                    y: linkType.length > 0 ? parent.height * 0.12
+                                                           : parent.height * 0.86 - height
+                                    z: 90
+                                    size: Math.max(18, Math.min(28, parent.width * 0.24))
+                                    folder: isDir
+                                    path: localPath
                                     language: root.lang.language
                                 }
                                 DeferredThumbnail {
@@ -6171,6 +6231,14 @@ Rectangle {
                                     status: gitStatus
                                     language: root.lang.language
                                 }
+                                SharedFolderBadge {
+                                    anchors { left: parent.left; bottom: parent.bottom; leftMargin: -3; bottomMargin: -3 }
+                                    z: 90
+                                    size: 16
+                                    folder: isDir
+                                    path: localPath
+                                    language: root.lang.language
+                                }
                                 DeferredThumbnail {
                                     id: listPreview
                                     anchors.fill: parent
@@ -6749,6 +6817,10 @@ Rectangle {
                                 }
                                 onRevealRequested: function(location, itemUrl) { root.revealExternalItem(location, itemUrl) }
                                 onZoomRequested: function(delta) { root.adjustIconSize(delta) }
+                                dateAscending: root.categoryDateSort ? directory.sortAscending : false
+                                timelineBasis: root.categoryDateBasis
+                                timelineEnabled: !root.dlnaViewActive
+                                onTimelineBasisRequested: function(basis) { root.setCategoryDateBasis(basis) }
                             }
 
                             DlnaMediaView {
@@ -6990,8 +7062,9 @@ Rectangle {
                     onRenamePrepare: function(editor, itemName, itemIsDir) {
                         root.prepareInlineRenameEditor(editor, itemName, itemIsDir)
                     }
-                    dateAscending: (directory.sortMode === "date" || directory.sortMode === "created")
-                                   ? directory.sortAscending : false
+                    dateAscending: root.categoryDateSort ? directory.sortAscending : false
+                    timelineBasis: root.categoryDateBasis
+                    onTimelineBasisRequested: function(basis) { root.setCategoryDateBasis(basis) }
                     wheelStep: AppTheme.wheelScrollStep
                     singleClickOpen: root.categorySingleClickOpen
                     onZoomRequested: function(delta) { root.adjustIconSize(delta) }
@@ -7047,7 +7120,12 @@ Rectangle {
                     player: root.musicPlayer
                     selectionEnabled: true
                     selectionRevision: root.selectionRevision
-                    itemsSelected: function(items) { return root.categoryUrlsSelected(root.categoryItemUrls(items)) }
+                    // Nothing selected (the usual case while scrolling): skip
+                    // building the URL list of every album/artist card.
+                    itemsSelected: function(items) {
+                        const revision = root.selectionRevision
+                        return root.selectedCount > 0 && root.categoryUrlsSelected(root.categoryItemUrls(items))
+                    }
                     onToggleItems: function(items) { root.toggleCategoryUrls(root.categoryItemUrls(items)) }
                     contextHandler: function(items, source, x, y) {
                         root.categoryContextForUrls(root.categoryItemUrls(items), source, x, y)
@@ -8694,11 +8772,30 @@ Rectangle {
                         directory.sortAscending = false
                 }
             }
+            GMenuItem {
+                objectName: "sortAddedItem"
+                // Arrival time is known for indexed category rows only.
+                visible: root.isCategoryLocation && !root.dlnaViewActive
+                text: lang.t("sort_added")
+                checkable: true
+                checked: directory.sortMode === "added"
+                onTriggered: directory.sortMode = "added"
+            }
             GMenuItem { text: lang.t("sort_size"); checkable: true; checked: directory.sortMode === "size"; onTriggered: directory.sortMode = "size" }
             GMenuItem { text: lang.t("sort_type"); checkable: true; checked: directory.sortMode === "type"; onTriggered: directory.sortMode = "type" }
             GMenuSeparator {}
             GMenuItem { text: lang.t("ascending"); checkable: true; checked: directory.sortAscending; onTriggered: directory.sortAscending = true }
             GMenuItem { text: lang.t("descending"); checkable: true; checked: !directory.sortAscending; onTriggered: directory.sortAscending = false }
+            GMenuSeparator { visible: timelineMenuItem.visible }
+            GMenuItem {
+                id: timelineMenuItem
+                objectName: "categoryTimelineToggle"
+                visible: root.isCategoryLocation && root.categoryKey !== "music" && !root.dlnaViewActive
+                text: lang.language === "tr" ? "Zaman çizelgesi" : "Timeline"
+                checkable: true
+                checked: AppTheme.categoryTimelineVisible
+                onTriggered: AppTheme.setCategoryTimelineVisible(!AppTheme.categoryTimelineVisible)
+            }
         }
 
         GMenuSeparator {}
@@ -8872,6 +8969,9 @@ Rectangle {
             if (localSelection && fileProperties.linkType.length > 0)
                 list.push({id: "link", title: tr ? "Bağlantı" : "Link", icon: "menu-link.svg",
                            subtitle: tr ? "Bağlantının hedefi" : "Where the link points"})
+            if (localSelection && !multiple && !root.selectedIsDir)
+                list.push({id: "checksums", title: tr ? "Sağlama Toplamları" : "Checksums", icon: "details.svg",
+                           subtitle: tr ? "MD5, SHA ve BLAKE2 ile dosyayı doğrula" : "Verify the file with MD5, SHA and BLAKE2"})
             if (!multiple && !root.selectedIsDir)
                 list.push({id: "app", title: tr ? "Uygulama" : "Application", icon: "menu-apps.svg",
                            subtitle: tr ? "Bu türü açan varsayılan uygulama" : "Default application for this type"})
@@ -9506,6 +9606,28 @@ Rectangle {
                         location: fileProperties.path
                         lang: root.lang
                         onNotify: function(message) { root.requestToast(message) }
+                    }
+
+                    ChecksumPanel {
+                        id: checksumPanel
+                        objectName: "checksumPanel"
+                        readonly property string propertiesTab: "checksums"
+                        // Hashing starts once the tab is opened and stops when
+                        // the dialog closes.
+                        property bool visited: false
+                        Layout.fillWidth: true
+                        visible: propertiesDialog.currentTab === propertiesTab
+                        onVisibleChanged: if (visible) visited = true
+                        location: visited && propertiesDialog.opened && propertiesDialog.localSelection
+                                  && !propertiesDialog.multiple && !root.selectedIsDir ? fileProperties.path : ""
+                        fileSize: Number(fileProperties.totalSize || 0)
+                        lang: root.lang
+                        textEditMenu: propertiesTextEditMenu
+                        onNotify: function(message) { root.requestToast(message) }
+                        Connections {
+                            target: propertiesDialog
+                            function onClosed() { checksumPanel.visited = false }
+                        }
                     }
 
                     Rectangle {

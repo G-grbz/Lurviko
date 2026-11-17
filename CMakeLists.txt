@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.6.2 LANGUAGES CXX)
+project(Lurviko VERSION 1.6.3 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -153,6 +153,10 @@ qt_add_executable(lurviko
     src/cloudauthmanager.h
     src/previewsettings.cpp
     src/previewsettings.h
+    src/imagegeometry.cpp
+    src/imagegeometry.h
+    src/checksumcalculator.cpp
+    src/checksumcalculator.h
     src/clipboardhistory.cpp
     src/clipboardhistory.h
     src/storagehousekeeping.cpp
@@ -188,6 +192,10 @@ qt_add_executable(lurviko
     src/gitoperations.cpp
     src/gitoperations.h
     src/sambasharemanager.cpp
+    src/sambashareindex.cpp
+    src/sambashareindex.h
+    src/sftpdirectory.cpp
+    src/sftpdirectory.h
     src/sambasharemanager.h
     src/directorysizeworker.cpp
     src/directorysizeworker.h
@@ -401,6 +409,10 @@ qt_add_qml_module(lurviko
         qml/components/MusicHoverPreview.qml
         qml/components/MusicArtwork.qml
         qml/components/CategoryDateHeader.qml
+        qml/components/CategoryTimeline.qml
+        qml/components/ChecksumPanel.qml
+        qml/components/SharedFolderBadge.qml
+        qml/components/SftpConnections.qml
         qml/pages/HomePage.qml
         qml/pages/ContentCategoryPage.qml
         qml/pages/BrowsePage.qml

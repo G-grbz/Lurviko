@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(lurviko_checksum_tests LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Concurrent Test)
+add_executable(checksum-tests checksum_tests.cpp ../../src/checksumcalculator.cpp ../../src/checksumcalculator.h)
+target_include_directories(checksum-tests PRIVATE ../../src)
+target_link_libraries(checksum-tests PRIVATE Qt6::Core Qt6::Concurrent Qt6::Test)

@@ -690,7 +690,25 @@ Item {
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         cacheBuffer: Math.max(0, Math.min(600, height))
-        onContentYChanged: root.dismissHoverPreview()
+        // True while the list moves faster than covers can usefully load
+        // (a fast wheel spin, a flick or a scrollbar drag); cleared shortly
+        // after it slows down, then visible cards request their covers.
+        property bool scrollFast: false
+        property real lastScrollY: 0
+        property double lastScrollMs: 0
+        onContentYChanged: {
+            root.dismissHoverPreview()
+            const now = Date.now()
+            const elapsed = Math.max(1, now - lastScrollMs)
+            const speed = Math.abs(contentY - lastScrollY) * 1000 / elapsed
+            lastScrollY = contentY
+            lastScrollMs = now
+            if (elapsed < 100 && speed > 2500)
+                scrollFast = true
+            if (scrollFast)
+                scrollSettleTimer.restart()
+        }
+        Timer { id: scrollSettleTimer; interval: 140; onTriggered: libraryGrid.scrollFast = false }
         onMovementStarted: root.dismissHoverPreview()
         onDraggingChanged: if (dragging) wheelScrollAnimation.stop()
 
@@ -751,15 +769,17 @@ Item {
                 ? AppTheme.hiddenItemOpacity : 1.0
             readonly property bool nowPlaying: !!root.player
                 && String(root.player.currentUrl || "") === String(track.itemUrl || "") && !!track.itemUrl
+            // Evaluated once per delegate, not once per bound property.
+            readonly property bool selected: root.entrySelected(entry)
             Rectangle {
                 id: trackCardSurface
                 anchors.fill: parent
                 anchors.margins: root.cellGap / 2
                 radius: 12
-                color: root.entrySelected(trackCell.entry) || trackCell.nowPlaying ? AppTheme.accentSoft
+                color: trackCell.selected || trackCell.nowPlaying ? AppTheme.accentSoft
                        : (trackMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surface)
                 border.width: 1
-                border.color: root.entrySelected(trackCell.entry) || trackCell.nowPlaying ? AppTheme.accentBorder : AppTheme.border
+                border.color: trackCell.selected || trackCell.nowPlaying ? AppTheme.accentBorder : AppTheme.border
                 MouseArea {
                     id: trackMouse
                     objectName: "musicTrackMouse"
@@ -786,7 +806,7 @@ Item {
                     visible: root.selectionEnabled
                     anchors { left: parent.left; top: parent.top }
                     z: 5
-                    checked: root.entrySelected(trackCell.entry)
+                    checked: trackCell.selected
                     onClicked: { root.dismissHoverPreview(); root.toggleItems([trackCell.track]) }
                 }
                 Rectangle {
@@ -798,22 +818,39 @@ Item {
                     height: width
                     radius: 8
                     color: AppTheme.surfaceRaised
-                    // A size change can reload the image during geometry notification.
-                    // Keep the mask layers alive until the whole delegate is destroyed.
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.samples: 4
-                    layer.effect: MultiEffect { maskEnabled: true; maskSource: trackMask }
+                    antialiasing: true
+                    // The cover is clipped to these rounded corners by one shader
+                    // pass. A layer + MultiEffect mask allocated two offscreen
+                    // 4x-multisampled textures per card and redrew them for every
+                    // delegate created or reused while scrolling.
                     MusicArtwork {
                         id: trackCover
                         objectName: "musicTrackCover"
                         anchors.fill: parent
                         artworkSource: String(trackCell.entry.artwork || "")
+                        deferred: libraryGrid.scrollFast
                         sourceSize: Qt.size(AppTheme.previewResolution(width, Screen.devicePixelRatio), AppTheme.previewResolution(height, Screen.devicePixelRatio))
                         asynchronous: true
                         cache: true
                         fillMode: Image.PreserveAspectCrop
-                        visible: status === Image.Ready
+                        // Drawn by the rounded shader below (plain on software).
+                        visible: status === Image.Ready && GraphicsInfo.api === GraphicsInfo.Software
+                    }
+                    ShaderEffect {
+                        anchors.fill: parent
+                        // Nothing to draw until a cover (or the fallback) is ready.
+                        visible: GraphicsInfo.api !== GraphicsInfo.Software && trackCover.status === Image.Ready
+                        property var source: trackCover
+                        property size itemSize: Qt.size(width, height)
+                        property size cardSize: Qt.size(width, height)
+                        property size sourceImageSize: Qt.size(trackCover.implicitWidth, trackCover.implicitHeight)
+                        property real padding: 0
+                        property real cornerRadius: trackArtwork.radius
+                        property real shadowOffset: 0
+                        property real shadowSoftness: 1
+                        property real shadowAlpha: 0
+                        property real hasImage: trackCover.status === Image.Ready ? 1 : 0
+                        fragmentShader: "qrc:/qt/qml/Lurviko/App/qml/shaders/roundedthumb.frag.qsb"
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -826,15 +863,6 @@ Item {
                             source: AppTheme.icon("viewer-play.svg", "#ffffff")
                         }
                     }
-                }
-                Rectangle {
-                    id: trackMask
-                    width: trackArtwork.width; height: trackArtwork.height
-                    radius: trackArtwork.radius
-                    color: "white"; antialiasing: true
-                    visible: false
-                    layer.enabled: trackArtwork.layer.enabled
-                    layer.samples: 4
                 }
                 Column {
                     anchors.left: trackArtwork.right
@@ -866,8 +894,10 @@ Item {
                     GText {
                         width: parent.width
                         visible: root.artworkSize >= 60 && root.tabIndex !== 5 && root.tabIndex !== 6
-                        text: String(trackCell.track.album || "")
-                              + (trackCell.track.year ? " · " + trackCell.track.year : "")
+                        // Shown only on large cards; a hidden Text still lays
+                        // out its string on every recycled delegate.
+                        text: visible ? String(trackCell.track.album || "")
+                                        + (trackCell.track.year ? " · " + trackCell.track.year : "") : ""
                         wrapMode: Text.Wrap
                         maximumLineCount: AppTheme.fileSubtitleLines
                         basePixelSize: 9
@@ -900,6 +930,8 @@ Item {
         Item {
             id: collectionCell
             readonly property var entry: parent && parent.entry ? parent.entry : ({})
+            // Evaluated once per delegate: albums and artists hold many tracks.
+            readonly property bool selected: root.entrySelected(entry)
             Rectangle {
                 id: collectionSurface
                 anchors.fill: parent
@@ -907,7 +939,7 @@ Item {
                 radius: 14
                 color: collectionMouse.containsMouse ? AppTheme.surfaceHover : AppTheme.surface
                 border.width: 1
-                border.color: root.entrySelected(collectionCell.entry) || collectionMouse.containsMouse ? AppTheme.accentBorder : AppTheme.border
+                border.color: collectionCell.selected || collectionMouse.containsMouse ? AppTheme.accentBorder : AppTheme.border
                 MouseArea {
                     id: collectionMouse
                     anchors.fill: parent
@@ -931,31 +963,36 @@ Item {
                     height: width
                     radius: collectionCell.entry.kind === "artist" ? width / 2 : 10
                     color: AppTheme.surfaceRaised
-                    // Do not destroy the effect source while it handles a resize.
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.samples: 4
-                    layer.effect: MultiEffect { maskEnabled: true; maskSource: collectionMask }
+                    antialiasing: true
+                    // One shader pass instead of a layer + mask (see trackCard).
                     MusicArtwork {
                         id: collectionCover
                         objectName: "musicCollectionCover"
                         anchors.fill: parent
                         artworkSource: String(collectionCell.entry.artwork || "")
+                        deferred: libraryGrid.scrollFast
                         sourceSize: Qt.size(AppTheme.previewResolution(width, Screen.devicePixelRatio), AppTheme.previewResolution(height, Screen.devicePixelRatio))
                         asynchronous: true
                         cache: true
                         fillMode: Image.PreserveAspectCrop
-                        visible: status === Image.Ready
+                        // Drawn by the rounded shader below (plain on software).
+                        visible: status === Image.Ready && GraphicsInfo.api === GraphicsInfo.Software
                     }
-                }
-                Rectangle {
-                    id: collectionMask
-                    width: collectionArtwork.width; height: collectionArtwork.height
-                    radius: collectionArtwork.radius
-                    color: "white"; antialiasing: true
-                    visible: false
-                    layer.enabled: collectionArtwork.layer.enabled
-                    layer.samples: 4
+                    ShaderEffect {
+                        anchors.fill: parent
+                        visible: GraphicsInfo.api !== GraphicsInfo.Software && collectionCover.status === Image.Ready
+                        property var source: collectionCover
+                        property size itemSize: Qt.size(width, height)
+                        property size cardSize: Qt.size(width, height)
+                        property size sourceImageSize: Qt.size(collectionCover.implicitWidth, collectionCover.implicitHeight)
+                        property real padding: 0
+                        property real cornerRadius: collectionArtwork.radius
+                        property real shadowOffset: 0
+                        property real shadowSoftness: 1
+                        property real shadowAlpha: 0
+                        property real hasImage: collectionCover.status === Image.Ready ? 1 : 0
+                        fragmentShader: "qrc:/qt/qml/Lurviko/App/qml/shaders/roundedthumb.frag.qsb"
+                    }
                 }
                 GToolButton {
                     anchors.right: collectionArtwork.right
@@ -975,7 +1012,7 @@ Item {
                     visible: root.selectionEnabled
                     anchors { left: parent.left; top: parent.top; margins: 5 }
                     z: 5
-                    checked: root.entrySelected(collectionCell.entry)
+                    checked: collectionCell.selected
                     onClicked: root.toggleItems(collectionCell.entry.tracks || [])
                 }
                 Column {

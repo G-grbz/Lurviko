@@ -14,8 +14,9 @@ for data in ('totalBytes', 'usedBytes', 'freeBytes'):
     assert f'page.storageModel.formatBytes(diskOverviewPanel.{data})' in home, data
 assert 'fileSystem: model.fileSystem' in home
 assert 'fileSystem: fileSystem' not in home
-# Folder-shaped card: a tab above the body adds height to the old 138/96 layout.
-assert 'readonly property int responsiveHeight: Math.max(158, effectiveIconPixels + 116)' in card
+# Folder-shaped card: a tab above the body adds height to the old 138/96 layout;
+# the compact dashboard density uses a fixed, shorter card.
+assert 'readonly property int responsiveHeight: compact ? 112 : Math.max(158, effectiveIconPixels + 116)' in card
 assert 'readonly property real folderTabHeight' in card and 'PathSvg {' in card
 assert 'clip: true' in card
 assert 'id: mountChip\n        // The card' in card

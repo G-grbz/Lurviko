@@ -5,12 +5,28 @@ import Lurviko.App
 Image {
     property string artworkSource: ""
     property bool coverFailed: false
+    // While true (fast scrolling), a new cover is not requested and nothing
+    // is drawn: the card shows its plain artwork background instead of
+    // starting an extraction for every track flying past. The current cover
+    // is requested once it is false.
+    property bool deferred: false
+    // Initial value as a binding (no fallback flash on creation); later
+    // updates are assigned by commitSource().
+    property string committedSource: deferred ? "" : artworkSource
     readonly property string fallbackSource: AppTheme.icon("music-cover.png")
-    source: artworkSource.length && !coverFailed ? artworkSource : fallbackSource
+    source: committedSource.length && !coverFailed ? committedSource
+                                                  : (deferred ? "" : fallbackSource)
     asynchronous: true
     cache: true
     fillMode: Image.PreserveAspectCrop
-    onArtworkSourceChanged: coverFailed = false
+    function commitSource() {
+        if (!deferred)
+            committedSource = artworkSource
+        else if (committedSource !== artworkSource)
+            committedSource = ""
+    }
+    onArtworkSourceChanged: { coverFailed = false; commitSource() }
+    onDeferredChanged: commitSource()
     function useFallbackIfNeeded() {
         if (status === Image.Error && !coverFailed) coverFailed = true
     }

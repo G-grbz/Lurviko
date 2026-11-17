@@ -75,8 +75,22 @@ private:
     QFutureWatcher<bool> m_watcher;
 };
 
+inline void pinLargeAllocationThreshold()
+{
+#ifdef __GLIBC__
+    // glibc raises its mmap threshold (up to 32 MiB) each time a large
+    // mmapped block is freed. After the first decoded photo or thumbnail
+    // batch was released, later image buffers came from the heap arenas and
+    // stayed resident after being freed, so RAM only fell when the page was
+    // left. A fixed threshold keeps image-sized buffers mmapped: freeing one
+    // returns it to the system at once. Small objects are unaffected.
+    ::mallopt(M_MMAP_THRESHOLD, 256 * 1024);
+#endif
+}
+
 inline void installIdleReclaimer(QCoreApplication *application)
 {
+    pinLargeAllocationThreshold();
 #ifdef __GLIBC__
 #if __GLIBC_PREREQ(2, 33)
     new IdleReclaimer(application);

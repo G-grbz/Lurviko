@@ -56,6 +56,10 @@
 #include "keyboardshortcutmanager.h"
 #include "cloudauthmanager.h"
 #include "previewsettings.h"
+#include "imagegeometry.h"
+#include "checksumcalculator.h"
+#include "sambashareindex.h"
+#include "sftpdirectory.h"
 #include "clipboardhistory.h"
 #include "storagehousekeeping.h"
 #include "thumbnailprovider.h"
@@ -449,6 +453,9 @@ int main(int argc, char *argv[])
     qmlRegisterType<SubtitleStyleManager>("Lurviko.Backend", 1, 0, "SubtitleStyleManager");
     qmlRegisterType<PrivateVaultManager>("Lurviko.Backend", 1, 0, "PrivateVaultManager");
     qmlRegisterType<PopupDismissFilter>("Lurviko.Backend", 1, 0, "PopupDismissFilter");
+    qmlRegisterType<ImageGeometry>("Lurviko.Backend", 1, 0, "ImageGeometry");
+    qmlRegisterType<ChecksumCalculator>("Lurviko.Backend", 1, 0, "ChecksumCalculator");
+    qmlRegisterType<SftpDirectory>("Lurviko.Backend", 1, 0, "SftpDirectory");
     qmlRegisterSingletonType<KeyboardShortcutManager>("Lurviko.Backend", 1, 0, "KeyboardShortcuts",
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new KeyboardShortcutManager; });
 
@@ -458,6 +465,8 @@ int main(int argc, char *argv[])
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new DiskImageManager; });
 
     qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "PreviewSettings", PreviewSettings::instance());
+    // Shared folders for the badge of every view, read once and watched.
+    qmlRegisterSingletonInstance("Lurviko.Backend", 1, 0, "SambaShares", SambaShareIndex::instance());
     qmlRegisterSingletonType<FileDialogIntegration>("Lurviko.Backend", 1, 0, "FileDialogIntegration",
         [](QQmlEngine *, QJSEngine *) -> QObject * { return new FileDialogIntegration; });
     // App-wide: every browser page shows the same Copy/Cut history.

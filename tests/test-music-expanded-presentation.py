@@ -23,7 +23,7 @@ for button_name, tab_index in [('lyricsTabButton', 0), ('queueTabButton', 1)]:
     end = src.find('\n                            GButton {', start + len(marker))
     button = src[start:end if end >= 0 else len(src)]
     assert f'checked: root.sideTab === {tab_index}' in button
-    assert f'color: {button_name}.checked ? AppTheme.accent : AppTheme.text' in button
+    assert f'baseColor: {button_name}.checked ? AppTheme.accent : AppTheme.text' in button
     assert f'color: {button_name}.checked ? AppTheme.accentSoft' in button
     assert f'border.color: {button_name}.checked ? AppTheme.accentBorder' in button
 

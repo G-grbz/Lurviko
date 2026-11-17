@@ -21,6 +21,8 @@ python3 tests/run-git-tests.py
 python3 tests/run-git-operations-tests.py
 python3 tests/run-properties-tests.py
 python3 tests/run-samba-share-tests.py
+python3 tests/run-checksum-tests.py
+python3 tests/run-sftp-tests.py
 python3 tests/run-menu-tests.py
 python3 tests/run-administrator-access-tests.py
 python3 tests/run-archive-progress-tests.py

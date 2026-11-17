@@ -35,6 +35,9 @@ Item {
         when: windowShown
         property var fixture: []
         function initTestCase() {
+            // Column counts below assume the plain scrollbar gutter; the
+            // timeline has its own test (tst_CategoryTimeline).
+            AppTheme.setCategoryTimelineVisible(false)
             const files = []
             for (let i = 0; i < 2836; ++i) {
                 files.push({ modelIndex: i, name: "Music " + i + ".mp3",

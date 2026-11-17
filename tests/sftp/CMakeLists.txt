@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(lurviko_sftp_tests LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Concurrent Test)
+add_executable(sftp-tests sftp_tests.cpp ../../src/sftpdirectory.cpp ../../src/sftpdirectory.h)
+target_include_directories(sftp-tests PRIVATE ../../src)
+target_link_libraries(sftp-tests PRIVATE Qt6::Core Qt6::Network Qt6::Concurrent Qt6::Test)

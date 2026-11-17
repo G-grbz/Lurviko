@@ -221,7 +221,7 @@ void LanguageManager::buildDictionary()
         {"admin_file_opened", {"Administrator file opened in a temporary editor session", "Yönetici dosyası geçici düzenleme oturumunda açıldı"}},
         {"admin_file_saved", {"Administrator file synchronized", "Yönetici dosyası eşitlendi"}},
         {"view", {"View", "Görünüm"}}, {"sort_by", {"Sort by", "Sırala"}},
-        {"sort_name", {"Name", "Ad"}}, {"sort_date", {"Modified date", "Değiştirilme tarihi"}}, {"sort_created", {"Date", "Tarih"}},
+        {"sort_name", {"Name", "Ad"}}, {"sort_date", {"Modified date", "Değiştirilme tarihi"}}, {"sort_created", {"Date", "Tarih"}}, {"sort_added", {"Date added", "Eklenme tarihi"}},
         {"sort_size", {"Size", "Boyut"}}, {"sort_type", {"Type", "Tür"}},
         {"ascending", {"Ascending", "Artan"}}, {"descending", {"Descending", "Azalan"}},
         {"show_hidden", {"Show hidden files", "Gizli dosyaları göster"}},

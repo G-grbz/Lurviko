@@ -480,6 +480,7 @@ QVariantList DirectoryModel::categoryEntries(const QString &nameFilter) const
             continue;
         const qint64 modifiedMs = e.modified.isValid() ? e.modified.toMSecsSinceEpoch() : 0;
         const qint64 createdMs = e.created.isValid() ? e.created.toMSecsSinceEpoch() : 0;
+        const qint64 addedMs = e.added.isValid() ? e.added.toMSecsSinceEpoch() : 0;
         QVariantMap item;
         item.insert(QStringLiteral("modelIndex"), row);
         item.insert(QStringLiteral("name"), e.name);
@@ -489,6 +490,7 @@ QVariantList DirectoryModel::categoryEntries(const QString &nameFilter) const
         item.insert(QStringLiteral("size"), e.size);
         item.insert(QStringLiteral("modifiedMs"), modifiedMs);
         item.insert(QStringLiteral("createdMs"), createdMs ? createdMs : modifiedMs);
+        item.insert(QStringLiteral("addedMs"), addedMs ? addedMs : modifiedMs);
         item.insert(QStringLiteral("suffix"), e.suffix);
         item.insert(QStringLiteral("hidden"), e.hidden);
         item.insert(QStringLiteral("mimeType"), e.mimeType);
@@ -917,8 +919,8 @@ void DirectoryModel::setSortMode(const QString &value)
 {
     const QString normalized = value.toLower();
     if (normalized != QStringLiteral("name") && normalized != QStringLiteral("date") &&
-        normalized != QStringLiteral("created") && normalized != QStringLiteral("size") &&
-        normalized != QStringLiteral("type"))
+        normalized != QStringLiteral("created") && normalized != QStringLiteral("added") &&
+        normalized != QStringLiteral("size") && normalized != QStringLiteral("type"))
         return;
     if (m_sortMode == normalized)
         return;
@@ -933,6 +935,11 @@ void DirectoryModel::setSortMode(const QString &value)
     }
     emit sortModeChanged();
     sortEntries();
+    // Category rows skip per-file stats unless a sort needs them. Reload
+    // once with birth and arrival times instead of sorting by placeholders.
+    if (m_location.scheme() == QStringLiteral("category") && !m_categoryExtraDatesLoaded
+            && (m_sortMode == QStringLiteral("created") || m_sortMode == QStringLiteral("added")))
+        refresh();
 }
 
 void DirectoryModel::setSortAscending(bool value)
@@ -1191,7 +1198,9 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
         emit refreshCompleted();
     });
 
-    const bool needCreationDates = m_sortMode == QStringLiteral("created");
+    const bool needCreationDates = m_sortMode == QStringLiteral("created")
+            || m_sortMode == QStringLiteral("added");
+    m_categoryExtraDatesLoaded = needCreationDates;
     watcher->setFuture(QtConcurrent::run([files, query, needCreationDates] {
         LocalLoadResult result;
         QVector<Entry> &entries = result.items;
@@ -1233,6 +1242,7 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
             // metadata, if needed for an individual item, belongs in an
             // on-demand detail operation rather than this all-items loop.
             entry.created = entry.modified;
+            entry.added = entry.modified;
             if (received > 0)
                 entry.previewRevision = QString::number(
                     item.value(QStringLiteral("modifiedMs")).toLongLong())
@@ -1240,9 +1250,17 @@ void DirectoryModel::loadIndexedCategory(bool incremental)
             // Creation-date sorting needs actual birth times; only pay for
             // these extra stats when the user requests that sort order.
             if (needCreationDates) {
-                const QDateTime birth = QFileInfo(path).birthTime();
+                const QFileInfo info(path);
+                const QDateTime birth = info.birthTime();
                 if (birth.isValid())
                     entry.created = birth;
+                // A download keeps its receipt time; other files arrived
+                // when their inode last changed (move, copy, extraction).
+                if (received <= 0) {
+                    const QDateTime changed = info.metadataChangeTime();
+                    if (changed.isValid())
+                        entry.added = changed;
+                }
             }
             entry.suffix = item.value(QStringLiteral("suffix")).toString().toLower();
             entry.hidden = name.startsWith(QLatin1Char('.')) || path.contains(QStringLiteral("/."));
@@ -2153,6 +2171,11 @@ void DirectoryModel::sortEntriesVector(QVector<Entry> &entries) const
             result = a.modified < b.modified ? -1 : (a.modified > b.modified ? 1 : 0);
         } else if (mode == QStringLiteral("created")) {
             result = a.created < b.created ? -1 : (a.created > b.created ? 1 : 0);
+        } else if (mode == QStringLiteral("added")) {
+            // Rows outside categories have no arrival time: use modified.
+            const QDateTime &left = a.added.isValid() ? a.added : a.modified;
+            const QDateTime &right = b.added.isValid() ? b.added : b.modified;
+            result = left < right ? -1 : (left > right ? 1 : 0);
         } else if (mode == QStringLiteral("size")) {
             result = a.size < b.size ? -1 : (a.size > b.size ? 1 : 0);
         } else if (mode == QStringLiteral("type")) {

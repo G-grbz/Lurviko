@@ -226,6 +226,10 @@ private:
         qint64 size = 0;
         QDateTime modified;
         QDateTime created;
+        // When the file arrived in its folder: the download receipt for
+        // Recent, otherwise the inode change time (moves and copies set it).
+        // Loaded with creation dates, only for the sorts that use them.
+        QDateTime added;
         QString suffix;
         bool hidden = false;
         QString mimeType;
@@ -338,6 +342,8 @@ private:
     bool m_normalSortAscending = true;
     QString m_categorySortMode = QStringLiteral("date");
     bool m_categorySortAscending = false;
+    // Whether the category rows were loaded with birth/added times.
+    bool m_categoryExtraDatesLoaded = false;
     QString m_googleAccessToken;
     QString m_oneDriveAccessToken;
     QString m_googleFolderId = QStringLiteral("root");

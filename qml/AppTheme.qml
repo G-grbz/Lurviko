@@ -219,7 +219,17 @@ QtObject {
         property bool skipHiddenNameConfirmation: false
         property int categoryIconSize: 168
         property int musicIconSize: 168
+        property bool categoryTimelineVisible: true
+        property bool categoryTimelineCompact: false
     }
+
+    // Timeline panel on the right of category pages; shared by every
+    // tab and pane like the category zoom level.
+    readonly property bool categoryTimelineVisible: browserInteractionSettings.categoryTimelineVisible
+    // Dots only, without period names (narrow views switch to it by themselves).
+    readonly property bool categoryTimelineCompact: browserInteractionSettings.categoryTimelineCompact
+    function setCategoryTimelineVisible(value) { browserInteractionSettings.categoryTimelineVisible = !!value }
+    function setCategoryTimelineCompact(value) { browserInteractionSettings.categoryTimelineCompact = !!value }
 
     // One live value for every tab/page. Per-pane Settings instances do not
     // notify one another, so reopened categories could restore a stale size.
@@ -801,7 +811,7 @@ QtObject {
             return icon("folder.svg")
         // Explicitly selected UI glyphs only: category artwork and logos keep
         // their original colors. Include the color in the URL for Qt's cache.
-        const monochrome = ["git.svg", "menu-open.svg", "menu-terminal.svg", "menu-jump.svg", "menu-download.svg", "menu-send.svg", "menu-link.svg", "menu-share.svg", "menu-apps.svg", "menu-up.svg", "menu-down.svg", "menu-bluetooth.svg", "menu-mail.svg", "menu-select-all.svg", "menu-select-none.svg", "menu-sort.svg", "menu-undo.svg", "menu-folder.svg", "menu-file.svg", "menu-archive.svg", "menu-admin.svg", "menu-vault.svg", "menu-action.svg", "menu-kdeconnect.svg", "home.svg", "history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
+        const monochrome = ["git.svg", "menu-open.svg", "menu-terminal.svg", "menu-jump.svg", "menu-download.svg", "menu-send.svg", "menu-link.svg", "menu-share.svg", "menu-apps.svg", "menu-up.svg", "menu-down.svg", "menu-bluetooth.svg", "menu-mail.svg", "menu-select-all.svg", "menu-select-none.svg", "menu-sort.svg", "menu-undo.svg", "menu-folder.svg", "menu-file.svg", "menu-archive.svg", "menu-admin.svg", "menu-vault.svg", "menu-action.svg", "menu-kdeconnect.svg", "share.svg", "home.svg", "history.svg", "info.svg", "keyboard.svg", "moon.svg", "sun.svg", "eye.svg", "music-note.svg", "lock.svg", "unlock.svg",
             "edit-cut.svg", "edit-copy.svg", "edit-paste.svg", "edit-rename.svg", "delete.svg", "properties.svg",
             "nav-back.svg", "nav-forward.svg", "nav-up.svg",
             "close-ui.svg", "edit.svg", "search.svg", "settings.svg", "plus.svg", "refresh.svg", "drive-symbolic.svg", "network-symbolic.svg", "actions.svg", "behavior.svg", "details.svg", "dialog.svg", "modules.svg", "preview.svg", "tab.svg", "split-view.svg", "split-view-off.svg", "view-layout.svg",

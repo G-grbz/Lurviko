@@ -14,7 +14,7 @@ for test in \
     tests/run-history-tests.py tests/run-index-tests.py tests/run-directory-size-tests.py \
     tests/run-category-selection-tests.py tests/run-browser-session-tests.py tests/run-columns-tests.py \
     tests/run-search-tests.py tests/run-git-tests.py tests/run-git-operations-tests.py \
-    tests/run-properties-tests.py tests/run-samba-share-tests.py tests/run-administrator-access-tests.py \
+    tests/run-properties-tests.py tests/run-samba-share-tests.py tests/run-checksum-tests.py tests/run-sftp-tests.py tests/run-administrator-access-tests.py \
     tests/run-archive-progress-tests.py tests/run-archive-drop-tests.py tests/run-vault-tests.py \
     tests/test-vault-recovery-tool.py tests/run-branding-tests.py tests/run-chapter-tests.py \
     tests/run-tmdb-tests.py tests/run-qml-tests.py tests/run-music-presentation-tests.py \

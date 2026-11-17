@@ -42,6 +42,9 @@ Item {
         }
 
         function initTestCase() {
+            // Column counts below assume the plain scrollbar gutter; the
+            // timeline has its own test (tst_CategoryTimeline).
+            AppTheme.setCategoryTimelineVisible(false)
             const entries = []
             for (let i = 0; i < 300; ++i) {
                 entries.push({ path: "/tmp/gallery-test-" + i + ".jpg",

@@ -65,7 +65,8 @@ Rectangle {
                     Image {
                         anchors.fill: parent
                         source: modelData.thumbnailSource
-                        sourceSize: Qt.size(512, 512)
+                        // Covers are ~90 px tall; 512 px decodes cost 4x the memory.
+                        sourceSize: Qt.size(256, 256)
                         asynchronous: true
                         cache: true
                         fillMode: Image.PreserveAspectCrop

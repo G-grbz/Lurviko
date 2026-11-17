@@ -33,6 +33,14 @@ Item {
     signal revealRequested(string location, string itemUrl)
     signal zoomRequested(int delta)
     signal itemPressed(int modelIndex, int modifiers)
+    // Groups follow item.groupDateMs (modified, created or added date, as
+    // chosen by the host) and are ordered by that date.
+    property bool dateAscending: false
+    property string timelineBasis: "modified"
+    property bool timelineEnabled: true
+    signal timelineBasisRequested(string basis)
+    property var timelineGroups: []
+    property string currentGroupKey: ""
 
     function itemSelected(item) {
         const revision = root.selectionRevision
@@ -104,7 +112,8 @@ Item {
     readonly property real desiredCardWidth: Math.max(104, Math.min(360, gallerySize))
     readonly property real cardGap: 16
     readonly property real rowGap: 14
-    readonly property real galleryContentWidth: Math.max(1, width - 30)
+    // 6 px left margin, the list's right margin and 12 px inside the list.
+    readonly property real galleryContentWidth: Math.max(1, width - 18 - galleryList.anchors.rightMargin)
     // Keep the date layout, but expose it to a ListView as virtualized rows.
     // The previous nested Repeaters instantiated every media card at once;
     // large indexed libraries therefore blocked page entry, page destruction
@@ -213,21 +222,31 @@ Item {
                 + "-" + (day < 10 ? "0" : "") + day
     }
 
+    function itemDateMs(item) {
+        return Number(item.groupDateMs || item.modifiedMs || 0)
+    }
+
     function rebuildDateGroups() {
         const grouped = []
         const positions = ({})
         for (let i = 0; i < displayFiles.length; ++i) {
             const item = displayFiles[i]
-            const key = groupKey(item.modifiedMs)
+            const ms = itemDateMs(item)
+            const key = groupKey(ms)
             let index = positions[key]
             if (index === undefined) {
                 index = grouped.length
                 positions[key] = index
-                grouped.push({ key: key, dateMs: item.modifiedMs, items: [] })
+                grouped.push({ key: key, dateMs: ms, items: [], bytes: 0 })
             }
             grouped[index].items.push(item)
+            grouped[index].bytes += Math.max(0, Number(item.size || 0))
         }
-
+        // Chronological groups whatever the file order (name, size…), so the
+        // date headers and the timeline read in one direction.
+        grouped.sort(function(a, b) {
+            return root.dateAscending ? a.dateMs - b.dateMs : b.dateMs - a.dateMs
+        })
         dateGroups = grouped
     }
 
@@ -355,15 +374,29 @@ Item {
     function rebuildRows() {
         const result = []
         const columns = Math.max(1, layoutColumns)
+        // Header offsets in the content, for the timeline's mark positions.
+        let contentOffset = galleryList.headerItem ? galleryList.headerItem.height : 0
+        const headerOffsets = []
         for (let groupIndex = 0; groupIndex < dateGroups.length; ++groupIndex) {
             const group = dateGroups[groupIndex]
+            headerOffsets.push(contentOffset)
+            contentOffset += 58 + rowGap
             result.push({ kind: "header", key: group.key,
                           dateMs: group.dateMs, count: group.items.length })
             for (let offset = 0; offset < group.items.length; offset += columns) {
                 result.push({ kind: "cards", key: group.key,
                               items: group.items.slice(offset, offset + columns) })
+                contentOffset += rowCardHeight + 4 + rowGap
             }
         }
+        const total = Math.max(1, contentOffset)
+        const marks = []
+        for (let g = 0; g < dateGroups.length; ++g)
+            marks.push({ key: dateGroups[g].key, dateMs: dateGroups[g].dateMs,
+                         count: dateGroups[g].items.length, bytes: dateGroups[g].bytes,
+                         position: headerOffsets[g] / total })
+        timelineGroups = marks
+        currentGroupTimer.restart()
         rows = result
         // Keep the ListView model alive. Replacing a JS array model resets
         // its viewport to the beginning and can paint that frame before a
@@ -372,6 +405,32 @@ Item {
             rowModel.append({ rowIndex: rowModel.count })
         if (rowModel.count > result.length)
             rowModel.remove(result.length, rowModel.count - result.length)
+    }
+
+    // Timeline: jump to a date group without filtering anything.
+    function scrollToGroup(key) {
+        if (rowRebuildTimer.running) {
+            rowRebuildTimer.stop()
+            rowRebuildTimer.triggered()
+        }
+        for (let i = 0; i < rows.length; ++i) {
+            if (rows[i].kind === "header" && rows[i].key === key) {
+                dismissHoverPreview()
+                wheelScrollAnimation.stop()
+                galleryList.cancelFlick()
+                galleryList.positionViewAtIndex(i, ListView.Beginning)
+                currentGroupKey = key
+                return
+            }
+        }
+    }
+
+    function updateCurrentGroup() {
+        let index = galleryList.indexAt(4, galleryList.contentY + 4)
+        if (index < 0)
+            index = galleryList.indexAt(4, galleryList.contentY + Math.min(40, galleryList.height / 2))
+        const row = index >= 0 && index < rows.length ? rows[index] : (rows.length ? rows[0] : null)
+        currentGroupKey = row ? String(row.key) : ""
     }
 
     function thumbSource(item, tag) {
@@ -676,6 +735,7 @@ Item {
         rowsDirty = true
         scheduleRowRebuild()
     }
+    onDateAscendingChanged: { rowsDirty = true; scheduleRowRebuild() }
     onActiveAlbumPathChanged: {
         dismissHoverPreview()
         resizeAnchorPending = false
@@ -690,6 +750,7 @@ Item {
     Component.onCompleted: { rebuildAlbums(); scheduleRowRebuild() }
 
     ListModel { id: rowModel }
+    Timer { id: currentGroupTimer; interval: 60; onTriggered: root.updateCurrentGroup() }
 
     Timer {
         id: rowRebuildTimer
@@ -723,14 +784,18 @@ Item {
         objectName: "categoryGalleryList"
         anchors.fill: parent
         anchors.leftMargin: 6
-        anchors.rightMargin: 12
+        // The rows keep 12 px for the scrollbar inside the list; the
+        // timeline panel sits right of it.
+        anchors.rightMargin: timeline.visible ? timeline.gutterWidth + 8 : 12
         clip: true
         spacing: root.rowGap
         model: rowModel
-        cacheBuffer: Math.max(600, height * 1.5)
+        // Rows kept beyond the viewport, above and below. 1.5 screens each
+        // way held about four screens of decoded thumbnails and textures.
+        cacheBuffer: Math.max(400, height * 0.75)
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
-        onContentYChanged: { root.dismissHoverPreview(); hoverScrollGuard.restart() }
+        onContentYChanged: { root.dismissHoverPreview(); hoverScrollGuard.restart(); currentGroupTimer.restart() }
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
         }
@@ -1700,6 +1765,23 @@ Item {
                 }
             }
         }
+    }
+
+    // Timeline panel right of the scrollbar.
+    CategoryTimeline {
+        id: timeline
+        anchors.top: galleryList.top
+        anchors.bottom: galleryList.bottom
+        anchors.right: parent.right
+        z: 4
+        hostWidth: root.width
+        visible: root.timelineEnabled && AppTheme.categoryTimelineVisible && periods.length > 1
+        groups: root.timelineEnabled ? root.timelineGroups : []
+        currentKey: root.currentGroupKey
+        basis: root.timelineBasis
+        lang: root.lang
+        onPeriodActivated: function(groupKey) { root.scrollToGroup(groupKey) }
+        onBasisRequested: function(value) { root.timelineBasisRequested(value) }
     }
 
     PhotoViewer {
