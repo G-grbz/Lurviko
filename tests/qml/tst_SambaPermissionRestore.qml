@@ -25,6 +25,7 @@ Item {
             name: "SambaPermissionRestore"
             when: windowShown
             function manager() { return findChild(panel, "sambaShareManager") }
+            readonly property string fixtureSharedFolder: String(Qt.resolvedUrl(String(fileArtworkFixtureUrl) + "/../shared-folder"))
             function popup() { return findChild(panel, "sambaPermissionPopup") }
             function button(name) { return findChild(popup().contentItem, name) }
 
@@ -63,15 +64,16 @@ Item {
                 tryCompare(popup(), "visible", false)
                 verify(!manager().shared)
 
-                // Not sharing after all: the parent's pass-through goes too.
+                // Not sharing after all: the test root's pass-through (x) was
+                // added for this share, but the fixture share in the same
+                // tree still passes through it, so it is kept.
+                tryVerify(function() { return SambaShares.isShared(fixtureSharedFolder) }, 5000)
                 panel.shareEnabled = false
-                tryVerify(function() { return panel.restoreSuggestion.needed })
-                compare(panel.restoreSuggestion.items[0].role, "traverse")
-                mouseClick(findChild(panel, "sambaRestoreSuggestionButton"))
-                tryCompare(popup(), "opened", true)
-                mouseClick(button("sambaRestorePermissions"))
-                tryVerify(function() { return !panel.restoreSuggestion.needed }, 5000)
+                panel.permissionRevision += 1
+                verify(!panel.restoreSuggestion.needed)
                 verify(!findChild(panel, "sambaRestoreSuggestion").visible)
+                const removal = manager().restorePlan(panel.aclDraft, false, true)
+                compare(removal.items.length, 0)
             }
         }
     }

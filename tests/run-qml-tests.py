@@ -96,6 +96,13 @@ with isolated_directory() as temporary:
     helpers.mkdir()
     shared_folder = root / "shared-folder"
     shared_folder.mkdir()
+    # The same fixture share as the fake `net` below, for SambaShares (the
+    # shared-folder badge index), which reads usershare files directly.
+    usershares = root / "usershares"
+    usershares.mkdir()
+    (usershares / "fixture share #1").write_text(
+        f"#VERSION 2\npath={shared_folder}\ncomment=Isolated QML fixture\n"
+        "usershare_acl=Everyone:R,\nguest_ok=n\nsharename=Fixture share #1\n")
     # CI containers run as root without a login session. Qt Multimedia then
     # warns that XDG_RUNTIME_DIR is unset, which fails the warning check.
     # Keep a real session's directory (Wayland runs need its socket).
@@ -344,6 +351,7 @@ int main(int argc, char **argv) {
     environment = dict(os.environ,
         PATH=str(helpers) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
         LURVIKO_QML_SHARED_FOLDER=str(shared_folder),
+        LURVIKO_USERSHARE_DIR=str(usershares),
         QT_QPA_PLATFORM=os.environ.get("LURVIKO_QML_TEST_QPA", "offscreen"),
         QT_QUICK_BACKEND=os.environ.get("LURVIKO_QML_TEST_BACKEND", "software"),
         # This test executable has no installed desktop identity and never

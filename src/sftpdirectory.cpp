@@ -336,8 +336,26 @@ void SftpDirectory::discover()
                 if (seen.contains(key))
                     continue;
                 seen << key;
-                QString name = fields.at(3);
-                name.replace(QLatin1String("\\032"), QLatin1String(" "));
+                // avahi-browse -p escapes special characters as \DDD
+                // (decimal), e.g. "\032" for a space and "\046" for '.'.
+                QString name;
+                const QString raw = fields.at(3);
+                for (int i = 0; i < raw.size(); ++i) {
+                    if (raw.at(i) == '\\' && i + 3 < raw.size()
+                            && raw.at(i + 1).isDigit() && raw.at(i + 2).isDigit() && raw.at(i + 3).isDigit()) {
+                        const int code = raw.mid(i + 1, 3).toInt();
+                        if (code >= 32 && code < 256) {
+                            name += QChar(code);
+                            i += 3;
+                            continue;
+                        }
+                    }
+                    if (raw.at(i) == '\\' && i + 1 < raw.size()) {
+                        name += raw.at(++i);
+                        continue;
+                    }
+                    name += raw.at(i);
+                }
                 m_discovered.append(QVariantMap{{"name", name}, {"host", host}, {"address", address},
                                                 {"port", port}, {"url", buildUrl(host, QString(), port, QString())}});
             }

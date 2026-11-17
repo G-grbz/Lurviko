@@ -57,6 +57,10 @@ void addPath(QSet<QString> &paths, const QString &value)
 Loaded load(QString directory, bool resolve)
 {
     Loaded result;
+    // Test harnesses and sandboxes give their own usershare directory, so
+    // every machine sees the same shares regardless of the host's Samba.
+    if (resolve && directory.isEmpty())
+        directory = qEnvironmentVariable("LURVIKO_USERSHARE_DIR");
     if (resolve && directory.isEmpty()) {
         const QString fallback = QStringLiteral("/var/lib/samba/usershares");
         if (QFileInfo(fallback).isDir()) {

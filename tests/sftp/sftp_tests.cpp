@@ -102,10 +102,12 @@ Include conf.d/*.conf
               "github.com ssh-ed25519 AAAA\naur.archlinux.org ssh-ed25519 AAAA\ngit.internal ssh-ed25519 AAAA\n");
         SftpDirectory directory;
         directory.setSshDirectoryForTest(root.filePath("home/.ssh"));
+        // printf '%s': dash's echo (Debian's /bin/sh) would turn "\032" into
+        // a control character before the parser sees avahi's escape.
         directory.setAvahiProgramForTest(write("fake-avahi", QByteArray("#!/bin/sh\n") +
-            "echo '+;eth0;IPv4;nas;_ssh._tcp;local'\n"
-            "echo '=;eth0;IPv4;My\\032NAS;_ssh._tcp;local;nas.local;192.168.1.10;22;'\n"
-            "echo '=;eth0;IPv4;Bad;_ssh._tcp;local;-oX;1.2.3.4;22;'\n"));
+            "printf '%s\\n' '+;eth0;IPv4;nas;_ssh._tcp;local'\n"
+            "printf '%s\\n' '=;eth0;IPv4;My\\032NAS\\0462;_ssh._tcp;local;nas.local;192.168.1.10;22;'\n"
+            "printf '%s\\n' '=;eth0;IPv4;Bad;_ssh._tcp;local;-oX;1.2.3.4;22;'\n"));
         QFile::setPermissions(root.filePath("fake-avahi"), QFile::ReadOwner | QFile::ExeOwner);
         QSignalSpy hosts(&directory, &SftpDirectory::hostsChanged);
         directory.refresh();
@@ -117,7 +119,7 @@ Include conf.d/*.conf
         QCOMPARE(directory.knownHosts().at(0).toMap().value("host").toString(), QString("other.example"));
         QCOMPARE(directory.discovered().size(), 1);
         const auto found = directory.discovered().at(0).toMap();
-        QCOMPARE(found.value("name").toString(), QString("My NAS"));
+        QCOMPARE(found.value("name").toString(), QString("My NAS.2"));
         QCOMPARE(found.value("url").toString(), QString("sftp://nas.local"));
         QVERIFY(directory.discoveryError().isEmpty());
     }
