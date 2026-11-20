@@ -7369,9 +7369,9 @@ Rectangle {
                     visible: root.navigationVisible && root.effectivePresentation
                         && root.effectivePresentation.activeCount > 0
                         && (!AppTheme.kioProgressEnabled || !!root.operationPresentation)
-                    implicitWidth: 48; implicitHeight: 24
-                    leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
-                    text: String(root.effectivePresentation ? root.effectivePresentation.activeCount : 0)
+                    implicitWidth: Math.max(48, implicitContentWidth + leftPadding + rightPadding); implicitHeight: 24
+                    leftPadding: 6; rightPadding: 6; topPadding: 2; bottomPadding: 2
+                    text: root.effectivePresentation ? root.effectivePresentation.compactLabel : ""
                     basePixelSize: 10
                     icon.width: 13; icon.height: 13
                     icon.source: AppTheme.icon(root.effectivePresentation && root.effectivePresentation.minimized

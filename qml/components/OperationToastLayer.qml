@@ -63,10 +63,7 @@ Item {
             + " " + Math.floor((value % 3600) / 60) + (lang.language === "tr" ? " dk" : " min")
     }
     function transferPercent(op) {
-        const reported = Number(op.percent === undefined ? -1 : op.percent)
-        if (reported >= 0) return Math.max(0, Math.min(100, reported))
-        const total = Number(op.totalBytes || 0)
-        return total > 0 ? Math.max(0, Math.min(100, Number(op.processedBytes || 0) * 100 / total)) : -1
+        return presentation ? presentation.operationPercent(op) : -1
     }
     function transferMetrics(op) {
         const parts = []

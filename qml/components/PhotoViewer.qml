@@ -366,6 +366,28 @@ Popup {
         return d.toLocaleString(Qt.locale(lang.language === "tr" ? "tr_TR" : "en_US"), "dd MMM yyyy · HH:mm")
     }
 
+    // Plays animated GIF/WebP/APNG/MNG files over a static image slot. The
+    // static Image keeps its asynchronous decode, status and aspect handling
+    // (and is what slideshow cross-fades drive); while a multi-frame file is
+    // ready the static first frame is hidden and this item shows the frames.
+    component AnimatedSlot: AnimatedImage {
+        required property Image base
+        property bool active: true
+        readonly property bool animatedSource: /\.(gif|webp|apng|mng)$/i.test(String(base.source))
+        readonly property bool showing: animatedSource && status === Image.Ready && frameCount > 1
+        anchors.fill: base
+        source: animatedSource ? base.source : ""
+        fillMode: Image.PreserveAspectFit
+        asynchronous: true
+        cache: false
+        rotation: base.rotation
+        opacity: base.opacity
+        smooth: true
+        mipmap: true
+        playing: showing && active
+        visible: showing
+    }
+
     component ViewerIconButton: GToolButton {
         id: control
         property string iconName: ""
@@ -576,6 +598,8 @@ Popup {
                     id: imageA
                     objectName: "photoImageA"
                     anchors.centerIn: parent
+                    // The animated overlay paints instead of the first frame.
+                    visible: !animatedA.showing
                     width: Math.max(80, (viewer.quarterTurn ? photoFlick.height : photoFlick.width) * viewer.zoom)
                     height: Math.max(80, (viewer.quarterTurn ? photoFlick.width : photoFlick.height) * viewer.zoom)
                     // Vector images are rendered at their on-screen size and
@@ -607,6 +631,8 @@ Popup {
                     id: imageB
                     objectName: "photoImageB"
                     anchors.centerIn: parent
+                    // The animated overlay paints instead of the first frame.
+                    visible: !animatedB.showing
                     width: Math.max(80, (viewer.quarterTurn ? photoFlick.height : photoFlick.width) * viewer.zoom)
                     height: Math.max(80, (viewer.quarterTurn ? photoFlick.width : photoFlick.height) * viewer.zoom)
                     // Vector images are rendered at their on-screen size and
@@ -633,6 +659,9 @@ Popup {
                         viewer.handleImageStatus(1, status)
                     }
                 }
+
+                AnimatedSlot { id: animatedA; objectName: "photoAnimatedA"; base: imageA; active: viewer.visible }
+                AnimatedSlot { id: animatedB; objectName: "photoAnimatedB"; base: imageB; active: viewer.visible }
             }
 
         }

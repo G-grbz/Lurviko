@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Lurviko VERSION 1.6.3 LANGUAGES CXX)
+project(Lurviko VERSION 1.6.4 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -155,6 +155,8 @@ qt_add_executable(lurviko
     src/previewsettings.h
     src/imagegeometry.cpp
     src/imagegeometry.h
+    src/hwdecodeprobe.cpp
+    src/hwdecodeprobe.h
     src/checksumcalculator.cpp
     src/checksumcalculator.h
     src/clipboardhistory.cpp

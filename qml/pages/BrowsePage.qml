@@ -58,6 +58,12 @@ Item {
     }
     readonly property real activeTabScrollPosition: tabScrollView.contentItem
         ? tabScrollView.contentItem.contentX : 0
+    // The tab viewport itself moves when the scroll arrows appear (the strip
+    // overflows from the 7th tab on) or hide again after closing tabs.
+    // mapToItem() does not track that, so the shared page outline reads it
+    // explicitly; otherwise it stayed at the old place, ~68 px off the tab.
+    readonly property real activeTabStripOffset: tabsBar.x + tabsBar.y + tabStrip.x + tabStrip.y
+        + tabScrollView.x + tabScrollView.y + tabRow.x + tabRow.y
     readonly property bool activeTabAdministrator: currentTab >= 0 && currentTab < tabs.length
             && isAdminLocation(tabs[currentTab].location)
     property int tabDragFrom: -1

@@ -19,6 +19,21 @@ QtObject {
     readonly property var activeOperations: operations.filter(function(op) { return !op.finished })
     readonly property int activeCount: activeOperations.length
     readonly property string activeKey: activeOperations.map(function(op) { return String(op.id) }).join(",")
+    // Compact status badge: progress of the oldest running job, followed by
+    // the number of other queued/running jobs ("30%", "30% + 4").
+    readonly property var leadOperation: activeCount > 0 ? activeOperations[0] : null
+    readonly property string compactLabel: {
+        if (!leadOperation) return ""
+        const percent = operationPercent(leadOperation)
+        const lead = percent < 0 ? "…" : Math.floor(percent) + "%"
+        return activeCount > 1 ? lead + " + " + (activeCount - 1) : lead
+    }
+    function operationPercent(op) {
+        const reported = Number(op.percent === undefined ? -1 : op.percent)
+        if (reported >= 0) return Math.max(0, Math.min(100, reported))
+        const total = Number(op.totalBytes || 0)
+        return total > 0 ? Math.max(0, Math.min(100, Number(op.processedBytes || 0) * 100 / total)) : -1
+    }
     readonly property var visibleOperations: operations.filter(function(op) {
         return op.finished && !op.success || (!state.minimized && !state.hiddenCompletions[String(op.id)])
     })

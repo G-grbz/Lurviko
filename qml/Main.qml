@@ -920,6 +920,11 @@ ApplicationWindow {
         readonly property real tabScrollPosition: stack.currentItem
                 && stack.currentItem.activeTabScrollPosition !== undefined
                 ? stack.currentItem.activeTabScrollPosition : 0
+        // Position of the tab viewport in its page, which shifts when the tab
+        // strip's scroll arrows show or hide.
+        readonly property real tabStripOffset: stack.currentItem
+                && stack.currentItem.activeTabStripOffset !== undefined
+                ? stack.currentItem.activeTabStripOffset : 0
         readonly property point tabOrigin: {
             if (!activeTab) return Qt.point(0, 0)
             // mapToItem() alone does not register ancestor position changes as
@@ -928,6 +933,7 @@ ApplicationWindow {
             // Read the outline's actual x/y explicitly so its geometry updates
             // on collapse, expand and restored compact startup without a tab click.
             const scroll = tabScrollPosition
+            const stripOffset = tabStripOffset
             // Nor does it track the tab's own slot: a new tab's delegate is
             // created at x=0 and placed by its Row one polish later. Without
             // this read the outline stayed on the first tab after "switch to
@@ -935,7 +941,7 @@ ApplicationWindow {
             const slot = activeTab.parent
             const placement = slot ? slot.x + slot.y : 0
             const scenePosition = activeTab.mapToItem(root.contentItem, 0, 0)
-            return Qt.point(scenePosition.x - activePageOutline.x + scroll * 0 + placement * 0,
+            return Qt.point(scenePosition.x - activePageOutline.x + scroll * 0 + placement * 0 + stripOffset * 0,
                             scenePosition.y - activePageOutline.y)
         }
         readonly property real tabLeft: tabOrigin.x
@@ -1306,9 +1312,9 @@ ApplicationWindow {
         // jobs adopted from a closed page included; a second badge here
         // duplicated it after returning from Discover to a folder.
         visible: unifiedOperationPresentation.activeCount > 0 && !root.browsingFiles
-        implicitWidth: 48; implicitHeight: 24
-        leftPadding: 5; rightPadding: 5; topPadding: 2; bottomPadding: 2
-        text: String(unifiedOperationPresentation.activeCount)
+        implicitWidth: Math.max(48, implicitContentWidth + leftPadding + rightPadding); implicitHeight: 24
+        leftPadding: 6; rightPadding: 6; topPadding: 2; bottomPadding: 2
+        text: unifiedOperationPresentation.compactLabel
         basePixelSize: 10
         icon.width: 13; icon.height: 13
         icon.source: AppTheme.icon(unifiedOperationPresentation.minimized ? "paste-queue.svg" : "music-minimize.svg")

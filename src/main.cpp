@@ -48,6 +48,7 @@
 #include "millernavigationmodel.h"
 #include "fileoperations.h"
 #include "heapmaintenance.h"
+#include "hwdecodeprobe.h"
 #include "trashmonitor.h"
 #include "favoritesmodel.h"
 #include "quickaccessmodel.h"
@@ -337,13 +338,14 @@ int main(int argc, char *argv[])
     // Decode on the GPU when VA-API (Intel/AMD, or NVIDIA through
     // nvidia-vaapi-driver) or CUDA is available: software decoding of 4K HEVC
     // costs roughly a full CPU core, hardware decoding a fraction of it.
-    // FFmpeg falls back to software for codecs the GPU cannot decode (e.g. AV1
-    // on older GPUs).  Decoded frames are still copied to system memory rather
-    // than shared as GPU textures: the zero-copy texture path is what produced
-    // audio with a black VideoOutput on some Wayland + NVIDIA setups.  Both
-    // variables can be overridden before launch; "," disables HW decoding.
-    if (qEnvironmentVariableIsEmpty("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
-        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", QByteArrayLiteral("vaapi,cuda"));
+    // Qt does not fall back to software for codecs the GPU cannot decode: an
+    // AV1 file then played audio with no picture. HwDecodeProbe therefore
+    // keeps hardware decoding only when the GPU decodes AV1 too.  Decoded
+    // frames are still copied to system memory rather than shared as GPU
+    // textures: the zero-copy texture path is what produced audio with a
+    // black VideoOutput on some Wayland + NVIDIA setups.  Both variables can
+    // be overridden before launch; "," disables HW decoding.
+    HwDecodeProbe::configureEnvironment();
     if (qEnvironmentVariableIsEmpty("QT_DISABLE_HW_TEXTURES_CONVERSION"))
         qputenv("QT_DISABLE_HW_TEXTURES_CONVERSION", QByteArrayLiteral("1"));
 

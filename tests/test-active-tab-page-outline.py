@@ -68,5 +68,12 @@ assert 'rotation: -23' not in card
 for page in (browse, home, private):
     assert '0.30' in page
 assert 'color: "transparent"' in card and 'border.width: 0' in card
+# The scroll arrows appear once the tabs overflow (7th tab) and hide again
+# after closing tabs; the tab viewport then moves without scrolling, so the
+# outline must depend on the viewport position, not only on contentX.
+assert 'readonly property real activeTabStripOffset:' in browse
+assert 'tabScrollView.x' in browse.split('readonly property real activeTabStripOffset:', 1)[1].split('\n\n', 1)[0]
+assert 'stack.currentItem.activeTabStripOffset' in main
+assert 'const stripOffset = tabStripOffset' in main
 print('Single-path tab/page outline, new-tab lifecycle and watermark checks passed.')
 assert 'slot.x + slot.y' in main, 'outline must track the tab slot position'
